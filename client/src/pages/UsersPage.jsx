@@ -46,7 +46,7 @@ const TIMEZONES = [
   { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT, +10:00)' },
 ];
 
-export const UsersPage = () => {
+export const UsersPage = ({ embedded = false }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -619,17 +619,19 @@ export const UsersPage = () => {
   };
 
   return (
-    <div className="users-page">
+    <div className={`users-page ${embedded ? 'embedded' : ''}`}>
       {/* Top Header */}
       <div className="users-header">
-        <div className="users-title-group">
-          <h1 className="users-title">
-            <span>User & Role Governance</span>
-          </h1>
-          <p className="users-subtitle">
-            Create, update, view, disable 2FA, configure roles & permissions, manage timezones, and audit last activity.
-          </p>
-        </div>
+        {!embedded && (
+          <div className="users-title-group">
+            <h1 className="users-title">
+              <span>User & Role Governance</span>
+            </h1>
+            <p className="users-subtitle">
+              Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity.
+            </p>
+          </div>
+        )}
 
         {isSuperAdmin && (
           <div className="users-header-actions">

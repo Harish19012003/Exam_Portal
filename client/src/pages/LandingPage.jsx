@@ -22,7 +22,12 @@ export const LandingPage = () => {
   });
 
   useEffect(() => {
-    setIsLoggedIn(!!localStorage.getItem('accessToken'));
+    const hasAuth = Boolean(
+      localStorage.getItem('accessToken') ||
+      localStorage.getItem('sessionActive') === 'true' ||
+      localStorage.getItem('user')
+    );
+    setIsLoggedIn(hasAuth);
   }, []);
 
   useEffect(() => {

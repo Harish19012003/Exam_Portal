@@ -184,3 +184,270 @@
   align-items: center;
   gap: 8px;
 }
+
+.login-success-banner {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.login-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.login-forgot-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-color, #2563eb);
+  text-decoration: none;
+  transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+
+.login-forgot-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Mode selector tabs */
+.login-mode-tabs {
+  display: flex;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 24px;
+  gap: 4px;
+}
+
+.login-mode-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.login-mode-tab:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.login-mode-tab.active {
+  background: #ffffff;
+  color: var(--primary-color, #2563eb);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* Password input with show/hide toggle */
+.login-password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-input.password-input {
+  padding-right: 42px;
+}
+
+.login-eye-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s;
+}
+
+.login-eye-btn:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.login-helper-text {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* OTP UI elements */
+.login-otp-info-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.login-otp-sent-text {
+  color: #475569;
+  word-break: break-all;
+}
+
+.login-otp-change-email-btn {
+  background: none;
+  border: none;
+  color: var(--primary-color, #2563eb);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 0 0 8px;
+  text-decoration: underline;
+}
+
+.login-otp-change-email-btn:hover {
+  color: #1d4ed8;
+}
+
+.login-otp-code-input {
+  text-align: center;
+  font-family: 'SF Mono', Consolas, Menlo, monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--primary-color, #2563eb);
+  padding: 12px 14px;
+}
+
+.login-otp-resend-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 24px;
+  margin-top: -6px;
+  margin-bottom: 2px;
+}
+
+.login-otp-countdown {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.login-otp-resend-btn {
+  background: none;
+  border: none;
+  color: var(--primary-color, #2563eb);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.login-otp-resend-btn:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* 2FA Challenge Styles */
+.login-2fa-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-2fa-shield-badge {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 16px auto;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(2, 132, 199, 0.2) 100%);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0284c7;
+  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.15);
+}
+
+.login-2fa-toggle-row {
+  display: flex;
+  justify-content: center;
+  margin-top: -4px;
+  margin-bottom: 8px;
+}
+
+.login-2fa-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--primary-color, #2563eb);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.login-2fa-toggle-btn:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+}
+
+.login-2fa-cancel-btn {
+  width: 100%;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #64748b);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 11px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.login-2fa-cancel-btn:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text-primary, #0f172a);
+}
+
+[data-theme="dark"] .login-2fa-shield-badge {
+  background: rgba(6, 182, 212, 0.2);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+[data-theme="dark"] .login-2fa-cancel-btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .login-2fa-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+}

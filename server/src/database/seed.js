@@ -6,6 +6,18 @@ import { DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
 
 const defaultUsers = [
   {
+    email: 'paramsir8@gmail.com',
+    password: 'Param@2030',
+    first_name: 'Param',
+    last_name: 'Admin',
+    role: 'super_admin',
+    status: 'active',
+    is_primary: true,
+    two_factor_enabled: false,
+    timezone: 'Asia/Kolkata',
+    last_active_offset: 0,
+  },
+  {
     email: 'singhrawatharish1@gmail.com',
     password: '9315561677',
     first_name: 'Harish',

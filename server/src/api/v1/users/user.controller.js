@@ -11,6 +11,16 @@ export const getProfile = async (req, res, next) => {
   }
 };
 
+export const updateProfile = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const user = await userService.updateUser(userId, req.body, req.user);
+    return successResponse(res, user, 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createUser = async (req, res, next) => {
   try {
     const user = await userService.createUser(req.body, req.user);

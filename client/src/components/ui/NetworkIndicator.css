@@ -1,0 +1,94 @@
+/* Topbar Network Pill */
+.topbar-network-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: default;
+  user-select: none;
+  animation: networkPillFade 0.25s ease-out;
+  white-space: nowrap;
+}
+
+@keyframes networkPillFade {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.topbar-network-pill.slow {
+  background: rgba(234, 179, 8, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  box-shadow: 0 1px 3px rgba(234, 179, 8, 0.1);
+}
+
+.topbar-network-pill.slow .slow-wifi-icon {
+  color: #eab308;
+  filter: drop-shadow(0 0 2px rgba(234, 179, 8, 0.35));
+  animation: slowWifiPulse 2s infinite ease-in-out;
+}
+
+@keyframes slowWifiPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.95);
+  }
+}
+
+[data-theme="dark"] .topbar-network-pill.slow {
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+  border-color: rgba(250, 204, 21, 0.5);
+}
+
+[data-theme="dark"] .topbar-network-pill.slow .slow-wifi-icon {
+  color: #facc15;
+}
+
+.topbar-network-pill.offline {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1);
+}
+
+.topbar-network-pill.offline .offline-icon {
+  color: #ef4444;
+}
+
+[data-theme="dark"] .topbar-network-pill.offline {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+[data-theme="dark"] .topbar-network-pill.offline .offline-icon {
+  color: #f87171;
+}
+
+.network-pill-icon {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .topbar-network-pill .network-pill-text {
+    display: none;
+  }
+  .topbar-network-pill {
+    padding: 6px;
+    border-radius: 50%;
+  }
+}

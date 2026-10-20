@@ -8,16 +8,22 @@ import { ERROR_CODES } from '@exam-view/shared';
  */
 export const authenticate = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // 1. Check HTTP-only server cookie first
+    let token = req.cookies?.accessToken;
+
+    // 2. Fallback to Authorization: Bearer <token> header
+    if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
       throw new AppError(
-        'Authentication required. Please provide a valid bearer token.',
+        'Authentication required. Please log in.',
         401,
         ERROR_CODES.UNAUTHORIZED
       );
     }
 
-    const token = authHeader.split(' ')[1];
     const decoded = verifyAccessToken(token);
     
     // Attach user payload to request

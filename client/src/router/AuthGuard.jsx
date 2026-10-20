@@ -3,25 +3,35 @@ import { Navigate, Outlet } from 'react-router-dom';
 
 /**
  * AuthGuard component wraps routes that require authentication.
- * Checks for token and redirects to login if unauthenticated.
+ * Checks for token, server-session or cached user session,
+ * and ensures offline refreshes or server restarts never cause unwanted logouts.
  */
 export const AuthGuard = ({ requireAuth = true, allowedRoles = [] }) => {
   const token = localStorage.getItem('accessToken');
+  const sessionActive = localStorage.getItem('sessionActive') === 'true';
+  let user = null;
   let userRole = 'admin';
+
   try {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (user.role) userRole = user.role;
+    const rawUser = localStorage.getItem('user');
+    if (rawUser) {
+      user = JSON.parse(rawUser);
+      if (user?.role) userRole = user.role;
+    }
   } catch {
     // ignore json parse error
   }
 
-  // If route requires auth and user is not logged in
-  if (requireAuth && !token) {
+  // Session is valid if token exists, sessionActive flag is set, or user is cached in local session
+  const isAuthenticated = Boolean(token || sessionActive || user);
+
+  // If route requires auth and user is definitely not logged in
+  if (requireAuth && !isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
   // If route is public-only (e.g., login page) and user IS logged in
-  if (!requireAuth && token) {
+  if (!requireAuth && isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
   }
 

@@ -7,6 +7,8 @@ const router = Router();
 
 // Get logged-in user profile
 router.get('/profile', authenticate, userController.getProfile);
+router.patch('/profile', authenticate, userController.updateProfile);
+router.put('/profile', authenticate, userController.updateProfile);
 
 // Admin list all users
 router.get(

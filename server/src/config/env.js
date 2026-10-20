@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 
-// Load variables from .env into process.env
-dotenv.config();
+// Load variables from server/.env into process.env reliably
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)) });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -27,9 +28,10 @@ const envSchema = z.object({
   EMAIL_PROVIDER: z.enum(['smtp', 'google', 'outlook']).default('smtp'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().transform(Number).default('587'),
+  SMTP_SECURE: z.string().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  EMAIL_FROM: z.string().email().default('noreply@examview.com'),
+  EMAIL_FROM: z.string().default('noreply@examview.com'),
 
   WHATSAPP_API_URL: z.string().url().default('https://wa.officall.ceoitbox.com'),
   WHATSAPP_API_KEY: z.string().optional(),

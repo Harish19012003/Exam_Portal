@@ -52,3 +52,28 @@ export const verifyRefreshToken = (token) => {
     throw new AppError('Invalid refresh token', 401, ERROR_CODES.UNAUTHORIZED);
   }
 };
+
+/**
+ * Generates a Password Reset Token valid for 15 minutes.
+ * @param {Object} payload 
+ */
+export const generateResetPasswordToken = (payload) => {
+  return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
+    expiresIn: '15m',
+  });
+};
+
+/**
+ * Verifies a Password Reset Token.
+ * @param {string} token 
+ */
+export const verifyResetPasswordToken = (token) => {
+  try {
+    return jwt.verify(token, env.JWT_ACCESS_SECRET);
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      throw new AppError('Password reset link has expired', 400, ERROR_CODES.UNAUTHORIZED_EXPIRED);
+    }
+    throw new AppError('Invalid or expired password reset link', 400, ERROR_CODES.UNAUTHORIZED);
+  }
+};

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
+import { apiClient } from '../api/client';
 import { NetworkIndicator } from '../components/ui/NetworkIndicator';
+import { NotificationDropdown } from '../components/ui/NotificationDropdown';
 import {
   LayoutDashboard,
   FileText,
@@ -12,6 +14,13 @@ import {
   PanelLeftOpen,
   Crown,
   LogOut,
+  ChevronsUpDown,
+  ChevronRight,
+  User,
+  Shield,
+  Sun,
+  Moon,
+  Settings,
 } from 'lucide-react';
 import './DashboardLayout.css';
 
@@ -19,10 +28,10 @@ export const DashboardLayout = () => {
   // Initialize and hold the global socket connection
   useSocketManager();
   const navigate = useNavigate();
+  const location = useLocation();
   const avatarRef = useRef(null);
 
   const [isExpanded, setIsExpanded] = useState(true);
-  const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('theme') === 'dark';
@@ -40,17 +49,6 @@ export const DashboardLayout = () => {
   const avatarLetter = (currentUser.first_name?.[0] || currentUser.email?.[0] || 'A').toUpperCase();
   const displayName = [currentUser.first_name, currentUser.last_name].filter(Boolean).join(' ') || currentUser.email || 'User';
   const roleDisplay = currentUser.role ? currentUser.role.replace(/_/g, ' ').toUpperCase() : 'USER';
-
-  // Close avatar dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (avatarRef.current && !avatarRef.current.contains(e.target)) {
-        setIsAvatarMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // Update clock every minute
   useEffect(() => {
@@ -73,14 +71,50 @@ export const DashboardLayout = () => {
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  const handleLogout = (e) => {
+  const handleLogout = async (e) => {
     e?.stopPropagation();
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    setIsAvatarMenuOpen(false);
-    navigate('/login');
+    try {
+      await apiClient.post('/auth/logout');
+    } catch {
+      // ignore network errors if server is down or unreachable
+    } finally {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      localStorage.removeItem('sessionActive');
+      navigate('/login');
+    }
   };
+
+  const getBreadcrumb = () => {
+    const path = location.pathname.replace(/\/$/, '');
+    if (path === '/dashboard/exams' || path === '/exams') {
+      return { label: 'Exams', icon: FileText };
+    }
+    if (path === '/dashboard/vendors' || path === '/vendors') {
+      return { label: 'Vendor DataBase', icon: Database };
+    }
+    if (path === '/dashboard/users' || path === '/users') {
+      return { label: 'Settings / Users & Roles', icon: Users };
+    }
+    if (path === '/dashboard/tables' || path === '/tables') {
+      return { label: 'Dynamic Table', icon: TableProperties };
+    }
+    if (path === '/dashboard/profile' || path === '/profile') {
+      return { label: 'Profile & Security', icon: User };
+    }
+    if (path === '/settings' || path.startsWith('/settings')) {
+      if (location.search.includes('tab=users')) {
+        return { label: 'Settings / Users & Roles', icon: Users };
+      }
+      return { label: 'Settings', icon: Settings };
+    }
+    if (path === '/dashboard/admin' || path === '/admin') {
+      return { label: 'Settings / Users & Roles', icon: Shield };
+    }
+    return null;
+  };
+  const currentBreadcrumb = getBreadcrumb();
 
   return (
     <div className="layout">
@@ -104,28 +138,80 @@ export const DashboardLayout = () => {
                 {isExpanded && <span>Dashboard</span>}
               </NavLink>
               
-              <NavLink to="/dashboard/exams" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Exams">
+              <NavLink to="/exams" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Exams">
                 <FileText className="nav-icon" size={18} />
                 {isExpanded && <span>Exams</span>}
               </NavLink>
 
-              <NavLink to="/dashboard/vendors" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Vendor DataBase">
+              <NavLink to="/vendors" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Vendor DataBase">
                 <Database className="nav-icon" size={18} />
                 {isExpanded && <span>Vendor DataBase</span>}
               </NavLink>
 
-              {(currentUser.role === 'super_admin' || currentUser.role === 'global_admin' || currentUser.role === 'admin') && (
-                <NavLink to="/dashboard/users" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Users & Roles">
-                  <Users className="nav-icon" size={18} />
-                  {isExpanded && <span>Users & Roles</span>}
-                </NavLink>
-              )}
-
-              <NavLink to="/dashboard/tables" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Option A Table">
+              <NavLink to="/tables" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Option A Table">
                 <TableProperties className="nav-icon" size={18} />
                 {isExpanded && <span>Dynamic Table</span>}
               </NavLink>
             </nav>
+          </div>
+        </div>
+
+        {/* SIDEBAR FOOTER (SETTINGS & USER PROFILE) */}
+        <div className="sidebar-footer">
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `sidebar-settings-link ${isActive ? 'active' : ''}`}
+            title="Settings"
+          >
+            <Settings size={18} className="sidebar-settings-icon" />
+            {isExpanded && <span>Settings</span>}
+          </NavLink>
+
+          <div
+            className={`sidebar-profile-card ${location.pathname === '/profile' || location.pathname === '/dashboard/profile' ? 'active' : ''}`}
+            title={!isExpanded ? `${displayName} (Click for Profile)` : "View & Edit Profile"}
+            onClick={() => navigate('/profile')}
+          >
+            <div className="sidebar-avatar-wrap">
+              <div className="sidebar-avatar">
+                {avatarLetter}
+              </div>
+              <span className="sidebar-online-status" title="Active"></span>
+            </div>
+
+            {isExpanded && (
+              <div className="sidebar-user-details">
+                <span className="sidebar-user-name" title={displayName}>
+                  {displayName}
+                </span>
+                <div className="sidebar-role-line">
+                  {isPrimaryAdmin ? (
+                    <span className="sidebar-primary-badge">
+                      <Crown size={11} />
+                      <span>Primary Admin</span>
+                    </span>
+                  ) : (
+                    <span className="sidebar-role-badge">
+                      {roleDisplay}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {isExpanded && (
+              <button
+                type="button"
+                className="sidebar-logout-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleLogout(e);
+                }}
+                title="Logout"
+              >
+                <LogOut size={16} />
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -135,61 +221,47 @@ export const DashboardLayout = () => {
         {/* TOP BAR */}
         <header className="topbar">
           <div className="topbar-left">
-            {/* Breadcrumbs or other left-aligned topbar items can go here */}
+            <nav className="topbar-breadcrumbs" aria-label="Breadcrumb">
+              <Link to="/dashboard" className="topbar-breadcrumb-link" title="Go to Dashboard">
+                <LayoutDashboard size={15} />
+                <span>Dashboard</span>
+              </Link>
+              {currentBreadcrumb && (
+                <>
+                  <ChevronRight size={14} className="topbar-breadcrumb-separator" />
+                  <span className="topbar-breadcrumb-current">
+                    {currentBreadcrumb.icon && <currentBreadcrumb.icon size={15} />}
+                    <span>{currentBreadcrumb.label}</span>
+                  </span>
+                </>
+              )}
+            </nav>
           </div>
           <div className="topbar-right">
+            {/* Network connection status indicator (shows when slow or offline) */}
+            <NetworkIndicator />
+
             <div className="topbar-time">
               {formatTime(currentTime)}
             </div>
             
-            <div className={`custom-theme-toggle ${isDarkMode ? 'dark' : ''}`} onClick={() => setIsDarkMode(!isDarkMode)}>
-              <div className="toggle-bg">
-                <div className="toggle-icon day-icon">
-                  <div className="sun"></div>
-                  <div className="cloud"></div>
-                </div>
-                <div className="toggle-icon night-icon">
-                  <div className="moon"></div>
-                  <div className="star star-1"></div>
-                  <div className="star star-2"></div>
-                  <div className="star star-3"></div>
-                </div>
-              </div>
-              <div className="toggle-thumb"></div>
-            </div>
-
-            {isPrimaryAdmin && (
-              <div className="primary-admin-badge" title="Primary Super Admin with supreme authority">
-                <Crown size={14} />
-                <span>PRIMARY ADMIN</span>
-              </div>
-            )}
-
-            <div className="avatar-container" ref={avatarRef}>
-              <div
-                className="avatar"
-                onClick={() => setIsAvatarMenuOpen(!isAvatarMenuOpen)}
-                title={`${displayName} (${isPrimaryAdmin ? 'Primary Super Admin' : roleDisplay})`}
+            <div className="topbar-actions-group">
+              <button
+                type="button"
+                className="topbar-icon-btn theme-toggle-btn"
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               >
-                {avatarLetter}
-              </div>
-              {isAvatarMenuOpen && (
-                <div className="avatar-dropdown" onClick={(e) => e.stopPropagation()}>
-                  <div className="dropdown-user-info">
-                    <div className="user-name">{displayName}</div>
-                    <div className="user-email">{currentUser.email || 'user@examview.com'}</div>
-                    <div className={`user-role-pill ${isPrimaryAdmin ? 'primary-role' : ''}`}>
-                      {isPrimaryAdmin && <Crown size={12} />}
-                      <span>{isPrimaryAdmin ? 'PRIMARY SUPER ADMIN' : roleDisplay}</span>
-                    </div>
-                  </div>
-                  <div className="dropdown-divider"></div>
-                  <div className="dropdown-item" onClick={handleLogout}>
-                    <LogOut size={16} />
-                    <span>Logout</span>
-                  </div>
-                </div>
-              )}
+                {isDarkMode ? (
+                  <Sun size={18} className="theme-toggle-icon sun-icon" />
+                ) : (
+                  <Moon size={18} className="theme-toggle-icon moon-icon" />
+                )}
+              </button>
+
+              {/* Notification Bell with unread badge and dropdown */}
+              <NotificationDropdown />
             </div>
           </div>
         </header>
@@ -198,9 +270,6 @@ export const DashboardLayout = () => {
           <Outlet />
         </main>
       </div>
-
-      {/* Global network status indicator */}
-      <NetworkIndicator />
     </div>
   );
 };

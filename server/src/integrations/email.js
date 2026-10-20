@@ -3,15 +3,31 @@ import env from '../config/env.js';
 import { logger } from '../core/logger.js';
 
 class EmailService {
-  constructor() {
-    this.transporter = nodemailer.createTransport({
-      host: env.SMTP_HOST || 'smtp.example.com',
-      port: env.SMTP_PORT || 587,
-      secure: env.SMTP_SECURE || false,
-      auth: {
-        user: env.SMTP_USER || 'user',
-        pass: env.SMTP_PASS || 'pass',
-      },
+  /**
+   * Lazily creates or returns the nodemailer transporter using current env vars
+   */
+  getTransporter() {
+    const user = env.SMTP_USER?.trim() || '';
+    // Clean spaces that users often copy from Google App Passwords (e.g. "abcd efgh ijkl mnop")
+    const pass = env.SMTP_PASS?.replace(/\s+/g, '') || '';
+    const host = env.SMTP_HOST?.trim() || '';
+    const port = Number(env.SMTP_PORT) || 587;
+    const isSecure = env.SMTP_SECURE === 'true' || port === 465;
+
+    // Direct Gmail configuration if host is smtp.gmail.com or provider is google
+    if (host === 'smtp.gmail.com' || env.EMAIL_PROVIDER === 'google') {
+      return nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user, pass },
+      });
+    }
+
+    // Standard SMTP transporter
+    return nodemailer.createTransport({
+      host: host || 'smtp.gmail.com',
+      port,
+      secure: isSecure,
+      auth: { user, pass },
     });
   }
 
@@ -23,17 +39,21 @@ class EmailService {
    */
   async sendEmail(to, subject, html) {
     try {
-      const info = await this.transporter.sendMail({
-        from: env.SMTP_FROM || '"Exam Portal" <noreply@examportal.com>',
+      const transporter = this.getTransporter();
+      const from = env.EMAIL_FROM || (env.SMTP_USER ? `"Exam View" <${env.SMTP_USER}>` : '"Exam View" <noreply@examview.com>');
+
+      const info = await transporter.sendMail({
+        from,
         to,
         subject,
         html,
       });
-      logger.info(`[Email] Sent to ${to}. MessageId: ${info.messageId}`);
+
+      logger.info(`[Email] Successfully sent to ${to}. MessageId: ${info.messageId}`);
       return info;
     } catch (error) {
       logger.error(`[Email] Failed to send to ${to}`, error);
-      throw new Error('Failed to send email');
+      throw error;
     }
   }
 }
