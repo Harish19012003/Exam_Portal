@@ -1,0 +1,74 @@
+FUTURE.md — Exam View Portal
+Do NOT build anything from this document until the owner explicitly tells you to.
+This document is FUTURE PLANNING only. Current build is tracked in PLANNING.md + PROGRESS.md.
+When ready to build a feature
+Read this full document.
+Read PROGRESS.md to confirm core is complete.
+Build ONE feature at a time.
+Update PROGRESS.md after each feature.
+
+1. Redis Caching
+Today: server/src/core/cache/ uses an in-memory implementation behind a cache interface.
+Future: add a Redis implementation of the same interface (drop-in, no changes to modules).
+Candidate uses: permission lookups, settings, announcements, rate limiting, session/refresh-token blacklist, Socket.IO adapter for multiple server instances.
+Trigger: more than one server instance, or measurable DB load.
+2. Docker, Kubernetes, Containers
+Basic Dockerfiles (docker/) exist for local/dev use.
+Future: production-grade images (multi-stage, small, non-root), container registry, health probes using /health and readiness endpoints.
+Kubernetes manifests/Helm charts in infra/k8s/: deployments, services, ingress, config maps, secrets, autoscaling (HPA).
+3. Microservices Extraction
+Modules are written so they can be extracted: each has its own routes, service, repository, validation, events.
+Extract a module only when it needs independent scaling (e.g. notifications, search, files).
+Steps per module: move to its own service → replace internal event bus with a message broker → replace direct service calls with API/queue calls → give it its own DB schema if needed.
+Candidates: notifications/realtime, search, files, audit-logs.
+4. Message Queue / Background Jobs
+Move scheduled and heavy jobs (email, WhatsApp, announcement expiry, cleanup) to a queue (e.g. BullMQ with Redis, or SQS on AWS).
+4b. Circuit Breakers
+What: a protection pattern. When a dependency (external API or a microservice) keeps failing or timing out, the circuit "opens" and calls fail fast (or use a fallback) instead of waiting and piling up. After a cool-down it lets a few test calls through ("half-open") and closes again if they succeed.
+Why: stops one slow/failing service from freezing the whole app, which matters with up to 1000 concurrent users.
+Where to apply:
+External integrations: WhatsApp (wa.officall.ceoitbox.com), Google/Outlook/SMTP email, Google Maps, Cloudinary.
+Calls between services after microservices extraction (see section 3).
+Behavior to define when building: failure threshold, timeout, cool-down time, fallback response (e.g. queue the message and retry later, show a friendly error), and log/alert when a circuit opens.
+How: wrap provider calls in server/src/integrations/* with a circuit breaker (e.g. the opossum library), with settings in config/ (no hardcoding).
+Trigger: before going live with heavy external integration use, or at the time of microservices extraction.
+5. AWS Migration (after the project runs successfully)
+Compute: ECS/EKS or EC2 for server; S3 + CloudFront for client.
+Database: RDS MySQL.
+Secrets: AWS Secrets Manager / SSM Parameter Store.
+Cache: ElastiCache (Redis).
+Logs/metrics: CloudWatch.
+Optional IaC: Terraform in infra/aws/.
+Deployment guide in docs/deployment/.
+5b. Combined Deployment (optional)
+Client and server are deployed separately at first. Serving the client from the server (or one container) can be decided later if needed.
+6. Observability Upgrades
+Centralized logs, tracing (OpenTelemetry), dashboards and alert rules.
+7. Scaling & Performance
+Read replicas, DB indexing review, CDN for static assets, load testing for the 1000 concurrent user target.
+8. Security Hardening
+Penetration test, dependency scanning, WAF, secret rotation, audit review.
+
+Status
+Item
+Status
+Redis
+Not started
+Docker (production) / Kubernetes
+Not started
+Microservices extraction
+Not started
+Message queue
+Not started
+Circuit breakers
+Not started
+AWS migration
+Not started
+Observability upgrades
+Not started
+Scaling & performance
+Not started
+Security hardening
+Not started
+
+

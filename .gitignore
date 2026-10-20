@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Environment files — NEVER commit real env files
+server/.env
+client/.env
+.env
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# TypeScript build info
+*.tsbuildinfo

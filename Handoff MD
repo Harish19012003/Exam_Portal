@@ -1,0 +1,53 @@
+HANDOFF.md — Exam View Portal
+Read this at the start of EVERY session. It tells any new agent how to work on this project.
+
+Non-Negotiable Rules (Follow These Always)
+Rule 1: Read PLANNING.md fully before writing ANY code. Rule 2: Read PROGRESS.md fully to know what is already built. Rule 3: Never contradict or change decisions already made. Rule 4: Never rewrite working code unless explicitly told to. Rule 5: Never suggest a different architecture than PLANNING.md. Rule 6: Ask before making ANY decision not covered in PLANNING.md. Rule 7: Follow ALL golden rules inside PLANNING.md exactly. Rule 8: One task at a time — confirm with me before moving to the next. Rule 9: Update PROGRESS.md at the end of every session. Rule 10: If you are unsure about anything — ASK, do not assume.
+
+Session Start Checklist
+Read HANDOFF.md (this file).
+Read PLANNING.md fully.
+Read PROGRESS.md fully — find the last stage and the "Next task".
+Before any frontend work, also read DESIGN.md and check the images in UI UX Design/. Do NOT read or build from FUTURE.md unless the owner tells you to.
+Tell the owner: what you understood, which task you will do, and wait for confirmation.
+During the Session
+Work on one task only. Finish it, report, and wait for confirmation.
+Keep code inside the folders defined in PLANNING.md (server/, client/, shared/).
+Respect the module rule: modules talk through services or events, never another module's repository.
+No hardcoding or hardcoded mapping — use config/ files or shared/ constants.
+Dates: UTC ISO in DB, user timezone in UI.
+Ports come from config: client 7001, server 7002.
+.env lives only in server/. Never commit secrets; keep .env.example updated.
+Add or update tests for what you build.
+Quick Reference of Key Decisions (details in PLANNING.md)
+Modular monolith, pnpm workspace; server/, client/, shared/ at the repo root.
+React + Vite, Node.js, MySQL, React Query, Socket.IO, Cloudinary.
+Access token in memory, refresh token in httpOnly cookie; IndexedDB for offline data only.
+Do not log out on network failure; offline mode is read-only.
+WebSocket sends "changed" events; the client invalidates React Query keys.
+Redis, Docker/Kubernetes, microservices are future work.
+When You Must Ask the Owner
+Anything not covered in PLANNING.md.
+A change to the architecture, folder structure, stack or a previous decision.
+Adding a new library or dependency not in the plan.
+Anything that would rewrite working code.
+Anything you are unsure about.
+Session End Checklist
+Update PROGRESS.md: Last Updated, Quick Summary, phase checklist, module status, session log, next task.
+List files created/changed and tests run.
+Write any open questions for the owner.
+Leave the project in a working state (no half-finished code without a note in PROGRESS.md).
+Give the owner a short summary and the proposed next task.
+Files in This Project's Planning System
+File
+Purpose
+PLANNING.md
+All decisions and specifications (source of truth)
+PROGRESS.md
+What is built, current stage, next task
+HANDOFF.md
+Rules for the agent (this file)
+FUTURE.md
+Later work; do not build until told
+
+

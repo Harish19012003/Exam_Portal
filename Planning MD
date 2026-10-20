@@ -1,0 +1,226 @@
+PLANNING.md — Exam View Portal
+Single source of truth for all decisions. Read this fully before writing any code. Do not change, contradict, or "improve" decisions here without asking the owner first.
+
+1. What is Exam View
+Exam View is a web portal (exam portal) with user management, roles/permissions, announcements, push notifications, global search, maps, WhatsApp/email integration, offline support and a customizable dashboard. Core exam features will be added after the platform foundation is complete.
+Concurrent users: minimum 5, maximum 1000 working at the same time for a few hours.
+Deployment: client and server are deployed separately initially. They may be deployed together later if needed.
+Hosting: run locally first. Shift to AWS after the project runs successfully (see FUTURE.md).
+2. Technology Stack
+Layer
+Choice
+Frontend
+React + Vite (port 7001)
+Backend
+Node.js (port 7002)
+Package manager
+pnpm (workspace)
+Database
+MySQL
+Data fetching/caching (client)
+React Query (TanStack Query)
+Realtime
+WebSocket (Socket.IO)
+File storage
+Cloudinary
+Skeleton loading
+boneyard skeleton
+API docs
+Swagger (OpenAPI)
+Offline
+Service Worker + IndexedDB (no cookies for offline data)
+Caching (server)
+In-memory now, Redis later (FUTURE.md)
+
+3. Architecture Strategy — Today vs Future
+Today: Modular monolith. One Node.js server, split into self-contained modules (routes, controller, service, repository, validation, events).
+Future: If a service needs to scale, extract that module into a microservice. Modules must therefore stay loosely coupled.
+Module rule: a module may call another module only through its service or through events. Never import another module's repository.
+4. Golden Rules (apply to all code)
+Readable • Maintainable • Scalable • Flexible • Modular • Reusable • Testable • Performant • Secure • Configurable • Loosely Coupled • Well Architected
+No hardcoding. No hardcoded mapping. Values come from config, env, or the shared package.
+Dynamic functionality wherever possible (config/DB driven, not if/else chains).
+Enums, validation schemas and socket event names live in shared/ or config files only.
+Dates: stored in ISO / UTC in DB; shown in the user's timezone on the frontend.
+5. Root Folder Structure
+server/ and client/ sit directly inside exam-view/ (no apps/ folder).
+exam-view/
+├── server/                      # Backend (port 7002) — deployed separately
+├── client/                      # Frontend (port 7001) — deployed separately
+├── shared/                      # Types, Zod schemas, constants used by both
+├── docker/
+│   ├── server.Dockerfile
+│   ├── client.Dockerfile
+│   ├── docker-compose.yml       # server + client + mysql (dev)
+│   └── docker-compose.prod.yml
+├── infra/                       # Future: aws/, k8s/ (see FUTURE.md)
+├── docs/
+│   ├── architecture/            # system design, today vs future, module map
+│   ├── api/                     # API design, versioning, error codes
+│   ├── database/                # ERD, naming rules, migrations guide
+│   ├── security/                # token flow, 2FA, RBAC
+│   ├── deployment/              # separate deploy, AWS migration
+│   ├── testing/                 # test strategy
+│   ├── integrations/            # Cloudinary, WhatsApp, Maps, Email
+│   └── decisions/               # ADRs
+├── UI UX Design/                # design images: theme, widgets, colors, screens, logo
+├── .github/workflows/           # ci.yml, deploy-server.yml, deploy-client.yml
+├── PLANNING.md
+├── PROGRESS.md
+├── HANDOFF.md
+├── FUTURE.md
+├── DESIGN.md                    # UI/UX spec: theme, tokens, components, layouts, widgets
+├── README.md
+├── package.json
+├── pnpm-workspace.yaml          # packages: server, client, shared
+├── .editorconfig / .prettierrc / eslint.config.js
+└── .gitignore
+
+6. Server Architecture (exam-view/server)
+server/
+├── .env                         # lives ONLY here (client has own VITE_ vars)
+├── .env.example
+├── package.json
+├── src/
+│   ├── main.js                  # boots HTTP + WebSocket
+│   ├── app.js                   # express app + middleware wiring
+│   ├── config/                  # env.js (Zod-validated), app, auth, cloudinary, mail, rate-limit
+│   ├── core/                    # errors, middleware, logger, cache (interface), events, response, utils
+│   ├── database/                # connection, migrations, seeds, base.repository (bulk, optimistic lock)
+│   ├── modules/
+│   │   ├── auth/                # login, SSO, refresh, forgot password, strategies/, two-factor/
+│   │   ├── users/
+│   │   ├── roles-permissions/
+│   │   ├── app-groups/
+│   │   ├── announcements/
+│   │   ├── notifications/
+│   │   ├── search/
+│   │   ├── files/
+│   │   ├── audit-logs/          # activity logs + record version history
+│   │   ├── legal/               # terms, privacy, instructions
+│   │   ├── settings/
+│   │   ├── maps/
+│   │   └── health/
+│   ├── integrations/            # email (google/smtp/outlook), whatsapp, cloudinary, google-maps
+│   ├── realtime/                # socket.server, channels.js, handlers/
+│   ├── api/                     # v1/index.js, swagger/
+│   └── jobs/                    # announcement expiry, cleanup
+└── tests/
+
+Each module folder: *.routes.js, *.controller.js, *.service.js, *.repository.js, *.validation.js, __tests__/.
+7. Client Architecture (exam-view/client)
+client/
+├── .env / .env.example          # VITE_API_URL, VITE_WS_URL, VITE_GOOGLE_MAPS_KEY
+├── index.html
+├── vite.config.js               # port 7001, PWA plugin
+├── public/                      # icons/, offline.html
+└── src/
+    ├── main.jsx
+    ├── app/                     # App.jsx, providers/, router/ (guards/), layouts/
+    ├── core/                    # api, query, offline, network, service-worker, realtime,
+    │                            # theme, time, permissions, config
+    ├── components/              # ui, feedback (toast, loader, network icon), skeletons, map, search
+    ├── features/                # landing, auth, dashboard(widgets), users, roles-permissions,
+    │                            # app-groups, announcements, notifications, legal, instructions, settings
+    │                            # each: api/ hooks/ components/ pages/ schemas/ index.js
+    ├── styles/
+    └── tests/
+
+8. Shared Package (exam-view/shared)
+constants/ (roles, permissions, status, priorities, error codes, socket events), schemas/ (Zod), types/, utils/. Single source of truth for enums and validation.
+9. Feature Specifications
+9.1 Authentication & Security
+Login: email/phone + password, Google login, Microsoft login.
+Forgot password flow.
+Tokens: access token (in memory) + refresh token (httpOnly cookie). Do not store tokens in IndexedDB.
+2FA: Google/Microsoft/other authenticator (TOTP), OTP login. Admin can disable a user's 2FA.
+Do not log out if the API is offline or not responding. Force logout only when refresh explicitly returns 401/403.
+Rate limiting, validation, CORS configured for separate client/server origins.
+9.2 User Management
+Create, delete, update, view, 2FA disable, role, access/permission, status (active / inactive / suspended), user timezone, sort/modify by last activity.
+9.3 App Groups & Permission System
+App groups with group-level permissions; roles; per-user access. Frontend usePermission hook and <Can/> component; backend permission middleware.
+9.4 Announcements (admin)
+Fields: title, content, action URL, priority, display line, start, expiry, preview, status.
+9.5 Push Notifications
+Fields: title, body, action URL, recipients (all users / admin / specific users). Auto-delete after read. Delivered live through WebSocket.
+9.6 Global Search
+Command-palette style search across modules.
+9.7 Legal & Instructions
+Terms & Conditions, Privacy Policy, Instruction page.
+9.8 Integrations
+Email: Google, SMTP and Outlook providers (swappable via interface).
+WhatsApp: wa.officall.ceoitbox.com.
+Google Maps: place lookup, distance between two places, points shown on map view.
+Cloudinary: see section 10.
+9.9 Dashboard
+Widget-based, customizable (widget registry + grid layout).
+9.10 Landing Page & Route Guards
+Landing page, PrivateRoute, PublicRoute, PermissionRoute.
+9.11 Layout, Theme, UI Feedback
+Layout system (sidebar/header), dark mode and light mode.
+boneyard skeletons for component data loading.
+Toast pop-up notifications at the upper-right corner.
+Application loading screen.
+10. File Storage — Cloudinary
+Exam portal/                  # root folder for this project
+├── System/
+│   └── user-profile/         # profile pictures, member attachments
+└── Dynamic Data/             # LATER, with core features (skip for now)
+
+Paths are defined only in server/src/config/cloudinary.config.js. Used for profile, icon, image and attachments.
+11. Data Handling Rules
+React Query: once data is fetched, do not call the API again when switching pages (use staleTime/cache). Invalidate only on change.
+WebSocket: server sends "something changed" events; client invalidates matching query keys. Do not push full data.
+Optimistic updates for single and bulk record updates; version column for conflict detection.
+Bulk operations supported.
+Version history for log records.
+Time: UTC ISO in DB → user timezone in UI.
+12. Offline & Network
+Service worker (Workbox): app shell caching; support for import/export.
+IndexedDB for offline data (no cookies).
+Offline mode is read-only: dashboard and selected pages load; page refresh works offline; writes are blocked with a clear message.
+Slow network detection: below 3G / response over 2000 ms shows an indicator icon. In slow/offline state users can view data but cannot update it.
+13. API Design
+Versioned: /api/v1.
+Standard success/error response format.
+Central error handling with error codes (from shared/).
+Swagger documentation for the whole API.
+14. Database (MySQL)
+Migrations + seeds (default roles, permissions, app groups, admin user). Naming rules and ERD in docs/database/. All timestamps in UTC. version column on updatable records.
+15. Testing, CI/CD, Monitoring
+Testing: unit (service), integration (API), component tests; strategy in docs/testing/.
+CI/CD: GitHub Actions: ci.yml, deploy-server.yml, deploy-client.yml.
+Monitoring & alerting: structured logging, request IDs, health/readiness endpoints, alert plan in docs.
+16. Ports & Environment
+App
+Port
+Client
+7001
+Server
+7002
+
+Ports come from env/config, never hardcoded. .env lives in server/ only.
+17. Build Phases (order of work)
+Foundation: repo, pnpm workspace, shared package, configs, lint/format
+Server core: config, errors, logger, DB connection, migrations, base repository, health
+Auth: login, tokens, SSO, forgot password, 2FA
+Users, roles, permissions, app groups
+Client core: providers, router/guards, layouts, theme, API client, React Query
+Dashboard + UI feedback (toast, skeletons, loader)
+Realtime: WebSocket, live invalidation
+Announcements, notifications
+Files (Cloudinary), email, WhatsApp, maps
+Global search, legal, instructions, settings
+Offline/PWA, slow-network detection
+Audit logs/version history, Swagger, tests, CI/CD, docs
+Core exam features come after these phases and will be planned separately.
+18. Documents
+PLANNING.md — decisions (this file)
+PROGRESS.md — what is built
+HANDOFF.md — agent rules
+FUTURE.md — later work (Redis, Docker/K8s, microservices, AWS)
+DESIGN.md — UI/UX design spec; images live in UI UX Design/. Read before building any frontend screen or component.
+
+
+

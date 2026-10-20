@@ -1,0 +1,22 @@
+-- Phase 10: Legal, Instructions, Settings
+
+CREATE TABLE IF NOT EXISTS system_settings (
+    setting_key VARCHAR(100) PRIMARY KEY,
+    setting_value JSON NOT NULL,
+    description VARCHAR(255),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_by VARCHAR(36),
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS legal_documents (
+    id VARCHAR(36) PRIMARY KEY,
+    type VARCHAR(50) NOT NULL UNIQUE, -- 'TERMS', 'PRIVACY', 'INSTRUCTIONS'
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    version INT DEFAULT 1,
+    author_id VARCHAR(36),
+    FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL
+);

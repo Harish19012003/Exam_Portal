@@ -1,0 +1,162 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-brand-green: #034033;
+  --color-brand-green-light: #22C55E;
+}
+
+:root {
+  --bg-app: #f4f5f8;
+  --bg-sidebar: #f8f9fa;
+  --bg-topbar: #ffffff;
+  --bg-card: #ffffff;
+  
+  --text-primary: #1e2022;
+  --text-secondary: #747980;
+  --text-tertiary: #a0a4a8;
+  
+  --primary-color: #5c43fa; /* Deep purple */
+  --primary-hover: #4e39d4;
+  --primary-light: #f0edff;
+  
+  --border-color: #e6e8eb;
+  --border-radius-sm: 6px;
+  --border-radius: 10px;
+  --border-radius-lg: 16px;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+[data-theme="dark"] {
+  --bg-app: #0f172a;
+  --bg-sidebar: #1e293b;
+  --bg-topbar: #1e293b;
+  --bg-card: #1e293b;
+  
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  
+  --primary-color: #7c3aed; /* Lighter purple for dark mode */
+  --primary-hover: #8b5cf6;
+  --primary-light: rgba(124, 58, 237, 0.15);
+  
+  --border-color: #334155;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes expandWidth {
+  from {
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    opacity: 0;
+  }
+  to {
+    width: var(--target-width);
+    min-width: var(--target-width);
+    max-width: var(--target-width);
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    opacity: 1;
+  }
+}
+
+.animate-expand {
+  animation: expandWidth 300ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes indeterminateBar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.35; transform: scale(0.85); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.animate-indeterminate-bar {
+  animation: indeterminateBar 1.2s ease-in-out infinite;
+}
+
+.animate-dot-pulse {
+  animation: dotPulse 1.2s ease-in-out infinite;
+}

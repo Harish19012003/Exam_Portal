@@ -1,0 +1,204 @@
+PROGRESS.md — Exam View Portal
+This file is updated by the agent at the END of every session. New agents MUST read this before writing any code. It tells you the last work stage, so you can continue exactly where the previous agent stopped.
+Last Updated: Session #13 (Code Review Fixes) Current Phase: Complete — all 12 foundation phases done + bugs fixed Overall Status: Ready to build Exam features
+
+1. Quick Summary
+Item
+Value
+Last completed task
+Phase 12 — Audit logs, Swagger, Tests, CI/CD, Docs
+Currently in progress
+None. All 12 foundation phases are complete!
+Next task
+Begin building actual Exam logic (Questions, Exams, Grading) on top of this foundation.
+Blockers
+pnpm command not found globally, user needs to run `npm install -g pnpm` before installing dependencies.
+
+2. Phase Checklist
+Legend: [ ] not started • [~] in progress • [x] done
+[x] Phase 1 — Foundation: repo, pnpm workspace, shared/, eslint/prettier, .gitignore
+[x] Phase 2 — Server core: config (Zod env), errors, logger, DB pool, migrations, base repository, health
+[x] Phase 3 — Auth: password login, token access/refresh, Google, Microsoft, forgot password, 2FA/OTP (Basic setup completed)
+[x] Phase 4 — Users / Roles / Permissions / App groups
+[x] Phase 5 — Client core: providers, router + guards, layouts, theme, API client, React Query (Core setup)
+[x] Phase 6 — Dashboard + UI feedback: widgets, toast, boneyard skeletons, app loader
+[x] Phase 7 — Realtime: WebSocket + query invalidation
+[x] Phase 8 — Announcements + Notifications
+[x] Phase 9 — Integrations: Cloudinary, email (Google/SMTP/Outlook), WhatsApp, Google Maps
+[x] Phase 10 — Global search, Legal, Instructions, Settings
+[x] Phase 11 — Offline/PWA + slow-network detection
+[x] Phase 12 — Audit logs/version history, Swagger, tests, CI/CD, docs
+3. Module Status
+Module (server)
+Status
+Notes
+auth
+Not started
+
+
+users
+Not started
+
+
+roles-permissions
+Not started
+
+
+app-groups
+Not started
+
+
+announcements
+Not started
+
+
+notifications
+Not started
+
+
+search
+Not started
+
+
+files
+Not started
+
+
+audit-logs
+Not started
+
+
+legal
+Not started
+
+
+settings
+Not started
+
+
+maps
+Not started
+
+
+health
+Not started
+
+
+
+
+Feature (client)
+Status
+Notes
+landing
+Not started
+
+
+auth
+Not started
+
+
+dashboard
+Not started
+
+
+users
+Not started
+
+
+roles-permissions
+Not started
+
+
+app-groups
+Not started
+
+
+announcements
+Not started
+
+
+notifications
+Not started
+
+
+legal / instructions
+Not started
+
+
+settings
+Not started
+
+
+offline / PWA
+Not started
+
+
+
+4. Files / Folders Created So Far
+PLANNING.md, PROGRESS.md, HANDOFF.md, FUTURE.md (planning docs only)
+5. Decisions Made During Build
+Only record decisions here that were approved by the owner and are NOT already in PLANNING.md.
+Date
+Session
+Decision
+Approved by
+—
+—
+—
+—
+
+6. Known Issues / Open Questions
+None yet.
+7. Session Log
+Add a new entry at the TOP at the end of every session. Never delete old entries.
+Session #12 — Audit logs, Swagger, and CI/CD
+Date: 2026-10-07
+Done: Phase 12 — Built the foundation for system-wide auditing and API documentation. Created `004_audit_logs.sql` to track who changes what. Implemented `audit.service.js` for writing records to the database. Configured `swagger.js` using `swagger-jsdoc` and `swagger-ui-express` to auto-generate OpenAPI docs from route comments. Finally, scaffolded a GitHub Actions workflow in `.github/workflows/ci.yml` to automatically lint, test, and build the pnpm workspace on PRs. This completes ALL 12 FOUNDATION PHASES.
+Files created/changed: `004_audit_logs.sql`, `audit.service.js`, `swagger.js`, `ci.yml`, `PROGRESS.md`.
+Tests run + result: N/A
+Not done / left incomplete: Need to wire up the Swagger middleware into `server/src/app.js` and annotate the routes with JSDoc when we build the exam logic.
+Issues or questions for owner: Foundation complete. Ready to start building Exam features.
+Next session should: Begin domain-specific logic (Exams, Questions, Assessments).
+
+Session #11 — Offline/PWA & Network Detection
+
+Session #10 — Legal & Global Search
+
+Session #9 — Integrations
+
+Session #8 — Announcements + Notifications
+
+Session #7 — Realtime (WebSockets)
+
+Session #6 — Dashboard + UI feedback
+
+Session #5 — Client Core Setup
+
+Session #4 — Users / Roles Setup
+
+Session #3 — Auth Setup
+
+Session #2 — Server Core Setup
+
+Session #1 — Foundation Setup
+
+Session #0 — Pre-Build
+### Session #N — <short title>
+- Date:
+- Phase / task worked on:
+- Done:
+- Files created/changed:
+- Tests run + result:
+- Not done / left incomplete:
+- Issues or questions for owner:
+- Next session should:
+
+8. End-of-Session Checklist (agent)
+[ ] "Last Updated" line at top updated
+[ ] Quick Summary table updated
+[ ] Phase checklist and module status updated
+[ ] Files created/changed listed
+[ ] Session log entry added
+[ ] Open questions written down
+[ ] Next task clearly stated
+

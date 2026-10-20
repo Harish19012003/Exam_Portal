@@ -1,0 +1,346 @@
+DESIGN.md — Exam View Portal (UI / UX)
+Source of truth for the frontend look and feel: theme, colors, typography, components, layouts, widgets and UI states. Read this together with PLANNING.md before building any frontend screen or component. Design images (theme, widgets, color combinations, screens) are stored in the UI UX Design/ folder at the project root.
+Status legend:
+[FIXED] decided by the owner, do not change.
+[PROPOSED] starter value so work can begin. The owner will confirm or replace it using the images in UI UX Design/. When an image conflicts with a proposed value, the image wins.
+
+1. Design Folder (UI UX Design/)
+exam-view/
+└── UI UX Design/
+    ├── 01-theme/              # light + dark theme previews
+    ├── 02-colors/             # color palettes and combinations
+    ├── 03-typography/         # fonts, sizes
+    ├── 04-components/         # buttons, inputs, tables, modals, toasts
+    ├── 05-widgets/            # dashboard widgets
+    ├── 06-layouts/            # app layout, auth layout, landing page
+    ├── 07-screens/            # full page designs (login, users, announcements...)
+    └── 08-icons-logo/         # logo, favicon, icons
+
+Name files clearly, e.g. light-dashboard.png, dark-dashboard.png, palette-primary.png.
+Image Reference Table (fill in as images are added)
+Image file
+What it shows
+Used for
+Status
+—
+—
+—
+—
+
+2. Design Principles
+Clean and professional, exam/education portal feel; content first, minimal clutter.
+Consistent: every screen uses the same tokens and components. No one-off styles.
+No hardcoded colors, sizes or spacing in components. Everything comes from design tokens (section 4).
+Accessible: WCAG AA contrast, keyboard navigation, visible focus, ARIA labels.
+Responsive: works on mobile, tablet, desktop.
+Fast feeling: skeletons while loading, no layout jumping, cached data shown instantly.
+Clear states: loading, empty, error, offline, slow-network, no-permission are designed for every screen.
+3. Theme System [FIXED]
+Two themes: Light mode and Dark mode.
+User can switch from the header; the choice is saved (user preference) and applied on app start. Default follows the system preference until the user chooses.
+Implemented with CSS variables (design tokens) on :root and [data-theme="dark"]. Components use tokens only, never raw color values.
+Theme code lives in client/src/core/theme/ and client/src/styles/.
+Theme switching must not reload the page and must not flash the wrong theme on first load.
+4. Design Tokens
+4.1 Colors [PROPOSED, replace from UI UX Design/02-colors/]
+Token
+Light
+Dark
+Use
+--color-primary
+#2563EB
+#3B82F6
+main actions, active nav, links
+--color-primary-hover
+#1D4ED8
+#60A5FA
+hover of primary
+--color-secondary
+#64748B
+#94A3B8
+secondary actions
+--color-bg
+#F8FAFC
+#0F172A
+page background
+--color-surface
+#FFFFFF
+#1E293B
+cards, modals, tables
+--color-surface-alt
+#F1F5F9
+#273449
+hover rows, subtle panels
+--color-border
+#E2E8F0
+#334155
+borders, dividers
+--color-text
+#0F172A
+#F1F5F9
+main text
+--color-text-muted
+#64748B
+#94A3B8
+helper text
+--color-success
+#16A34A
+#22C55E
+success, active status
+--color-warning
+#D97706
+#F59E0B
+warning, slow network
+--color-danger
+#DC2626
+#EF4444
+errors, delete, suspended
+--color-info
+#0284C7
+#38BDF8
+info messages
+
+4.2 Status & Priority Colors (mapped from shared/constants, not hardcoded in UI)
+Group
+Values
+Color token
+User status
+active / inactive / suspended
+success / secondary / danger
+Announcement priority
+low / medium / high / critical
+info / primary / warning / danger
+Announcement status
+draft / scheduled / active / expired
+secondary / info / success / muted
+
+4.3 Typography [PROPOSED]
+Font family: Inter (fallback: system-ui, sans-serif). Monospace for codes: JetBrains Mono.
+Scale: --text-xs 12px, --text-sm 14px, --text-base 16px, --text-lg 18px, --text-xl 20px, --text-2xl 24px, --text-3xl 30px.
+Weights: 400 regular, 500 medium, 600 semibold, 700 bold.
+Line height: 1.5 for body, 1.25 for headings.
+4.4 Spacing, Radius, Shadow, Motion [PROPOSED]
+Spacing scale (4px base): 4, 8, 12, 16, 20, 24, 32, 40, 48, 64.
+Radius: --radius-sm 4px, --radius-md 8px, --radius-lg 12px, --radius-full 9999px.
+Shadows: --shadow-sm, --shadow-md, --shadow-lg (softer/darker variants in dark mode).
+Motion: 150ms (hover), 250ms (modal/drawer). Respect prefers-reduced-motion.
+Breakpoints: sm 640, md 768, lg 1024, xl 1280, 2xl 1536.
+4.5 Z-index scale
+base 0 • sticky header 100 • sidebar 200 • dropdown 300 • modal 400 • toast 500 • network/offline banner 600.
+5. Layouts (client/src/app/layouts/)
+Layout
+Used by
+Description
+LandingLayout
+landing page, public legal pages
+public header (logo, Login button, theme toggle), hero, footer with Terms/Privacy links
+AuthLayout
+login, forgot password, 2FA, OTP
+centered card, logo, theme toggle, no sidebar
+AppLayout
+all logged-in pages
+sidebar + top header + content area + footer area for banners
+
+AppLayout details
+Sidebar: logo, navigation items (generated from route + permission config, not hardcoded), collapsible, drawer on mobile. Items without permission are hidden.
+Top header: page title/breadcrumb, global search (command palette, shortcut Ctrl/Cmd + K), network indicator icon, notification bell with unread count, theme toggle, user menu (profile, timezone, logout).
+Announcement strip: active announcements shown in the "display line" under the header (dismissible, by priority color).
+Content area: max width container, consistent page header (title + actions).
+6. Landing Page & Route Guards (UI)
+Landing: hero section, features overview, Login button, Terms and Privacy links.
+Logged-in user opening the landing page or login page is redirected to the dashboard (PublicRoute).
+Not logged in: redirected to login (PrivateRoute).
+No permission: friendly 403 page (PermissionRoute). Unknown URL: 404 page.
+7. Component Library (client/src/components/)
+All components are reusable, theme-aware, accessible and take config via props (no hardcoded text/colors).
+7.1 Base UI (components/ui/)
+Component
+Variants / notes
+Button
+primary, secondary, outline, ghost, danger; sizes sm/md/lg; loading state; icon-only
+Input / Textarea
+label, helper text, error text, prefix/suffix icon, disabled, password toggle
+Select / Multi-select / Combobox
+searchable, async option loading
+Checkbox, Radio, Switch
+with labels
+DatePicker / DateTimePicker
+shows and returns user timezone, stores ISO UTC
+Phone input
+country code
+OTP input
+6-box code entry for 2FA/OTP
+Table (DataTable)
+sorting, pagination, column visibility, row selection (bulk), sticky header, loading skeleton, empty state, row actions
+Modal / Dialog
+sizes, confirm dialog for delete
+Drawer
+side panel for forms/details, filters
+Tabs, Accordion
+
+
+Badge / Tag / Status pill
+uses status color map
+Avatar
+image from Cloudinary or initials fallback
+Card
+header, body, footer
+Dropdown menu, Tooltip, Popover
+
+
+Pagination
+
+
+Breadcrumb
+
+
+Form wrapper
+validation with shared Zod schemas, inline errors
+File upload
+drag and drop, preview, progress, size/type limits from config
+Rich text / content editor
+for announcement content (preview support)
+Empty state, Error state
+icon + message + action
+
+7.2 Feedback (components/feedback/)
+Component
+Behavior
+Toast [FIXED]
+pop-up message at the upper-right corner; types: success, error, warning, info; auto-dismiss (default from config), manual close, stacked, action button optional
+AppLoader
+full-screen application loading (logo + progress) on first load and token check
+Page loader / progress bar
+thin top bar during route changes
+NetworkIndicator [FIXED]
+header icon shown when network is slower than 3G (response over 2000 ms) or offline; tooltip explains "Slow connection, view only"
+OfflineBanner
+banner when offline: "You are offline. You can view data but cannot make changes."
+ConfirmDialog
+delete / suspend / disable 2FA confirmations
+
+7.3 Skeletons (components/skeletons/) [FIXED]
+Use boneyard skeleton for component data loading.
+Every list, table, card and widget shows a skeleton that matches its final shape (no spinner-only screens).
+Skeleton wrappers are reusable: TableSkeleton, CardSkeleton, WidgetSkeleton, FormSkeleton, ProfileSkeleton.
+7.4 Map (components/map/)
+MapView: Google Map, shows points (markers) for places.
+PlacePicker: search and select a place to get its location.
+DistanceView: pick two places, show markers, the route/line and the distance between them.
+7.5 Global Search (components/search/)
+Command palette opened with Ctrl/Cmd + K or the header search icon.
+Grouped results (users, announcements, pages...), keyboard navigation, recent searches, only shows what the user has permission to see.
+8. Dashboard [FIXED: widget based and customizable]
+Grid of widgets the user can add, remove, move and resize; layout saved per user.
+Widgets come from a widget registry (features/dashboard/widgets/). Adding a new widget means registering it, not editing the dashboard page.
+Each widget has: id, title, icon, default size, min/max size, required permission, data hook, skeleton, error state, refresh.
+Widget visibility depends on the user's permissions.
+Dashboard works offline from cached data (read-only, layout editing disabled or saved locally per decision in PLANNING).
+Starter widget list [PROPOSED, confirm from UI UX Design/05-widgets/]
+Widget
+Content
+Welcome / profile
+greeting, user, last activity
+Announcements
+latest active announcements
+Notifications
+recent unread
+Quick links
+shortcuts to common pages
+User stats
+total / active / inactive / suspended (admin)
+Recent activity
+latest audit-log events
+System status
+server health, network status
+Map widget
+optional map with points
+
+9. Feature Screens (client/src/features/*)
+For each screen the final design images go to UI UX Design/07-screens/.
+Feature
+Screens
+auth
+Login (email/phone + password, Google, Microsoft buttons), Forgot password, Reset password, 2FA setup (QR + authenticator), OTP verify
+dashboard
+Customizable dashboard
+users
+User list (filters, status, last activity, bulk actions), Create/Edit user (drawer or page), User detail (timezone, status, role, access, 2FA disable, activity history)
+roles-permissions
+Roles list, permission matrix, user access
+app-groups
+Group list, group permissions
+announcements
+List, Create/Edit (title, content, action URL, priority, display line, start, expiry, preview, status), Preview
+notifications
+Notification list/center (bell dropdown + full page), Send notification (title, body, action URL, recipients: all / admin / specific users)
+legal
+Terms & Conditions, Privacy Policy
+instructions
+Instruction page
+settings
+App settings, profile, timezone, theme, 2FA, email provider
+
+Common list page pattern
+Page header (title + primary action) → filter/search bar → DataTable (skeleton while loading) → pagination. Bulk action bar appears when rows are selected. Optimistic update for edits with rollback and error toast on failure.
+10. UI States (every screen must handle these)
+State
+Behavior
+Loading
+boneyard skeleton
+Empty
+illustration/icon + message + action
+Error
+message + retry button, error code from API shown friendly
+Offline
+OfflineBanner, view cached data, all create/update/delete controls disabled with tooltip
+Slow network
+NetworkIndicator icon, view allowed, updates blocked
+No permission
+control hidden (<Can/>) or 403 page
+Session
+no logout on network failure; show reconnect message instead
+Live update
+when a WebSocket "changed" event arrives, data refreshes quietly; optional subtle "updated" highlight
+
+11. Date, Time & Content Rules
+All times displayed in the user's timezone; DB value is UTC ISO. Use formatters from client/src/core/time/ only.
+Show relative time for recent items ("5 min ago") with exact time in a tooltip.
+All UI text goes through a constants/config layer so labels are not scattered (ready for translation later).
+12. Icons & Imagery
+One icon library (e.g. Lucide) used everywhere; icon + label for important actions.
+Logo and favicon from UI UX Design/08-icons-logo/; provide light and dark variants.
+User profile images and icons are served from Cloudinary (Exam portal/System/user-profile).
+13. Responsive Rules
+Mobile: sidebar becomes a drawer, tables become card lists or horizontally scroll, toasts stay upper-right but full-width on small screens.
+Touch targets at least 40px.
+Dashboard grid collapses to 1 column on mobile.
+14. Accessibility Checklist
+Color contrast AA in both themes.
+All interactive elements reachable by keyboard; visible focus ring using --color-primary.
+Modals trap focus and close with Esc.
+Icons-only buttons have aria-label; form fields have labels and error association.
+Toasts use aria-live.
+15. Rules for the Agent
+Do not invent new colors, fonts or component styles. Use tokens and the components in this file.
+If a design image exists in UI UX Design/ for the screen, follow it exactly.
+If something is not covered here or in the images, ask the owner before designing it.
+Reuse existing components. Create a new component only when none fits, and add it to section 7.
+Update this file (and the image reference table) whenever the owner approves a design change.
+16. Design Progress
+Area
+Status
+Color palette (light/dark)
+Waiting for owner images
+Typography
+Proposed, not confirmed
+Components
+Proposed list, not confirmed
+Dashboard widgets
+Proposed list, waiting for owner images
+Screen designs
+Waiting for owner images
+Logo / icons
+Waiting for owner images
+
+
