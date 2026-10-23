@@ -26,6 +26,7 @@ import {
   Moon,
   Settings,
   Settings2,
+  Zap,
 } from 'lucide-react';
 import './DashboardLayout.css';
 
@@ -89,13 +90,15 @@ export const DashboardLayout = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Handle dark mode toggle
+  // Handle dark mode toggle (data-theme for app CSS + .dark for Tailwind dark: variants)
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.setAttribute('data-theme', 'dark');
+      document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.setAttribute('data-theme', 'light');
+      document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
@@ -239,7 +242,7 @@ export const DashboardLayout = () => {
                 <div className="sidebar-role-line">
                   {isPrimaryAdmin ? (
                     <span className="sidebar-primary-badge">
-                      <Crown size={11} />
+                      <Zap size={11} strokeWidth={2.4} fill="currentColor" />
                       <span>Primary Admin</span>
                     </span>
                   ) : (

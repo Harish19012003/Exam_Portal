@@ -516,6 +516,7 @@ export const VendorsPage = () => {
       <div style={{ flex: 1, minHeight: '650px', width: '100%', display: 'flex', flexDirection: 'column' }}>
         <DynamicTable
           tableId="vendor_master_data_v3"
+          shareState={false}
           initialColumns={VENDOR_COLUMN_CONFIG}
           initialRows={rows}
           onRowUpdate={handleRowUpdate}

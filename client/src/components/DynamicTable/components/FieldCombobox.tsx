@@ -7,11 +7,14 @@ export function FieldCombobox({
   onChange,
   fields,
   isDarkMode,
+  /** Soften the trigger text (e.g. Auto / empty). */
+  dimValue = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   fields: ColumnConfig[];
   isDarkMode: boolean;
+  dimValue?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -61,7 +64,19 @@ export function FieldCombobox({
             : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'}`}
         aria-label="Select field"
       >
-        <span className="truncate">{selectedField?.label || 'Pick a field…'}</span>
+        <span
+          className={`truncate ${
+            dimValue
+              ? isDarkMode
+                ? 'text-gray-500 font-normal'
+                : 'text-gray-400 font-normal'
+              : isDarkMode
+                ? 'text-gray-300 font-medium'
+                : 'text-gray-700 font-medium'
+          }`}
+        >
+          {selectedField?.label || 'Pick a field…'}
+        </span>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''} ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
       </button>
 

@@ -1,4 +1,5 @@
 import type { ColumnConfig } from '../../types';
+import { isCompositeColumn } from '../../types';
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -10,10 +11,10 @@ export function createCompositeColumnHandlers(
 ) {
   const applyCompositeAdd = (col: ColumnConfig) => {
     setColumns(prev => {
-      if (col.dataType !== 'composite') return [...prev, col];
-      const sourceKeys = new Set(col.composedOf.map(p => p.field));
+      if (!isCompositeColumn(col)) return [...prev, col];
+      const sourceKeys = new Set((col.composedOf || []).map(p => p.field));
       const minOrder = Math.min(
-        ...prev.filter(c => sourceKeys.has(c.key)).map(c => c.order),
+        ...prev.filter(c => sourceKeys.has(c.key)).map(c => c.order ?? 0),
       );
       return prev
         .map(c => (sourceKeys.has(c.key) ? { ...c, visible: false } : c))
@@ -21,8 +22,8 @@ export function createCompositeColumnHandlers(
     });
 
     setColumnOrder(prev => {
-      if (col.dataType !== 'composite') return [...prev, col.key];
-      const sourceKeys = col.composedOf.map(p => p.field);
+      if (!isCompositeColumn(col)) return [...prev, col.key];
+      const sourceKeys = (col.composedOf || []).map(p => p.field);
       const firstSourceIdx = Math.min(
         ...sourceKeys.map(k => prev.indexOf(k)).filter(i => i !== -1),
       );
@@ -32,10 +33,10 @@ export function createCompositeColumnHandlers(
       return next;
     });
 
-    setColumnWidths(prev => ({ ...prev, [col.key]: col.width }));
+    setColumnWidths(prev => ({ ...prev, [col.key]: col.width ?? 180 }));
     setColumnVisibility(prev => {
-      if (col.dataType !== 'composite') return { ...prev, [col.key]: true };
-      const sourceKeys = col.composedOf.map(p => p.field);
+      if (!isCompositeColumn(col)) return { ...prev, [col.key]: true };
+      const sourceKeys = (col.composedOf || []).map(p => p.field);
       const next = { ...prev, [col.key]: true };
       sourceKeys.forEach(k => {
         next[k] = false;
@@ -47,15 +48,15 @@ export function createCompositeColumnHandlers(
   const handleDeleteCompositeColumn = (compositeKey: string) => {
     setColumns(prev => {
       const target = prev.find(c => c.key === compositeKey);
-      if (!target || target.dataType !== 'composite') return prev;
+      if (!target || !isCompositeColumn(target)) return prev;
 
-      const sourceKeys = new Set(target.composedOf.map(p => p.field));
+      const sourceKeys = new Set((target.composedOf || []).map(p => p.field));
       const remainingComposites = prev.filter(
-        c => c.dataType === 'composite' && c.key !== compositeKey,
+        c => isCompositeColumn(c) && c.key !== compositeKey,
       );
       const stillGrouped = new Set(
         remainingComposites.flatMap(c =>
-          c.dataType === 'composite' ? c.composedOf.map(p => p.field) : [],
+          isCompositeColumn(c) ? (c.composedOf || []).map(p => p.field) : [],
         ),
       );
 
@@ -81,18 +82,18 @@ export function createCompositeColumnHandlers(
 
   const handleUpdateCompositeColumn = (oldKey: string, newCol: ColumnConfig) => {
     setColumns(prev => {
-      if (newCol.dataType !== 'composite') return prev;
+      if (!isCompositeColumn(newCol)) return prev;
 
       const oldCol = prev.find(c => c.key === oldKey);
-      if (!oldCol || oldCol.dataType !== 'composite') return prev;
+      if (!oldCol || !isCompositeColumn(oldCol)) return prev;
 
-      const oldSourceKeys = new Set(oldCol.composedOf.map(p => p.field));
-      const newSourceKeys = new Set(newCol.composedOf.map(p => p.field));
+      const oldSourceKeys = new Set((oldCol.composedOf || []).map(p => p.field));
+      const newSourceKeys = new Set((newCol.composedOf || []).map(p => p.field));
 
-      const otherComposites = prev.filter(c => c.dataType === 'composite' && c.key !== oldKey);
+      const otherComposites = prev.filter(c => isCompositeColumn(c) && c.key !== oldKey);
       const stillGrouped = new Set(
         otherComposites.flatMap(c =>
-          c.dataType === 'composite' ? c.composedOf.map(p => p.field) : [],
+          isCompositeColumn(c) ? (c.composedOf || []).map(p => p.field) : [],
         ),
       );
 
@@ -111,9 +112,9 @@ export function createCompositeColumnHandlers(
     setColumnOrder(prev => (oldKey === newCol.key ? prev : prev.map(k => (k === oldKey ? newCol.key : k))));
 
     setColumnWidths(prev => {
-      if (oldKey === newCol.key) return { ...prev, [newCol.key]: newCol.width };
+      if (oldKey === newCol.key) return { ...prev, [newCol.key]: newCol.width ?? 180 };
       const next = { ...prev };
-      next[newCol.key] = newCol.width;
+      if (newCol.width !== undefined) next[newCol.key] = newCol.width;
       delete next[oldKey];
       return next;
     });
@@ -122,8 +123,8 @@ export function createCompositeColumnHandlers(
       const next = { ...prev };
       if (oldKey !== newCol.key) delete next[oldKey];
       next[newCol.key] = true;
-      if (newCol.dataType === 'composite') {
-        newCol.composedOf.forEach(p => {
+      if (isCompositeColumn(newCol)) {
+        (newCol.composedOf || []).forEach(p => {
           next[p.field] = false;
         });
       }

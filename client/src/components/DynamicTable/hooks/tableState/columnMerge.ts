@@ -3,15 +3,7 @@ import { isFieldColumn } from '../../types';
 import { readPref } from '../../utils/prefsStorage';
 
 export function mergeSavedColumns(saved: ColumnConfig[], initialColumns: ColumnConfig[]): ColumnConfig[] {
-  const initialKeys = new Set(initialColumns.map(c => c.key));
-
-  // Filter out columns from localStorage that are no longer in initialColumns
-  // (unless they are dynamically created formula or composite columns)
-  const validSaved = saved.filter(sCol =>
-    initialKeys.has(sCol.key) || sCol.dataType === 'formula' || sCol.dataType === 'composite'
-  );
-
-  const merged: ColumnConfig[] = validSaved.map(sCol => {
+  const merged: ColumnConfig[] = saved.map(sCol => {
     const initCol = initialColumns.find(c => c.key === sCol.key);
     if (!initCol) return sCol;
 
@@ -41,21 +33,11 @@ export function mergeSavedColumns(saved: ColumnConfig[], initialColumns: ColumnC
         label: initCol.label,
         dataType: initCol.dataType,
         aggregation: initCol.aggregation,
-        isPrimaryKey: initCol.isPrimaryKey,
       };
     }
 
     return { ...sCol, label: initCol.label };
   });
-
-  // Also append any new columns in initialColumns that weren't in saved yet
-  const mergedKeys = new Set(merged.map(c => c.key));
-  for (const initCol of initialColumns) {
-    if (!mergedKeys.has(initCol.key)) {
-      merged.push(initCol);
-      mergedKeys.add(initCol.key);
-    }
-  }
 
   const unique: ColumnConfig[] = [];
   const seen = new Set<string>();
@@ -68,13 +50,8 @@ export function mergeSavedColumns(saved: ColumnConfig[], initialColumns: ColumnC
   return unique;
 }
 
-export function loadInitialColumns(initialColumns: ColumnConfig[], tableId?: string): ColumnConfig[] {
-  const saved: ColumnConfig[] = readPref('columns', initialColumns, tableId);
-  const initKeys = new Set(initialColumns.map(c => c.key));
-  const hasOverlap = saved.some(s => initKeys.has(s.key));
-  if (!hasOverlap) {
-    return initialColumns;
-  }
+export function loadInitialColumns(initialColumns: ColumnConfig[]): ColumnConfig[] {
+  const saved: ColumnConfig[] = readPref('columns', initialColumns);
   return mergeSavedColumns(saved, initialColumns);
 }
 
@@ -130,7 +107,6 @@ export function syncColumnsWithInitial(
           label: initCol.label,
           dataType: initCol.dataType,
           aggregation: initAgg,
-          isPrimaryKey: initCol.isPrimaryKey,
         };
       }
       return { ...col, label: initCol.label };

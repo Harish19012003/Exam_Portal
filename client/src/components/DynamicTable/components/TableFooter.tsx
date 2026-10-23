@@ -46,29 +46,37 @@ export function TableFooter({
   const arrowDisabled = isDarkMode ? 'text-gray-700 cursor-not-allowed' : 'text-gray-200 cursor-not-allowed';
 
   return (
-    <div
-      className={`flex items-center justify-between px-6 sm:px-8 py-3.5 border-t flex-shrink-0 flex-wrap gap-4
-        ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}
-      style={{
-        paddingLeft: '20px',
-        paddingRight: '20px',
-        paddingTop: '10px',
-        paddingBottom: '10px',
-        boxSizing: 'border-box',
-      }}
-    >
+    <div className={`flex items-center justify-between px-4 py-3 border-t flex-shrink-0 flex-wrap gap-4
+      ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
       
-      {/* Left: Selection + Rows per page */}
+      {/* Left: count + rows per page */}
       <div className="flex items-center gap-3 flex-wrap">
-        {selectedCount > 0 && (
-          <div className={`flex items-center px-2.5 py-1 rounded-md text-[12px] font-bold animate-[fadeIn_0.2s_ease-out]
-            ${isDarkMode ? 'bg-[#13C296]/20 text-[#13C296]' : 'bg-[#13C296]/10 text-[#0f9f7a]'}`}>
-            {selectedCount} selected
-          </div>
-        )}
+        <div className="flex items-center gap-3 flex-wrap">
+          {selectedCount > 0 && (
+            <div className={`hidden sm:flex items-center px-2.5 py-1 rounded-md text-[12px] font-bold animate-[fadeIn_0.2s_ease-out]
+              ${isDarkMode ? 'bg-[#13C296]/20 text-[#13C296]' : 'bg-[#13C296]/10 text-[#0f9f7a]'}`}>
+              {selectedCount} selected
+            </div>
+          )}
+          
+          <p className={`hidden sm:block text-[12px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+            {filteredCount === 0 ? 'No results' : (
+              <>
+                <span className={`font-bold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{start}–{end}</span>
+                {' of '}
+                <span className={`font-bold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{filteredCount.toLocaleString()}</span>
+                {filteredCount < totalCount && (
+                  <span className={`hidden sm:inline ml-1 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                    (filtered from {totalCount.toLocaleString()})
+                  </span>
+                )}
+              </>
+            )}
+          </p>
+        </div>
 
         <div className="flex items-center gap-1.5">
-          <span className={`text-[12px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          <span className={`text-[12px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
             <span className="hidden sm:inline">Rows per page:</span>
             <span className="sm:hidden">Row:</span>
           </span>
@@ -89,25 +97,9 @@ export function TableFooter({
         </div>
       </div>
 
-      {/* Right: count + page navigation */}
-      <div className="flex items-center gap-4 flex-wrap ml-auto">
-        <p className={`text-[12px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          {filteredCount === 0 ? 'No results' : (
-            <>
-              <span className={`font-bold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{start}–{end}</span>
-              {' of '}
-              <span className={`font-bold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{filteredCount.toLocaleString()}</span>
-              {filteredCount < totalCount && (
-                <span className={`hidden sm:inline ml-1 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
-                  (filtered from {totalCount.toLocaleString()})
-                </span>
-              )}
-            </>
-          )}
-        </p>
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-1 flex-wrap">
+      {/* Right: page navigation */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-1 flex-wrap">
           {/* Prev */}
           <button
             onClick={() => onPageChange(page - 1)}
@@ -171,7 +163,6 @@ export function TableFooter({
           </button>
         </div>
       )}
-      </div>
     </div>
   );
 }
