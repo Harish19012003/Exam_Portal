@@ -3,7 +3,7 @@ export { TextEditor } from './TextEditor';
 export { NumberEditor } from './NumberEditor';
 export { DropdownEditor } from './DropdownEditor';
 export { MultiSelectDropdownEditor } from './MultiSelectDropdownEditor';
-export { DateEditor, TimeEditor } from './DateTimeEditors';
+export { DateEditor, DateTimeEditor, TimeEditor } from './DateTimeEditors';
 export { BooleanEditor } from './ToggleEditors';
 export { CheckboxEditor } from './CheckboxEditor';
 export { CompositeEditor } from './CompositeEditor';

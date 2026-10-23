@@ -34,6 +34,15 @@ export function useKeyboardNav({
     (e: React.KeyboardEvent) => {
       if (!focusedCell) return;
 
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+        const row = paginatedRows.find(r => r.rowId === focusedCell.rowId);
+        if (row && row.values[focusedCell.colKey] !== undefined) {
+          const val = String(row.values[focusedCell.colKey] ?? '');
+          navigator.clipboard.writeText(val);
+        }
+        return;
+      }
+
       const target = e.target as HTMLElement;
       const isTableWrapper = target === scrollWrapperRef.current;
       const isTextInput =

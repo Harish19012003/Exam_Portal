@@ -39,6 +39,11 @@ export interface TableStateHandlers {
   handleSelectAll: (allRowIds: string[]) => void;
   handleClearSelection: () => void;
 
+  // Row expansion (Sub-tables)
+  expandedRowIds: Set<string>;
+  handleToggleExpandRow: (rowId: string) => void;
+
+
   // Edit / Delete
   editingCell: { rowId: string; colKey: string } | null;
   setEditingCell: React.Dispatch<React.SetStateAction<{ rowId: string; colKey: string } | null>>;
@@ -90,15 +95,14 @@ export interface TableStateHandlers {
   handleResetOrder: () => void;
   handleResetWidths: () => void;
   handleFactoryReset: () => void;
-  handleRefresh: () => Promise<void> | void;
 
   // UI toggles
   density: Density;
   setDensity: (d: Density) => void;
   openFilterKey: string | null;
   setOpenFilterKey: (key: string | null) => void;
-  activeSidebar: 'columns' | null;
-  setActiveSidebar: (v: 'columns' | null) => void;
+  activeSidebar: 'columns' | 'construction' | null;
+  setActiveSidebar: (v: 'columns' | 'construction' | null) => void;
   showBulkConfirm: boolean;
   setShowBulkConfirm: (v: boolean) => void;
   showBulkUpdate: boolean;

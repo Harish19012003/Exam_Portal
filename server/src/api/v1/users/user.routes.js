@@ -53,7 +53,7 @@ router.patch(
 router.post(
   '/:id/disable-2fa',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
   userController.disable2FA
 );
 
@@ -63,6 +63,14 @@ router.delete(
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN]),
   userController.deleteUser
+);
+
+// Transfer Primary Super Admin status to another Super Admin
+router.post(
+  '/:id/transfer-primary',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN]),
+  userController.transferPrimary
 );
 
 export default router;

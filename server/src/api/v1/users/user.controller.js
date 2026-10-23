@@ -75,3 +75,12 @@ export const deleteUser = async (req, res, next) => {
     next(error);
   }
 };
+
+export const transferPrimary = async (req, res, next) => {
+  try {
+    const result = await userService.transferPrimarySuperAdmin(req.params.id, req.user);
+    return successResponse(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+};

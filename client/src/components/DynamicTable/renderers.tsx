@@ -76,15 +76,14 @@ export function CompositeCell({
 
 
   const leftIcon = avatarPart ?? iconPart;
-  const rowVals = (row?.values ?? row ?? {}) as Record<string, unknown>;
-  const primaryVal = primaryPart ? String(rowVals[primaryPart.field] ?? '') : '';
-  const secondaryVal = secondaryPart ? String(rowVals[secondaryPart.field] ?? '') : '';
-  const tertiaryVal = tertiaryPart ? String(rowVals[tertiaryPart.field] ?? '') : '';
-  const badgeVal = badgePart ? String(rowVals[badgePart.field] ?? '') : '';
-  const prefixVal = prefixPart ? String(rowVals[prefixPart.field] ?? '') : '';
-  const suffixVal = suffixPart ? String(rowVals[suffixPart.field] ?? '') : '';
+  const primaryVal = primaryPart ? String(row.values[primaryPart.field] ?? '') : '';
+  const secondaryVal = secondaryPart ? String(row.values[secondaryPart.field] ?? '') : '';
+  const tertiaryVal = tertiaryPart ? String(row.values[tertiaryPart.field] ?? '') : '';
+  const badgeVal = badgePart ? String(row.values[badgePart.field] ?? '') : '';
+  const prefixVal = prefixPart ? String(row.values[prefixPart.field] ?? '') : '';
+  const suffixVal = suffixPart ? String(row.values[suffixPart.field] ?? '') : '';
   
-  const iconRawVal = iconPart ? String(rowVals[iconPart.field] ?? '') : '';
+  const iconRawVal = iconPart ? String(row.values[iconPart.field] ?? '') : '';
   const iconCol = iconPart && allColumns ? allColumns.find(c => c.key === iconPart.field) : null;
 
   return (
@@ -93,7 +92,7 @@ export function CompositeCell({
       {leftIcon && (
         avatarPart ? (
           <AvatarCell
-            src={String(rowVals[avatarPart.field] ?? '')}
+            src={String(row.values[avatarPart.field] ?? '')}
             name={primaryVal}
             isDarkMode={isDarkMode}
           />
@@ -180,6 +179,8 @@ function AvatarCell({ src, name, isDarkMode }: { src: string; name: string; isDa
         <img
           src={src}
           alt={name}
+          loading="lazy"
+          decoding="async"
           className="w-full h-full object-cover"
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -252,12 +253,12 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
 
     case 'number':
       return (
-        <div className={`group flex items-center gap-1.5 text-[13px] font-medium tabular-nums ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-          <span className="truncate">{value !== null && value !== undefined ? formatNumber(value) : <span className="text-gray-400">—</span>}</span>
+        <div className={`group relative flex items-center gap-1.5 min-w-0 text-[13px] font-medium tabular-nums ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+          <span className="min-w-0 flex-1 truncate">{value !== null && value !== undefined ? formatNumber(value) : <span className="text-gray-400">—</span>}</span>
           {value !== null && value !== undefined && (
             <button
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(value)); }}
-              className={`opacity-0 group-hover:opacity-100 p-1 rounded-md transition-opacity flex-shrink-0 ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
+              className={`absolute right-0 top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1 rounded-md transition-opacity flex-shrink-0 ${isDarkMode ? 'bg-[#122420]/95 hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'bg-white/95 hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
               title="Copy"
             >
               <Icon icon="hugeicons:copy-01" className="w-3.5 h-3.5" />
@@ -329,60 +330,6 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
     case 'status':
       return str ? <StatusBadge value={str} isDarkMode={isDarkMode} /> : null;
 
-    case 'code': {
-      const isPk = isFieldColumn(column) && column.isPrimaryKey && column.key !== 'vendor_code';
-      return (
-        <div className="group flex items-center gap-1.5 font-mono text-[12px] font-semibold tracking-wide">
-          <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border select-all ${
-              isPk
-                ? isDarkMode
-                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 font-bold'
-                  : 'bg-amber-50 text-amber-800 border-amber-200 shadow-sm font-bold'
-                : isDarkMode
-                  ? 'bg-gray-800 text-gray-200 border-gray-700'
-                  : 'bg-gray-100 text-gray-800 border-gray-200'
-            }`}
-          >
-            {isPk && <Icon icon="lucide:key" className="w-3 h-3 text-amber-500 flex-shrink-0" />}
-            {str}
-          </span>
-          {str && (
-            <button
-              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(str); }}
-              className={`opacity-0 group-hover:opacity-100 p-1 rounded-md transition-opacity flex-shrink-0 ${
-                isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'
-              }`}
-              title="Copy"
-            >
-              <Icon icon="hugeicons:copy-01" className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      );
-    }
-
-    case 'mono':
-      return (
-        <span className="font-mono text-[12px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-          {str}
-        </span>
-      );
-
-    case 'dot':
-      return (
-        <div className="w-full flex justify-center items-center">
-          <span
-            className={`w-2.5 h-2.5 rounded-full inline-block transition-transform hover:scale-125 ${
-              Boolean(value)
-                ? 'bg-[#10b981] shadow-[0_0_6px_rgba(16,185,129,0.5)]'
-                : isDarkMode ? 'bg-gray-600' : 'bg-gray-400'
-            }`}
-            title={Boolean(value) ? 'Active / Yes' : 'No / Disabled'}
-          />
-        </div>
-      );
-
     case 'dropdown':
       return str ? (
         <span className={`inline-flex px-2 py-0.5 rounded-md text-[12px] font-medium
@@ -450,42 +397,81 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
 
     case 'email':
       return str ? (
-        <div className="group flex items-center gap-1 min-w-0 -ml-1">
-          <a href={`mailto:${str}`} onClick={e => e.stopPropagation()} className={`inline-flex items-center justify-center p-1 rounded-md transition-colors ${isDarkMode ? 'text-blue-400 hover:bg-gray-700 hover:text-blue-300' : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'}`} title="Send Email">
-            <Icon icon="hugeicons:mail-01" className="w-3.5 h-3.5 flex-shrink-0" />
+        <div className="group relative flex items-center gap-1.5 min-w-0">
+          <a
+            href={`mailto:${str}`}
+            onClick={e => e.stopPropagation()}
+            className={`inline-flex size-4 flex-shrink-0 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'text-blue-400 hover:bg-gray-700 hover:text-blue-300' : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'}`}
+            title="Send Email"
+          >
+            <Icon icon="hugeicons:mail-01" className="size-3.5" aria-hidden="true" />
           </a>
-          <span className={`truncate text-[13px] font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{str}</span>
+          <span
+            className={`min-w-0 flex-1 truncate text-[13px] font-medium leading-none ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}
+          >
+            {str}
+          </span>
           <button
-            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(str); }}
-            className={`opacity-0 group-hover:opacity-100 ml-0.5 p-1 rounded-md transition-opacity flex-shrink-0 ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(str);
+            }}
+            className={`absolute right-0 top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1 rounded-md transition-opacity flex-shrink-0 ${isDarkMode ? 'bg-[#122420]/95 hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'bg-white/95 hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
             title="Copy Email"
           >
-            <Icon icon="hugeicons:copy-01" className="w-3.5 h-3.5" />
+            <Icon icon="hugeicons:copy-01" className="size-3.5" aria-hidden="true" />
           </button>
         </div>
-      ) : <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>;
+      ) : (
+        <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>
+      );
 
     case 'phone':
       return str ? (
-        <div className="group flex items-center gap-1 min-w-0 -ml-1">
-          <a href={`tel:${str.replace(/[^\d+]/g, '')}`} onClick={e => e.stopPropagation()} className={`inline-flex items-center justify-center p-1 rounded-md transition-colors ${isDarkMode ? 'text-blue-400 hover:bg-gray-700 hover:text-blue-300' : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'}`} title="Call">
-            <Icon icon="hugeicons:call" className="w-3.5 h-3.5 flex-shrink-0" />
+        <div className="group relative flex items-center gap-1.5 min-w-0">
+          <a
+            href={`tel:${str.replace(/[^\d+]/g, '')}`}
+            onClick={e => e.stopPropagation()}
+            className={`inline-flex size-4 flex-shrink-0 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'text-blue-400 hover:bg-gray-700 hover:text-blue-300' : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'}`}
+            title="Call"
+          >
+            <Icon icon="hugeicons:call" className="size-3.5" aria-hidden="true" />
           </a>
-          <span className={`truncate text-[13px] font-medium tabular-nums ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{str}</span>
-          <div className="opacity-0 group-hover:opacity-100 flex items-center transition-opacity ml-0.5 flex-shrink-0">
-            <a href={`https://wa.me/${str.replace(/[^\d]/g, '')}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className={`p-1 rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-green-400 hover:text-green-300' : 'hover:bg-green-50 text-green-600 hover:text-green-700'}`} title="Message on WhatsApp">
-              <Icon icon="mdi:whatsapp" className="w-4 h-4" />
+          <span
+            className={`min-w-0 flex-1 truncate text-[13px] font-medium tabular-nums leading-none ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}
+          >
+            {str}
+          </span>
+          <div
+            className={`absolute right-0 top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto flex items-center transition-opacity ${isDarkMode ? 'bg-[#122420]/95' : 'bg-white/95'}`}
+          >
+            <a
+              href={`https://wa.me/${str.replace(/[^\d]/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className={`inline-flex size-4 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-green-400 hover:text-green-300' : 'hover:bg-green-50 text-green-600 hover:text-green-700'}`}
+              title="Message on WhatsApp"
+            >
+              <Icon icon="mdi:whatsapp" className="size-3.5" aria-hidden="true" />
             </a>
             <button
-              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(str); }}
-              className={`p-1 rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(str);
+              }}
+              className={`inline-flex size-4 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
               title="Copy Phone"
             >
-              <Icon icon="hugeicons:copy-01" className="w-3.5 h-3.5" />
+              <Icon icon="hugeicons:copy-01" className="size-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>
-      ) : <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>;
+      ) : (
+        <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>
+      );
 
     case 'attachment': {
       const items = Array.isArray(value) ? value as AttachmentItem[] : (typeof value === 'string' && value ? [{ id: '1', name: value.split('/').pop() || 'Attachment', url: value, type: value.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? 'image' : 'file' }] as AttachmentItem[] : []);
@@ -509,7 +495,7 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
 
     case 'image':
       return str ? (
-        <img src={str} alt="" className="w-8 h-8 rounded-lg object-cover" />
+        <img src={str} alt="" loading="lazy" decoding="async" className="w-8 h-8 rounded-lg object-cover" />
       ) : null;
 
     case 'link':

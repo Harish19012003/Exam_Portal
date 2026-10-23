@@ -8,6 +8,7 @@ import { CompositeCell } from '../renderers';
 import { FormulaBuilder } from './FormulaBuilder';
 import { ConditionalFormatBuilder } from './ConditionalFormatBuilder';
 import type { ColumnConfig, CompositeColumnDef, CompositeRole, ConditionalFormatRule, DataRow } from '../types';
+import { isFieldColumn, isCompositeColumn } from '../types';
 
 interface SidebarManagerProps {
   columns: ColumnConfig[];
@@ -130,7 +131,7 @@ export function SidebarManager({
     <>
       {/* Backdrop */}
       <div 
-        className={`fixed inset-0 z-[9990] transition-opacity duration-300 ${isAnimatingIn ? 'opacity-100' : 'opacity-0'} ${isDetailView ? 'bg-black/20 backdrop-blur-sm' : 'bg-transparent'}`} 
+        className={`fixed inset-0 z-[9990] transition-opacity duration-300 ${isAnimatingIn ? 'opacity-100' : 'opacity-0'} ${isDetailView ? 'bg-black/15' : 'bg-transparent'}`} 
         onClick={view === 'list' ? handleClose : undefined}
       />
       
@@ -484,15 +485,15 @@ function ListView({
               {!isGroup && ['dropdown', 'multiselect', 'status'].includes(col.dataType) && (
                 <div 
                   className={`flex items-center gap-2 ml-2 px-2 py-1 rounded-lg border transition-colors cursor-pointer select-none
-                    ${col.allowCustom ? (isDarkMode ? 'border-[#13C296]/30 bg-[#13C296]/10 text-[#13C296]' : 'border-[#13C296]/30 bg-[#13C296]/5 text-[#13C296]') : (isDarkMode ? 'border-gray-700 text-gray-400 hover:text-gray-300 hover:bg-white/5' : 'border-gray-200 text-gray-500 hover:text-gray-600 hover:bg-gray-50')}`}
-                  onClick={() => onUpdateColumnProp(col.key, 'allowCustom', !col.allowCustom)}
+                    ${isFieldColumn(col) && col.allowCustom ? (isDarkMode ? 'border-[#13C296]/30 bg-[#13C296]/10 text-[#13C296]' : 'border-[#13C296]/30 bg-[#13C296]/5 text-[#13C296]') : (isDarkMode ? 'border-gray-700 text-gray-400 hover:text-gray-300 hover:bg-white/5' : 'border-gray-200 text-gray-500 hover:text-gray-600 hover:bg-gray-50')}`}
+                  onClick={() => onUpdateColumnProp(col.key, 'allowCustom', isFieldColumn(col) ? !col.allowCustom : false)}
                   title="Allow Custom Input"
                 >
                   <span className="text-[10px] font-semibold whitespace-nowrap">Custom</span>
                   <div className={`w-6 h-3.5 rounded-full transition-colors relative flex-shrink-0
-                    ${col.allowCustom ? 'bg-[#13C296]' : isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}>
+                    ${isFieldColumn(col) && col.allowCustom ? 'bg-[#13C296]' : isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}>
                     <div className={`absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm
-                      ${col.allowCustom ? 'translate-x-[10px]' : 'translate-x-0'}`} />
+                      ${isFieldColumn(col) && col.allowCustom ? 'translate-x-[10px]' : 'translate-x-0'}`} />
                   </div>
                 </div>
               )}
@@ -523,7 +524,7 @@ function EditView({ columns, editingKey, onSave, rows, isDarkMode }: EditViewPro
   const [label, setLabel] = useState(targetCol?.label || '');
   const [previewRowIndex, setPreviewRowIndex] = useState(0);
   const [parts, setParts] = useState<{ field: string; role: CompositeRole }[]>(
-    targetCol && targetCol.dataType === 'composite' ? [...targetCol.composedOf] : []
+    targetCol && isCompositeColumn(targetCol) ? [...(targetCol.composedOf || [])] : []
   );
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
 
@@ -565,12 +566,11 @@ function EditView({ columns, editingKey, onSave, rows, isDarkMode }: EditViewPro
 
   const previewRow: DataRow = useMemo(() => {
     const realRow = rows?.[previewRowIndex];
-    const realRowVals = (realRow?.values ?? realRow ?? {}) as Record<string, unknown>;
     const vals: Record<string, unknown> = {};
     parts.forEach((p, i) => {
       if (!p.field) return;
-      if (realRow && realRowVals[p.field] !== undefined && realRowVals[p.field] !== '') {
-        vals[p.field] = realRowVals[p.field];
+      if (realRow && realRow.values[p.field] !== undefined && realRow.values[p.field] !== '') {
+        vals[p.field] = realRow.values[p.field];
       } else {
         if (p.role === 'avatar') vals[p.field] = `https://i.pravatar.cc/150?u=${i}`;
         else if (p.role === 'icon') vals[p.field] = 'US';

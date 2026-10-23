@@ -57,8 +57,7 @@ export function evaluateFormulaHelper(
                 ? JSON.stringify(nestedVal)
                 : String(Number(nestedVal) || 0);
           } else {
-            const valMap = (row?.values ?? row ?? {}) as Record<string, unknown>;
-            const raw = valMap[key];
+            const raw = row.values[key];
             if (refCol.dataType === 'date' || refCol.dataType === 'datetime') {
               const dateObj = new Date(String(raw));
               replacement = String(!isNaN(dateObj.getTime()) ? dateObj.getTime() / 86400000 : 0);
@@ -126,8 +125,7 @@ export function getAggregatableValue(
     if (computed === undefined) return undefined;
     return normalizeFormulaResult(col, computed);
   }
-  const valMap = (row?.values ?? row ?? {}) as Record<string, unknown>;
-  return valMap[col.key];
+  return row.values[col.key];
 }
 
 /** Comparable numeric value for temporal aggregations (date / datetime / time). */

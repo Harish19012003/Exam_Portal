@@ -4,7 +4,7 @@ import { TextEditor } from './TextEditor';
 import { NumberEditor } from './NumberEditor';
 import { DropdownEditor } from './DropdownEditor';
 import { MultiSelectDropdownEditor } from './MultiSelectDropdownEditor';
-import { DateEditor, TimeEditor } from './DateTimeEditors';
+import { DateEditor, DateTimeEditor, TimeEditor } from './DateTimeEditors';
 import { BooleanEditor } from './ToggleEditors';
 import { CheckboxEditor } from './CheckboxEditor';
 import { CompositeEditor } from './CompositeEditor';
@@ -28,8 +28,9 @@ export function CellEditor(props: CellEditorProps) {
     case 'status':
       return <DropdownEditor {...props} />;
     case 'date':
-    case 'datetime':
       return <DateEditor {...props} />;
+    case 'datetime':
+      return <DateTimeEditor {...props} />;
     case 'time':
       return <TimeEditor {...props} />;
     case 'boolean':
