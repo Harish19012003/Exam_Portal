@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import type { AggregationType, ColumnConfig, ConditionalFormatRule, DataRow, FilterValue, PendingDelete, SortConfig, PendingEdit, SavedView, Density } from '../types';
+import { isFieldColumn } from '../types';
 import { genRowId } from '../utils';
 import { readPref, saveTablePrefs, TABLE_PREFS_KEY } from '../utils/prefsStorage';
 import { normalizeConditionalFormatRule } from '../utils/conditionalFormat';
@@ -37,10 +38,22 @@ export function useTableState(
   initialColumns: ColumnConfig[],
   initialRows: DataRow[],
   tableId?: string,
+  callbacks?: {
+    onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
+    onRowDelete?: (rowIds: string[]) => Promise<void> | void;
+    onRefresh?: () => Promise<void> | void;
+  },
 ): TableStateHandlers {
+  const callbacksRef = useRef(callbacks);
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
+
+  const initialRowsRef = useRef(initialRows);
   const [rows, setRows] = useState<DataRow[]>(() => normalizeDataRows(initialRows));
 
   useEffect(() => {
+    initialRowsRef.current = initialRows;
     if (initialRows) {
       setRows(normalizeDataRows(initialRows));
     }
@@ -86,8 +99,12 @@ export function useTableState(
     initialColumns.forEach(c => { defaults[c.key] = c.visible; });
     const saved = readPref('columnVisibility', defaults, tableId);
     const initKeys = new Set(initialColumns.map(c => c.key));
-    const hasKeys = Object.keys(saved).some(k => initKeys.has(k));
-    return hasKeys ? { ...defaults, ...saved } : defaults;
+    const filteredSaved: Record<string, boolean> = {};
+    Object.keys(saved).forEach(k => {
+      if (initKeys.has(k)) filteredSaved[k] = saved[k];
+    });
+    const hasKeys = Object.keys(filteredSaved).some(k => initKeys.has(k));
+    return hasKeys ? { ...defaults, ...filteredSaved } : defaults;
   });
 
   const [highlightedColKey, setHighlightedColKey] = useState<string | null>(null);
@@ -209,9 +226,14 @@ export function useTableState(
 
   // ── Inline edit ────────────────────────────────────────────────────────────
   const handleCellSave = useCallback((rowId: string, colKey: string, newValue: unknown) => {
-    setRows(prev =>
-      prev.map(r => r.rowId === rowId ? { ...r, values: { ...r.values, [colKey]: newValue } } : r)
-    );
+    setRows(prev => {
+      const nextRows = prev.map(r => r.rowId === rowId ? { ...r, values: { ...r.values, [colKey]: newValue } } : r);
+      const target = nextRows.find(r => r.rowId === rowId);
+      if (callbacksRef.current?.onRowUpdate && target) {
+        callbacksRef.current.onRowUpdate(rowId, { [colKey]: newValue }, target);
+      }
+      return nextRows;
+    });
     setEditingCell(null);
   }, []);
 
@@ -240,9 +262,14 @@ export function useTableState(
             });
           }
 
-          return rPrev.map(r => 
+          const nextRows = rPrev.map(r => 
             r.rowId === rowId ? { ...r, values: { ...r.values, ...draft } } : r
           );
+          const target = nextRows.find(r => r.rowId === rowId);
+          if (callbacksRef.current?.onRowUpdate && target) {
+            callbacksRef.current.onRowUpdate(rowId, draft, target);
+          }
+          return nextRows;
         });
       }
       const next = { ...prev };
@@ -289,6 +316,10 @@ export function useTableState(
     setSelectedRows(prev => { const s = new Set(prev); s.delete(rowId); return s; });
     setContextMenu(null);
 
+    if (callbacksRef.current?.onRowDelete) {
+      callbacksRef.current.onRowDelete([rowId]);
+    }
+
     const timerId = setTimeout(() => {
       setPendingDelete(null);
     }, 15000);
@@ -319,13 +350,19 @@ export function useTableState(
   }, [pendingEdit]);
 
   const handleDeleteSelected = useCallback(() => {
+    const idsToDelete = Array.from(selectedRows);
     setRows(prev => prev.filter(r => !selectedRows.has(r.rowId)));
     setSelectedRows(new Set());
     setShowBulkConfirm(false);
+
+    if (callbacksRef.current?.onRowDelete && idsToDelete.length > 0) {
+      callbacksRef.current.onRowDelete(idsToDelete);
+    }
   }, [selectedRows]);
 
   const handleBulkUpdate = useCallback((updates: Record<string, unknown>) => {
     if (selectedRows.size === 0 || Object.keys(updates).length === 0) return;
+    const ids = Array.from(selectedRows);
     
     setRows(prev => {
       const originalRows = prev.filter(r => selectedRows.has(r.rowId));
@@ -343,9 +380,18 @@ export function useTableState(
         return { id: String(Date.now()), originalRows: newRows, timerId: editTimerRef.current! };
       });
 
-      return prev.map(r => 
+      const nextRows = prev.map(r => 
         selectedRows.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r
       );
+
+      if (callbacksRef.current?.onRowUpdate) {
+        ids.forEach(id => {
+          const target = nextRows.find(r => r.rowId === id);
+          if (target) callbacksRef.current?.onRowUpdate?.(id, updates, target);
+        });
+      }
+
+      return nextRows;
     });
     
     setSelectedRows(new Set());
@@ -353,10 +399,19 @@ export function useTableState(
   }, [selectedRows]);
 
   const handleAddRow = useCallback(() => {
-    const newRow: DataRow = { rowId: genRowId(), version: 1, values: {} };
+    const pkCol = initialColumns.find(c => isFieldColumn(c) && (c.isPrimaryKey || c.key === 'vendor_code'));
+    const initialVals: Record<string, unknown> = {};
+    let newId = genRowId();
+    if (pkCol) {
+      const prefix = pkCol.key.includes('vendor') ? 'VND' : 'ID';
+      const code = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
+      initialVals[pkCol.key] = code;
+      newId = code;
+    }
+    const newRow: DataRow = { rowId: newId, version: 1, values: initialVals };
     setRows(prev => [newRow, ...prev]);
     setPage(1);
-  }, []);
+  }, [initialColumns]);
 
   // ── Column management ──────────────────────────────────────────────────────
   const handleColumnWidthChange = useCallback((key: string, width: number) => {
@@ -436,6 +491,20 @@ export function useTableState(
     setActiveViewId(null);
   }, [initialColumns]);
 
+  const handleRefresh = useCallback(async () => {
+    if (callbacksRef.current?.onRefresh) {
+      try {
+        await callbacksRef.current.onRefresh();
+      } catch (err) {
+        console.error('Error refreshing table data:', err);
+      }
+    }
+    setRows(normalizeDataRows(initialRowsRef.current));
+    setEditingRowIds(new Set());
+    setRowDrafts({});
+    setEditingCell(null);
+  }, []);
+
   const {
     handleAddCompositeColumn,
     handleAddCompositeColumnAndContinue,
@@ -462,6 +531,7 @@ export function useTableState(
     setColumnWidths,
     setFilters,
     setSort,
+    tableId,
   );
 
   const {
@@ -517,7 +587,7 @@ export function useTableState(
     handleColumnWidthChange, handleColumnReorder,
     handleToggleColumnVisibility, handlePinColumn, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
     handleDeleteCompositeColumn, handleUpdateCompositeColumn,
-    handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset,
+    handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset, handleRefresh,
     openFilterKey, setOpenFilterKey,
     density, setDensity,
     activeSidebar, setActiveSidebar,

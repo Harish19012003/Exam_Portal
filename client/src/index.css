@@ -11,6 +11,8 @@
   --bg-sidebar: #f8f9fa;
   --bg-topbar: #ffffff;
   --bg-card: #ffffff;
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
   
   --text-primary: #1e2022;
   --text-secondary: #747980;
@@ -60,6 +62,8 @@ button {
   --bg-sidebar: #1e293b;
   --bg-topbar: #1e293b;
   --bg-card: #1e293b;
+  --bg-primary: #0f172a;
+  --bg-secondary: #0f172a;
   
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;

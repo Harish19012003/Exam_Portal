@@ -5,6 +5,7 @@ import notificationRoutes from './notifications/notification.routes.js';
 import announcementRoutes from './announcements/announcement.routes.js';
 import legalRoutes from './legal/legal.routes.js';
 import searchRoutes from './search/search.routes.js';
+import vendorRoutes from './vendors/vendor.routes.js';
 
 const router = Router();
 
@@ -15,6 +16,8 @@ router.use('/notifications', notificationRoutes);
 router.use('/announcements', announcementRoutes);
 router.use('/legal', legalRoutes);
 router.use('/search', searchRoutes);
+router.use('/vendors', vendorRoutes);
 
 // Export main v1 router
 export default router;
+

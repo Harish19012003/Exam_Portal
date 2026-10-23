@@ -6,23 +6,56 @@ import { NetworkIndicator } from '../components/ui/NetworkIndicator';
 import { NotificationDropdown } from '../components/ui/NotificationDropdown';
 import {
   LayoutDashboard,
+  LayoutGrid,
   FileText,
+  GraduationCap,
   Database,
-  Users,
+  DatabaseZap,
   TableProperties,
+  Table2,
+  Users,
   PanelLeftClose,
   PanelLeftOpen,
   Crown,
   LogOut,
-  ChevronsUpDown,
   ChevronRight,
   User,
+  UserCheck,
   Shield,
   Sun,
   Moon,
   Settings,
+  Settings2,
 } from 'lucide-react';
 import './DashboardLayout.css';
+
+const NAV_ITEMS = [
+  {
+    to: '/dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    activeIcon: LayoutGrid,
+    end: true,
+  },
+  {
+    to: '/exams',
+    label: 'Exams',
+    icon: FileText,
+    activeIcon: GraduationCap,
+  },
+  {
+    to: '/vendors',
+    label: 'Vendor Data',
+    icon: Database,
+    activeIcon: DatabaseZap,
+  },
+  {
+    to: '/tables',
+    label: 'Dynamic Table',
+    icon: TableProperties,
+    activeIcon: Table2,
+  },
+];
 
 export const DashboardLayout = () => {
   // Initialize and hold the global socket connection
@@ -89,25 +122,25 @@ export const DashboardLayout = () => {
   const getBreadcrumb = () => {
     const path = location.pathname.replace(/\/$/, '');
     if (path === '/dashboard/exams' || path === '/exams') {
-      return { label: 'Exams', icon: FileText };
+      return { label: 'Exams', icon: GraduationCap };
     }
     if (path === '/dashboard/vendors' || path === '/vendors') {
-      return { label: 'Vendor DataBase', icon: Database };
+      return { label: 'Vendor Data', icon: DatabaseZap };
     }
     if (path === '/dashboard/users' || path === '/users') {
       return { label: 'Settings / Users & Roles', icon: Users };
     }
     if (path === '/dashboard/tables' || path === '/tables') {
-      return { label: 'Dynamic Table', icon: TableProperties };
+      return { label: 'Dynamic Table', icon: Table2 };
     }
     if (path === '/dashboard/profile' || path === '/profile') {
-      return { label: 'Profile & Security', icon: User };
+      return { label: 'Profile & Security', icon: UserCheck };
     }
     if (path === '/settings' || path.startsWith('/settings')) {
       if (location.search.includes('tab=users')) {
         return { label: 'Settings / Users & Roles', icon: Users };
       }
-      return { label: 'Settings', icon: Settings };
+      return { label: 'Settings', icon: Settings2 };
     }
     if (path === '/dashboard/admin' || path === '/admin') {
       return { label: 'Settings / Users & Roles', icon: Shield };
@@ -132,26 +165,34 @@ export const DashboardLayout = () => {
 
         <div className="sidebar-content">
           <div className="sidebar-section">
-            <nav className="nav-list">
-              <NavLink to="/dashboard" end className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Dashboard">
-                <LayoutDashboard className="nav-icon" size={18} />
-                {isExpanded && <span>Dashboard</span>}
-              </NavLink>
-              
-              <NavLink to="/exams" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Exams">
-                <FileText className="nav-icon" size={18} />
-                {isExpanded && <span>Exams</span>}
-              </NavLink>
-
-              <NavLink to="/vendors" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Vendor DataBase">
-                <Database className="nav-icon" size={18} />
-                {isExpanded && <span>Vendor DataBase</span>}
-              </NavLink>
-
-              <NavLink to="/tables" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Option A Table">
-                <TableProperties className="nav-icon" size={18} />
-                {isExpanded && <span>Dynamic Table</span>}
-              </NavLink>
+            <nav className="nav-list" aria-label="Main Navigation">
+              {NAV_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const ActiveIcon = item.activeIcon;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                    title={item.label}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {isActive && <span className="nav-active-pill" aria-hidden="true" />}
+                        <span className={`nav-icon-wrap ${isActive ? 'active' : ''}`}>
+                          {isActive ? (
+                            <ActiveIcon className="nav-icon active-icon" size={18} strokeWidth={2.2} />
+                          ) : (
+                            <Icon className="nav-icon" size={18} strokeWidth={1.8} />
+                          )}
+                        </span>
+                        {isExpanded && <span className="nav-label">{item.label}</span>}
+                      </>
+                    )}
+                  </NavLink>
+                );
+              })}
             </nav>
           </div>
         </div>
@@ -163,8 +204,19 @@ export const DashboardLayout = () => {
             className={({ isActive }) => `sidebar-settings-link ${isActive ? 'active' : ''}`}
             title="Settings"
           >
-            <Settings size={18} className="sidebar-settings-icon" />
-            {isExpanded && <span>Settings</span>}
+            {({ isActive }) => (
+              <>
+                {isActive && <span className="nav-active-pill" aria-hidden="true" />}
+                <span className={`nav-icon-wrap ${isActive ? 'active' : ''}`}>
+                  {isActive ? (
+                    <Settings2 size={18} className="sidebar-settings-icon active-icon" strokeWidth={2.2} />
+                  ) : (
+                    <Settings size={18} className="sidebar-settings-icon" strokeWidth={1.8} />
+                  )}
+                </span>
+                {isExpanded && <span className="nav-label">Settings</span>}
+              </>
+            )}
           </NavLink>
 
           <div

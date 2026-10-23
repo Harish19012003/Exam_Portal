@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import { COLUMN_CONFIG, MOCK_ROWS } from './tableData';
+import type { ColumnConfig, DataRow } from './types';
 import { useTableState } from './hooks/useTableState';
 import { useDynamicTableFeedback } from './hooks/useDynamicTableFeedback';
 import { useProcessedRows } from './hooks/useProcessedRows';
@@ -33,6 +34,10 @@ interface DynamicTableProps {
   isDarkMode?: boolean;
   initialColumns?: ColumnConfig[];
   initialRows?: DataRow[];
+  onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
+  onRowDelete?: (rowIds: string[]) => Promise<void> | void;
+  onRefresh?: () => Promise<void> | void;
+  showAddRow?: boolean;
 }
 
 export function DynamicTable({
@@ -40,8 +45,12 @@ export function DynamicTable({
   isDarkMode = false,
   initialColumns = COLUMN_CONFIG,
   initialRows = MOCK_ROWS,
+  onRowUpdate,
+  onRowDelete,
+  onRefresh,
+  showAddRow = true,
 }: DynamicTableProps) {
-  const state = useTableState(initialColumns, initialRows, tableId);
+  const state = useTableState(initialColumns, initialRows, tableId, { onRowUpdate, onRowDelete, onRefresh });
   const theme = getTableTheme(isDarkMode);
   const { showSuccess, showNotice } = useDynamicTableFeedback(state);
 
@@ -170,10 +179,12 @@ export function DynamicTable({
 
   return (
     <div
-      className={isFullScreen ? `fixed inset-0 z-[9999] flex flex-col ${isDarkMode ? 'bg-gray-950' : 'bg-[#F9FAFB]'}` : `flex-1 flex flex-col overflow-hidden print:overflow-visible print:h-auto print:block ${isDarkMode ? 'bg-gray-950' : 'bg-[#F9FAFB]'}`}
+      className={isFullScreen ? `fixed inset-0 z-[9999] flex flex-col w-full ${isDarkMode ? 'bg-gray-950' : 'bg-[#F9FAFB]'}` : `w-full flex-1 flex flex-col print:overflow-visible print:h-auto print:block ${isDarkMode ? 'bg-gray-950' : 'bg-[#F9FAFB]'}`}
+      style={{ width: '100%' }}
     >
       <div
-        className={`flex flex-col ${isFullScreen ? 'm-0 rounded-none border-none' : 'm-0 rounded-xl border shadow-sm'} overflow-hidden print:overflow-visible print:border-none print:shadow-none print:m-0 flex-1 min-h-0 print:min-h-auto relative print:block ${theme.bgCard}`}
+        className={`flex flex-col w-full ${isFullScreen ? 'm-0 rounded-none border-none' : 'm-0 rounded-xl border shadow-sm'} print:overflow-visible print:border-none print:shadow-none print:m-0 flex-1 min-h-0 print:min-h-auto relative print:block ${theme.bgCard}`}
+        style={{ width: '100%' }}
       >
         <TableToolbar
           search={state.search}
@@ -181,12 +192,13 @@ export function DynamicTable({
           hasActiveFilters={hasActiveFilters}
           activeFilterCount={activeFilterCount}
           onClearAll={state.handleClearAll}
-          onRefresh={() => state.setRows([...MOCK_ROWS])}
+          onRefresh={state.handleRefresh}
           onOpenSidebar={() => {
             state.setActiveSidebar('columns');
             state.setOpenFilterKey(null);
           }}
-          onAddRow={state.handleAddRow}
+          onAddRow={showAddRow ? state.handleAddRow : undefined}
+          showAddRow={showAddRow}
           onResetPins={state.handleResetPins}
           onResetVisibility={state.handleResetVisibility}
           onResetOrder={state.handleResetOrder}
@@ -583,3 +595,6 @@ export function DynamicTable({
     </div>
   );
 }
+
+export { VENDOR_COLUMN_CONFIG, VENDOR_ROWS } from './vendorData';
+

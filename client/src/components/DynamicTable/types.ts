@@ -83,6 +83,7 @@ export interface FieldColumn extends BaseColumn {
   options?: string[]; // for dropdown | multiselect | status
   allowCustom?: boolean; // Allow custom inputs for dropdown, status, multiselect
   required?: boolean;
+  isPrimaryKey?: boolean;
   maxLength?: number;
   aggregation?: AggregationType;
   formula?: string;

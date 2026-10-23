@@ -112,12 +112,16 @@ export const STATUS_COLORS: Record<
   string,
   { light: string; dark: string; dot: string }
 > = {
-  Active:   { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-400', dot: 'bg-emerald-500' },
-  ACTIVE:   { light: 'bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]', dark: 'bg-emerald-950/40 text-emerald-400 border border-emerald-800', dot: 'bg-[#10b981]' },
-  Inactive: { light: 'bg-gray-100 text-gray-600',       dark: 'bg-gray-800 text-gray-400',          dot: 'bg-gray-400'   },
-  INACTIVE: { light: 'bg-gray-100 text-gray-600',       dark: 'bg-gray-800 text-gray-400',          dot: 'bg-gray-400'   },
-  Pending:  { light: 'bg-amber-100 text-amber-700',      dark: 'bg-amber-900/30 text-amber-400',    dot: 'bg-amber-500'  },
-  PENDING:  { light: 'bg-amber-100 text-amber-700',      dark: 'bg-amber-900/30 text-amber-400',    dot: 'bg-amber-500'  },
+  Active:         { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-400', dot: 'bg-emerald-500' },
+  ACTIVE:         { light: 'bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]', dark: 'bg-emerald-950/40 text-emerald-400 border border-emerald-800', dot: 'bg-[#10b981]' },
+  Inactive:       { light: 'bg-gray-100 text-gray-600',       dark: 'bg-gray-800 text-gray-400',          dot: 'bg-gray-400'   },
+  INACTIVE:       { light: 'bg-gray-100 text-gray-600',       dark: 'bg-gray-800 text-gray-400',          dot: 'bg-gray-400'   },
+  Pending:        { light: 'bg-amber-100 text-amber-700',      dark: 'bg-amber-900/30 text-amber-400',    dot: 'bg-amber-500'  },
+  PENDING:        { light: 'bg-amber-100 text-amber-700',      dark: 'bg-amber-900/30 text-amber-400',    dot: 'bg-amber-500'  },
+  Suspended:      { light: 'bg-rose-100 text-rose-700',        dark: 'bg-rose-950/40 text-rose-400 border border-rose-800/60', dot: 'bg-rose-500' },
+  SUSPENDED:      { light: 'bg-rose-100 text-rose-700',        dark: 'bg-rose-950/40 text-rose-400 border border-rose-800/60', dot: 'bg-rose-500' },
+  'Under Review': { light: 'bg-blue-100 text-blue-700',        dark: 'bg-blue-950/40 text-blue-400 border border-blue-800/60', dot: 'bg-blue-500' },
+  'UNDER REVIEW': { light: 'bg-blue-100 text-blue-700',        dark: 'bg-blue-950/40 text-blue-400 border border-blue-800/60', dot: 'bg-blue-500' },
 };
 
 /** Generate a unique row id */

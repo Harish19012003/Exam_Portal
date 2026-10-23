@@ -30,6 +30,7 @@ export function createSavedViewHandlers(
   setColumnWidths: SetState<Record<string, number>>,
   setFilters: SetState<Record<string, FilterValue>>,
   setSort: SetState<SortConfig[]>,
+  tableId?: string,
 ) {
   return {
     handleSaveView: (name: string) => {
@@ -45,7 +46,7 @@ export function createSavedViewHandlers(
       };
       setSavedViews(prev => {
         const next = [...prev, newView];
-        localStorage.setItem(TABLE_PREFS_KEY + '_views', JSON.stringify(next));
+        localStorage.setItem(getStorageKey(tableId) + '_views', JSON.stringify(next));
         return next;
       });
       setActiveViewId(id);
@@ -63,7 +64,7 @@ export function createSavedViewHandlers(
     handleDeleteView: (id: string) => {
       setSavedViews(prev => {
         const next = prev.filter(v => v.id !== id);
-        localStorage.setItem(TABLE_PREFS_KEY + '_views', JSON.stringify(next));
+        localStorage.setItem(getStorageKey(tableId) + '_views', JSON.stringify(next));
         return next;
       });
       if (activeViewId === id) setActiveViewId(null);

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ChevronDown, Filter, Info, Pin, PinOff, GripVertical, X, Layers } from 'lucide-react';
+import { ChevronDown, Filter, Info, Pin, PinOff, GripVertical, X, Layers, Key } from 'lucide-react';
 import { isFieldColumn, isCompositeColumn } from '../types';
 import type { ColumnConfig, FilterValue, SortConfig } from '../types';
 
@@ -53,7 +53,7 @@ export function TableHeader({
 
   const thBg = isDarkMode ? 'bg-gray-900' : 'bg-white';
   const borderCls = isDarkMode ? 'border-gray-800' : 'border-gray-100';
-  const textCls = isDarkMode ? 'text-gray-400' : 'text-gray-500';
+  const textCls = isDarkMode ? 'text-gray-300' : 'text-gray-700';
 
   const startResize = (e: React.MouseEvent, key: string) => {
     e.stopPropagation();
@@ -90,13 +90,13 @@ export function TableHeader({
 
   return (
     <thead className={`sticky top-0 z-20 ${thBg}`}>
-      <tr>
+      <tr className="h-[46px]" style={{ height: '46px' }}>
         {/* Checkbox */}
         <th
-          style={{ width: CHECKBOX_WIDTH, minWidth: CHECKBOX_WIDTH, position: 'sticky', left: 0, zIndex: 21 }}
-          className={`${thBg} border-b ${borderCls} px-3`}
+          style={{ width: CHECKBOX_WIDTH, minWidth: CHECKBOX_WIDTH, height: '46px', position: 'sticky', left: 0, zIndex: 21 }}
+          className={`${thBg} border-b ${borderCls} px-3 h-[46px]`}
         >
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-center h-full" style={{ height: '100%', minHeight: '46px' }}>
             <IndeterminateCheckbox
               checked={allColumnsSelected}
               indeterminate={someRowsSelected && !allColumnsSelected}
@@ -138,6 +138,7 @@ export function TableHeader({
                 width: actualW,
                 minWidth: actualW,
                 maxWidth: actualW,
+                height: '46px',
                 paddingLeft: isHiding ? 0 : undefined,
                 paddingRight: isHiding ? 0 : undefined,
                 opacity: isHiding ? 0 : 1,
@@ -145,7 +146,7 @@ export function TableHeader({
                 ...(offset?.left !== undefined ? { position: 'sticky', left: offset.left, zIndex: 22 } : {}),
                 ...(offset?.right !== undefined ? { position: 'sticky', right: offset.right, zIndex: 22 } : {}),
               } as React.CSSProperties}
-              className={`${isHighlighted || isHiding ? '' : thBg} overflow-hidden whitespace-nowrap border-b ${borderCls} select-none relative group/th ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
+              className={`${isHighlighted || isHiding ? '' : thBg} overflow-hidden whitespace-nowrap border-b ${borderCls} select-none relative group/th h-[46px] ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
                 ${isDragging ? 'opacity-40' : ''}
                 ${isLastLeftPinned ? 'shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}
                 ${isFirstRightPinned ? 'shadow-[-4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}`}
@@ -165,7 +166,10 @@ export function TableHeader({
               }}
               onDragEnd={() => setDragColKey(null)}
             >
-              <div className="flex items-center justify-between px-3 py-3 min-w-0 w-full h-full gap-2">
+              <div 
+                className="flex items-center justify-between px-3.5 py-2 min-w-0 w-full h-full gap-2"
+                style={{ height: '100%', minHeight: '46px', boxSizing: 'border-box' }}
+              >
                 <div className={`flex items-center gap-1 min-w-0 ${col.dataType === 'boolean' || col.dataType === 'checkbox' ? 'w-full justify-center pl-6' : ''}`}>
                   <GripVertical
                     className={`w-3 h-3 flex-shrink-0 opacity-0 group-hover/th:opacity-100 transition-opacity cursor-grab
@@ -173,7 +177,7 @@ export function TableHeader({
                     aria-hidden="true"
                   />
                   <button
-                    className={`flex items-center gap-1 min-w-0 max-w-full text-left transition-colors group/sort
+                    className={`flex items-center gap-1.5 min-w-0 max-w-full text-left transition-colors group/sort
                       ${isSorted
                         ? (isDarkMode ? 'text-[#13C296]' : 'text-[#0a8066]')
                         : textCls}
@@ -185,26 +189,35 @@ export function TableHeader({
                     aria-sort={isSorted ? (sort.find(s => s.key === col.key)?.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                     aria-label={`${col.label}${isFieldColumn(col) && col.sortable !== false ? ' — click to sort, shift+click for multi-sort' : ''}`}
                   >
-                    <span className="text-[12px] font-bold uppercase tracking-wide truncate">
+                    <span className="text-[13.5px] font-bold uppercase tracking-wide truncate">
                       {col.label}
                     </span>
+                    {isFieldColumn(col) && col.isPrimaryKey && col.key !== 'vendor_code' && (
+                      <span
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold tracking-wider bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex-shrink-0"
+                        title="Primary Key (Unique Identifier)"
+                      >
+                        <Key className="w-2.5 h-2.5" />
+                        PK
+                      </span>
+                    )}
                     {col.description && (
                       <span title={col.description}>
                         <Info
-                          className={`w-3 h-3 flex-shrink-0 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}
+                          className={`w-3.5 h-3.5 flex-shrink-0 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}
                           aria-label={col.description}
                         />
                       </span>
                     )}
                     {sortIcon && (
-                      <span className="text-[11px] font-bold flex-shrink-0 leading-none">
+                      <span className="text-[12px] font-bold flex-shrink-0 leading-none">
                         {sortIcon}
                         {sortIdx && <sup className="text-[9px]">{sortIdx}</sup>}
                       </span>
                     )}
                     {isFieldColumn(col) && col.sortable !== false && !isSorted && (
                       <ChevronDown
-                        className="w-3 h-3 flex-shrink-0 hidden group-hover/sort:block opacity-60"
+                        className="w-3.5 h-3.5 flex-shrink-0 hidden group-hover/sort:block opacity-60"
                         aria-hidden="true"
                       />
                     )}
@@ -306,8 +319,8 @@ export function TableHeader({
 
         {/* Actions column */}
         <th
-          style={{ width: ACTIONS_WIDTH, minWidth: ACTIONS_WIDTH, position: 'sticky', right: 0, zIndex: 21 }}
-          className={`${thBg} border-b ${borderCls}`}
+          style={{ width: ACTIONS_WIDTH, minWidth: ACTIONS_WIDTH, height: '46px', position: 'sticky', right: 0, zIndex: 21 }}
+          className={`${thBg} border-b ${borderCls} h-[46px]`}
         />
       </tr>
     </thead>

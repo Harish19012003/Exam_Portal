@@ -13,6 +13,7 @@ import { ResetPasswordPage } from '../pages/ResetPasswordPage';
 import { LandingPage } from '../pages/LandingPage';
 import { UsersPage } from '../pages/UsersPage';
 import { TablesPage } from '../pages/TablesPage';
+import { VendorsPage } from '../pages/VendorsPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
 const UnauthorizedPage = () => (
@@ -85,7 +86,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/vendors',
-            element: <TablesPage />,
+            element: <VendorsPage />,
           },
           {
             path: '/users',

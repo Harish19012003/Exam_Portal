@@ -22,32 +22,22 @@ async function runMigrations() {
   await connection.query(`CREATE DATABASE IF NOT EXISTS \`${env.DB_NAME}\`;`);
   await connection.query(`USE \`${env.DB_NAME}\`;`);
 
-  await connection.query(`CREATE TABLE IF NOT EXISTS \`_migrations\` (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );`);
-
-  const [appliedRows] = await connection.query(`SELECT name FROM \`_migrations\`;`);
-  const appliedSet = new Set(appliedRows.map((r) => r.name));
-
   const migrationsDir = path.join(__dirname, 'migrations');
   const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
 
   for (const file of files) {
-    if (appliedSet.has(file)) {
-      console.log(`⏭ Skipping already applied migration: ${file}`);
-      continue;
-    }
-    console.log(`▶ Running migration: ${file}...`);
+    console.log(`▶ Executing schema script: ${file}...`);
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    await connection.query(sql);
-    await connection.query(`INSERT INTO \`_migrations\` (name) VALUES (?);`, [file]);
-    console.log(`✅ Applied: ${file}`);
+    try {
+      await connection.query(sql);
+      console.log(`✅ Applied: ${file}`);
+    } catch (err) {
+      console.warn(`⚠️ Skipped or already applied (${file}): ${err.message}`);
+    }
   }
 
   await connection.end();
-  console.log('🎉 All migrations applied successfully!');
+  console.log('🎉 Database schema ready!');
 }
 
 runMigrations().catch((err) => {

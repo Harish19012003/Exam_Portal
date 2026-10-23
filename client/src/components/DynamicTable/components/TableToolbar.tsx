@@ -13,9 +13,10 @@ interface TableToolbarProps {
   hasActiveFilters: boolean;
   activeFilterCount: number;
   onClearAll: () => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   onOpenSidebar: () => void;
-  onAddRow: () => void;
+  onAddRow?: () => void;
+  showAddRow?: boolean;
   onResetPins: () => void;
   onResetVisibility: () => void;
   onResetOrder: () => void;
@@ -60,6 +61,7 @@ export function TableToolbar({
   onRefresh,
   onOpenSidebar,
   onAddRow,
+  showAddRow = true,
   onResetPins,
   onResetVisibility,
   onResetOrder,
@@ -116,10 +118,17 @@ export function TableToolbar({
   const viewsRef = useRef<HTMLDivElement>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    onRefresh();
-    setTimeout(() => setIsRefreshing(false), 700); // Spin for 700ms
+    try {
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (err) {
+      console.error('Error refreshing table data:', err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 700); // Spin for at least 700ms
+    }
   };
 
   useEffect(() => {
@@ -133,14 +142,24 @@ export function TableToolbar({
     }
   }, [showSettings, showViews]);
 
-  const iconBtnCls = `relative flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-90 duration-200 flex-shrink-0
+  const iconBtnCls = `relative flex items-center justify-center w-[34px] h-[34px] rounded-lg border transition-all active:scale-95 duration-150 flex-shrink-0
     ${isDarkMode
-      ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-      : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`;
+      ? 'border-gray-800 bg-gray-900/60 hover:bg-gray-800 hover:border-gray-700 text-gray-400 hover:text-gray-100 shadow-xs'
+      : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 text-gray-600 hover:text-gray-900 shadow-xs'}`;
 
   return (
-    <div className={`print:hidden flex flex-col gap-2 px-4 py-3 border-b flex-shrink-0
-      ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
+    <div 
+      className={`print:hidden flex flex-col gap-2 px-4 sm:px-6 py-2.5 border-b flex-shrink-0 w-full relative z-30 rounded-t-xl
+        ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}
+      style={{
+        width: '100%',
+        paddingLeft: '20px',
+        paddingRight: '20px',
+        paddingTop: '10px',
+        paddingBottom: '10px',
+        boxSizing: 'border-box',
+      }}
+    >
       <style>{`
         @keyframes slideDownFade {
           from { opacity: 0; transform: translateY(-8px) scale(0.95); }
@@ -149,95 +168,106 @@ export function TableToolbar({
       `}</style>
       
       {/* Top row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Search & Filters */}
-        <div className="w-full sm:flex-1 sm:min-w-[200px] sm:max-w-[320px] flex items-center">
-            {/* Search */}
+      <div 
+        className="flex items-center justify-between gap-3 w-full flex-wrap"
+        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+      >
+        {/* Left Side: Search & Filters & Bulk Selection */}
+        <div 
+          className="flex items-center gap-2.5 flex-wrap min-w-0"
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}
+        >
+          {/* Search */}
+          <div
+            className="w-full sm:w-[260px] md:w-[280px] flex items-center"
+            style={{ width: '100%', maxWidth: '280px' }}
+          >
             <div 
-              className={`flex items-center gap-2 rounded-xl transition-all duration-300 ease-in-out overflow-hidden
-                w-full px-3 py-2 border focus-within:ring-2 focus-within:ring-[#13C296]/20 focus-within:border-[#13C296]
-                ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}
+              className={`flex items-center gap-2 rounded-lg transition-all duration-200 overflow-hidden
+                w-full h-[34px] px-3 border focus-within:ring-2 focus-within:ring-[#13C296]/20 focus-within:border-[#13C296]
+                ${isDarkMode ? 'bg-gray-900/60 border-gray-800 text-gray-200' : 'bg-white border-gray-200 text-gray-800 shadow-xs'}
               `}
               onClick={() => searchRef.current?.focus()}
             >
-              <Search className={`flex-shrink-0 w-3.5 h-3.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} aria-hidden="true" />
+              <Search className={`flex-shrink-0 w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`} aria-hidden="true" />
               
               <input
                 ref={searchRef}
                 value={search}
                 onChange={e => onSearch(e.target.value)}
                 placeholder="Search all columns…"
-                className={`text-[13px] bg-transparent outline-none transition-all duration-300 flex-1 opacity-100 w-full
-                  ${isDarkMode ? 'text-gray-200 placeholder-gray-600' : 'text-gray-800 placeholder-gray-400'}`}
+                className={`text-[13px] bg-transparent outline-none transition-all duration-200 flex-1 opacity-100 w-full
+                  ${isDarkMode ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'}`}
                 aria-label="Global search"
               />
               
               {search && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onSearch(''); searchRef.current?.focus(); }}
-                  className={`flex-shrink-0 animate-[fadeIn_0.2s_ease-out] ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`flex-shrink-0 p-0.5 rounded transition-colors ${isDarkMode ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
                   aria-label="Clear search"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
-        </div>
-            {/* Filter indicator */}
-            {hasActiveFilters && (
-              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] font-semibold
-                ${isDarkMode ? 'bg-[#13C296]/10 border-[#13C296]/30 text-[#13C296]' : 'bg-[#13C296]/10 border-[#13C296]/20 text-[#0f9f7a]'}`}>
-                <Filter className="w-3 h-3" aria-hidden="true" />
-                {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}
-              </div>
-            )}
-        {/* Bulk Selection Actions */}
-        {selectedCount > 0 && (
-          <div className="flex items-center animate-[fadeIn_0.2s_ease-out]">
-            
-            <div className={`flex items-center h-9 rounded-lg p-1 transition-all
-              ${isDarkMode ? 'bg-gray-800/80' : 'bg-gray-100'}`}
-            >
-              <div className="flex items-center gap-1 h-full px-1">
-                <button
-                  onClick={onCancelSelection}
-                  title="Deselect All"
-                  className={`flex items-center justify-center w-7 h-full rounded-md transition-all
-                    ${isDarkMode ? 'text-gray-400 hover:bg-gray-700 hover:text-gray-200' : 'text-gray-400 hover:bg-gray-200 hover:text-gray-700'}`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
+          </div>
 
-                <div className={`w-px h-4 mx-0.5 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
+          {/* Filter indicator */}
+          {hasActiveFilters && (
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] font-semibold
+              ${isDarkMode ? 'bg-[#13C296]/10 border-[#13C296]/30 text-[#13C296]' : 'bg-[#13C296]/10 border-[#13C296]/20 text-[#0f9f7a]'}`}>
+              <Filter className="w-3 h-3" aria-hidden="true" />
+              {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}
+            </div>
+          )}
 
-                <button
-                  onClick={onEditSelected}
-                  title="Edit"
-                  className={`flex items-center justify-center w-7 h-full rounded-md transition-all
-                    ${isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-white' : 'text-gray-500 hover:bg-white hover:shadow-sm hover:text-gray-900'}`}
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={onBulkUpdate}
-                  title="Mass Update"
-                  className={`flex items-center justify-center w-7 h-full rounded-md transition-all
-                    ${isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-white' : 'text-gray-500 hover:bg-white hover:shadow-sm hover:text-gray-900'}`}
-                >
-                  <Layers className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={onDeleteSelected}
-                  title="Delete"
-                  className={`flex items-center justify-center w-7 h-full rounded-md transition-all
-                    ${isDarkMode ? 'text-red-400 hover:bg-gray-700 hover:text-red-300' : 'text-red-500 hover:bg-white hover:shadow-sm hover:text-red-600'}`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+          {/* Bulk Selection Actions */}
+          {selectedCount > 0 && (
+            <div className="flex items-center animate-[fadeIn_0.2s_ease-out]">
+              <div className={`flex items-center h-9 rounded-lg p-1 transition-all
+                ${isDarkMode ? 'bg-gray-800/80' : 'bg-gray-100'}`}
+              >
+                <div className="flex items-center gap-1 h-full px-1">
+                  <button
+                    onClick={onCancelSelection}
+                    title="Deselect All"
+                    className={`flex items-center justify-center w-7 h-full rounded-md transition-all
+                      ${isDarkMode ? 'text-gray-400 hover:bg-gray-700 hover:text-gray-200' : 'text-gray-400 hover:bg-gray-200 hover:text-gray-700'}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  <div className={`w-px h-4 mx-0.5 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
+
+                  <button
+                    onClick={onEditSelected}
+                    title="Edit"
+                    className={`flex items-center justify-center w-7 h-full rounded-md transition-all
+                      ${isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-white' : 'text-gray-500 hover:bg-white hover:shadow-sm hover:text-gray-900'}`}
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={onBulkUpdate}
+                    title="Mass Update"
+                    className={`flex items-center justify-center w-7 h-full rounded-md transition-all
+                      ${isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-white' : 'text-gray-500 hover:bg-white hover:shadow-sm hover:text-gray-900'}`}
+                  >
+                    <Layers className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={onDeleteSelected}
+                    title="Delete"
+                    className={`flex items-center justify-center w-7 h-full rounded-md transition-all
+                      ${isDarkMode ? 'text-red-400 hover:bg-gray-700 hover:text-red-300' : 'text-red-500 hover:bg-white hover:shadow-sm hover:text-red-600'}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
           {/* Bulk Edit Actions */}
           {editingCount > 1 && (
@@ -266,22 +296,28 @@ export function TableToolbar({
               </button>
             </div>
           )}
+        </div>
 
         {/* Right-side buttons */}
-        <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+        <div 
+          className="flex items-center gap-2 ml-auto flex-wrap justify-end flex-shrink-0"
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}
+        >
 
           {/* ── Add row ── */}
-          <button
-            onClick={onAddRow}
-            className="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 sm:gap-1.5 rounded-lg transition-colors bg-[#13C296] hover:bg-[#0f9f7a] text-white"
-            aria-label="Add new row"
-          >
-            <Plus className="w-4 h-4 sm:w-3.5 sm:h-3.5 flex-shrink-0" aria-hidden="true" />
-            <span className="hidden sm:inline text-[12px] font-bold">Add row</span>
-          </button>
+          {showAddRow && onAddRow && (
+            <button
+              onClick={onAddRow}
+              className="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 sm:gap-1.5 rounded-lg transition-colors bg-[#13C296] hover:bg-[#0f9f7a] text-white"
+              aria-label="Add new row"
+            >
+              <Plus className="w-4 h-4 sm:w-3.5 sm:h-3.5 flex-shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline text-[12px] font-bold">Add row</span>
+            </button>
+          )}
 
           {/* ── Icon-only utilities ── */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
 
             {/* Clear all filters + sort */}
             {hasActiveFilters && (
@@ -318,21 +354,52 @@ export function TableToolbar({
                 {showDensity && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowDensity(false)} />
-                    <div className={`absolute right-0 top-full mt-1 w-44 py-1 rounded-xl shadow-lg border z-50 animate-in fade-in zoom-in-95 ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
-                      {(['extra-compact', 'compact', 'standard', 'comfortable', 'spacious', 'extra-spacious'] as const).map(d => {
-                        const heightPx = d === 'extra-compact' ? '32px' : d === 'compact' ? '48px' : d === 'standard' ? '64px' : d === 'comfortable' ? '80px' : d === 'spacious' ? '96px' : '120px';
-                        const label = `${d} (${heightPx})`;
-                        return (
-                        <button
-                          key={d}
-                          onClick={() => { onDensityChange && onDensityChange(d); setShowDensity(false); }}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium capitalize flex items-center justify-between ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          {label}
-                          {density === d && <div className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? 'bg-[#13C296]' : 'bg-[#0a8066]'}`} />}
-                        </button>
-                        );
-                      })}
+                    <div 
+                      className={`absolute right-0 top-full mt-1.5 w-56 max-h-[min(520px,calc(100vh-120px))] overflow-y-auto p-1.5 rounded-xl shadow-xl border z-50 backdrop-blur-xl origin-top-right
+                        ${isDarkMode ? 'bg-gray-900/95 border-gray-800 shadow-[0_12px_36px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-gray-200 shadow-[0_12px_36px_rgba(0,0,0,0.1)]'}`}
+                      style={{ animation: 'slideDownFade 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
+                    >
+                      <div className={`text-center w-full px-2 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Row Density
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        {(['extra-compact', 'compact', 'standard', 'comfortable', 'spacious', 'extra-spacious'] as const).map(d => {
+                          const heightPx = d === 'extra-compact' ? '32px' : d === 'compact' ? '48px' : d === 'standard' ? '64px' : d === 'comfortable' ? '80px' : d === 'spacious' ? '96px' : '120px';
+                          const label = d.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                          const isActive = density === d;
+                          return (
+                            <button
+                              key={d}
+                              onClick={() => { onDensityChange && onDensityChange(d); setShowDensity(false); }}
+                              className={`w-full text-left px-2 py-1.5 text-[12.5px] rounded-lg transition-all duration-150 flex items-center justify-between group
+                                ${isActive 
+                                  ? (isDarkMode ? 'bg-[#13C296]/15 text-[#13C296] font-semibold' : 'bg-[#13C296]/10 text-[#0f9f7a] font-semibold')
+                                  : (isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900')}`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 transition-colors
+                                  ${isActive 
+                                    ? (isDarkMode ? 'bg-[#13C296]/20 text-[#13C296]' : 'bg-[#13C296]/20 text-[#0a8066]')
+                                    : (isDarkMode ? 'bg-gray-800 text-gray-400 group-hover:text-gray-200' : 'bg-gray-100 text-gray-500 group-hover:text-gray-700')}`}
+                                >
+                                  <AlignJustify className="w-3.5 h-3.5" />
+                                </div>
+                                <span className="capitalize">{label}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors
+                                  ${isActive
+                                    ? (isDarkMode ? 'bg-[#13C296]/20 text-[#13C296]' : 'bg-[#13C296]/20 text-[#0a8066]')
+                                    : (isDarkMode ? 'bg-gray-800 text-gray-400 group-hover:text-gray-300' : 'bg-gray-100 text-gray-500 group-hover:text-gray-700')}`}
+                                >
+                                  {heightPx}
+                                </span>
+                                {isActive && <Check className="w-3.5 h-3.5 text-[#13C296] flex-shrink-0" />}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </>
                 )}
@@ -349,79 +416,114 @@ export function TableToolbar({
                   title={isExporting ? "Exporting..." : "Export Data"}
                 >
                   {isExporting ? (
-                    <Loader2 className="w-[18px] h-[18px] animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Icon icon="hugeicons:share-01" className="w-[18px] h-[18px]" />
+                    <Icon icon="hugeicons:share-01" className="w-4 h-4" />
                   )}
                 </button>
                 
                 {showExport && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowExport(false)} />
-                    <div className={`absolute right-0 top-full mt-1 w-40 py-1 rounded-xl shadow-lg border z-50 animate-in fade-in zoom-in-95 ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
-                      {onExportCSV && (
-                        <button
-                          onClick={() => handleExport(onExportCSV)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:file-02" className="w-4 h-4 opacity-70" />
-                          Export CSV
-                        </button>
-                      )}
-                      {onExportExcel && (
-                        <button
-                          onClick={() => handleExport(onExportExcel)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:file-01" className="w-4 h-4 opacity-70" />
-                          Export Excel
-                        </button>
-                      )}
-                      {onExportPDF && (
-                        <button
-                          onClick={() => handleExport(onExportPDF)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:file-download" className="w-4 h-4 opacity-70" />
-                          Export PDF
-                        </button>
-                      )}
-                      {onExportJSON && (
-                        <button
-                          onClick={() => handleExport(onExportJSON)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 border-t ${isDarkMode ? 'border-gray-800 hover:bg-gray-800 text-gray-300' : 'border-gray-100 hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:code" className="w-4 h-4 opacity-70" />
-                          Export JSON
-                        </button>
-                      )}
-                      {onCopyTSV && (
-                        <button
-                          onClick={() => handleExport(onCopyTSV)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 border-t ${isDarkMode ? 'border-gray-800 hover:bg-gray-800 text-gray-300' : 'border-gray-100 hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:copy-01" className="w-4 h-4 opacity-70" />
-                          Copy as TSV
-                        </button>
-                      )}
-                      {onPrint && (
-                        <button
-                          onClick={() => handleExport(onPrint)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:printer" className="w-4 h-4 opacity-70" />
-                          Print Current View
-                        </button>
-                      )}
-                      {onPrintAll && (
-                        <button
-                          onClick={() => handleExport(onPrintAll)}
-                          className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
-                        >
-                          <Icon icon="hugeicons:printer" className="w-4 h-4 opacity-70" />
-                          Print All Rows
-                        </button>
-                      )}
+                    <div 
+                      className={`absolute right-0 top-full mt-1.5 w-52 max-h-[min(520px,calc(100vh-120px))] overflow-y-auto p-1.5 rounded-xl shadow-xl border z-50 backdrop-blur-xl origin-top-right
+                        ${isDarkMode ? 'bg-gray-900/95 border-gray-800 shadow-[0_12px_36px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-gray-200 shadow-[0_12px_36px_rgba(0,0,0,0.1)]'}`}
+                      style={{ animation: 'slideDownFade 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
+                    >
+                      <div className={`text-center w-full px-2 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Export & Share
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        {onExportCSV && (
+                          <button
+                            onClick={() => handleExport(onExportCSV)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-emerald-500/10 text-emerald-500 group-hover:bg-emerald-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:file-02" className="w-3.5 h-3.5" />
+                            </div>
+                            Export CSV
+                          </button>
+                        )}
+                        {onExportExcel && (
+                          <button
+                            onClick={() => handleExport(onExportExcel)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-green-500/10 text-green-500 group-hover:bg-green-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:file-01" className="w-3.5 h-3.5" />
+                            </div>
+                            Export Excel
+                          </button>
+                        )}
+                        {onExportPDF && (
+                          <button
+                            onClick={() => handleExport(onExportPDF)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-rose-500/10 text-rose-500 group-hover:bg-rose-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:file-download" className="w-3.5 h-3.5" />
+                            </div>
+                            Export PDF
+                          </button>
+                        )}
+                        {onExportJSON && (
+                          <button
+                            onClick={() => handleExport(onExportJSON)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-amber-500/10 text-amber-500 group-hover:bg-amber-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:code" className="w-3.5 h-3.5" />
+                            </div>
+                            Export JSON
+                          </button>
+                        )}
+                        {onCopyTSV && (
+                          <button
+                            onClick={() => handleExport(onCopyTSV)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-purple-500/10 text-purple-500 group-hover:bg-purple-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:copy-01" className="w-3.5 h-3.5" />
+                            </div>
+                            Copy as TSV
+                          </button>
+                        )}
+
+                        {(onPrint || onPrintAll) && (
+                          <div className={`my-1 mx-1 h-px ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'}`} />
+                        )}
+
+                        {onPrint && (
+                          <button
+                            onClick={() => handleExport(onPrint)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:printer" className="w-3.5 h-3.5" />
+                            </div>
+                            Print Current View
+                          </button>
+                        )}
+                        {onPrintAll && (
+                          <button
+                            onClick={() => handleExport(onPrintAll)}
+                            className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                              ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                          >
+                            <div className="w-6 h-6 rounded-md bg-cyan-500/10 text-cyan-500 group-hover:bg-cyan-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <Icon icon="hugeicons:printer" className="w-3.5 h-3.5" />
+                            </div>
+                            Print All Rows
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </>
                 )}
@@ -439,91 +541,104 @@ export function TableToolbar({
               </button>
 
               {showViews && (
-                <div 
-                  className={`absolute right-0 top-full mt-2 w-64 rounded-xl shadow-lg border z-50 py-2 origin-top-right
-                    ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-                  style={{ animation: 'slideDownFade 0.2s ease-out forwards' }}
-                >
-                  <div className={`px-3 py-1 mb-2 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
-                    <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                      Save Current View
-                    </div>
-                    <div className="flex gap-2 mb-2">
-                      <input 
-                        type="text" 
-                        placeholder="View Name..." 
-                        value={newViewName}
-                        onChange={e => setNewViewName(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && newViewName.trim() && onSaveView) {
-                            onSaveView(newViewName.trim());
-                            setNewViewName('');
-                            setShowViews(false);
-                          }
-                        }}
-                        className={`flex-1 min-w-0 px-2 py-1.5 text-[13px] rounded-md outline-none border transition-colors
-                          ${isDarkMode ? 'bg-gray-900 border-gray-700 text-gray-200 focus:border-indigo-500' : 'bg-gray-50 border-gray-200 text-gray-800 focus:border-indigo-500'}`}
-                      />
-                      <button
-                        disabled={!newViewName.trim() || !onSaveView}
-                        onClick={() => {
-                          if (newViewName.trim() && onSaveView) {
-                            onSaveView(newViewName.trim());
-                            setNewViewName('');
-                            setShowViews(false);
-                          }
-                        }}
-                        className={`px-3 py-1.5 rounded-md text-[13px] font-medium text-white transition-colors
-                          ${!newViewName.trim() ? 'bg-gray-400 cursor-not-allowed opacity-50' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className={`px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    Saved Views
-                  </div>
-                  
-                  {savedViews.length === 0 ? (
-                    <div className={`px-4 py-3 text-[13px] italic ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                      No saved views yet.
-                    </div>
-                  ) : (
-                    <div className="max-h-48 overflow-y-auto mt-1">
-                      {savedViews.map(view => (
-                        <div 
-                          key={view.id} 
-                          className={`flex items-center justify-between group px-2 py-1.5 mx-2 rounded-md transition-colors cursor-pointer
-                            ${isDarkMode ? 'hover:bg-gray-700/50 text-gray-200' : 'hover:bg-gray-100 text-gray-700'}
-                            ${activeViewId === view.id ? (isDarkMode ? 'bg-indigo-900/30 text-indigo-400' : 'bg-indigo-50 text-indigo-700') : ''}
-                          `}
-                          onClick={() => {
-                            if (onLoadView) onLoadView(view.id);
-                            setShowViews(false);
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowViews(false)} />
+                  <div 
+                    className={`absolute right-0 top-full mt-1.5 w-64 max-h-[min(520px,calc(100vh-120px))] overflow-y-auto p-2 rounded-xl shadow-xl border z-50 backdrop-blur-xl origin-top-right
+                      ${isDarkMode ? 'bg-gray-900/95 border-gray-800 shadow-[0_12px_36px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-gray-200 shadow-[0_12px_36px_rgba(0,0,0,0.1)]'}`}
+                    style={{ animation: 'slideDownFade 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
+                  >
+                    <div className={`px-1 pt-1.5 pb-2 mb-1.5 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
+                      <div className={`text-center w-full pt-0.5 pb-1 text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Save Current View
+                      </div>
+                      <div className="flex gap-1.5">
+                        <input 
+                          type="text" 
+                          placeholder="View Name..." 
+                          value={newViewName}
+                          onChange={e => setNewViewName(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && newViewName.trim() && onSaveView) {
+                              onSaveView(newViewName.trim());
+                              setNewViewName('');
+                              setShowViews(false);
+                            }
                           }}
+                          className={`flex-1 min-w-0 px-2.5 py-1 text-[12.5px] rounded-lg outline-none border transition-colors
+                            ${isDarkMode ? 'bg-gray-800/80 border-gray-700 text-gray-200 focus:border-[#13C296]' : 'bg-gray-50 border-gray-200 text-gray-800 focus:border-[#13C296]'}`}
+                        />
+                        <button
+                          disabled={!newViewName.trim() || !onSaveView}
+                          onClick={() => {
+                            if (newViewName.trim() && onSaveView) {
+                              onSaveView(newViewName.trim());
+                              setNewViewName('');
+                              setShowViews(false);
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[12px] font-semibold text-white transition-all
+                            ${!newViewName.trim() ? 'bg-gray-400 cursor-not-allowed opacity-50' : 'bg-[#13C296] hover:bg-[#0f9f7a]'}`}
                         >
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            {activeViewId === view.id && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                            <span className="text-[13px] font-medium truncate">{view.name}</span>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (onDeleteView) onDeleteView(view.id);
-                            }}
-                            className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-all
-                              ${isDarkMode ? 'text-gray-400 hover:text-red-400 hover:bg-gray-600' : 'text-gray-400 hover:text-red-600 hover:bg-white'}
-                            `}
-                            title="Delete View"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
+                          Save
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </div>
+
+                    <div className={`text-center w-full px-2 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Saved Views
+                    </div>
+                    
+                    {savedViews.length === 0 ? (
+                      <div className={`px-1.5 py-1.5 text-[12px] italic ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        No saved views yet.
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto mt-0.5 flex flex-col gap-0.5">
+                        {savedViews.map(view => (
+                          <div 
+                            key={view.id} 
+                            className={`flex items-center justify-between group px-2 py-1.5 rounded-lg transition-all duration-150 cursor-pointer
+                              ${isDarkMode ? 'hover:bg-gray-800/80 text-gray-200' : 'hover:bg-gray-100 text-gray-700'}
+                              ${activeViewId === view.id ? (isDarkMode ? 'bg-[#13C296]/15 text-[#13C296] font-semibold' : 'bg-[#13C296]/10 text-[#0f9f7a] font-semibold') : ''}
+                            `}
+                            onClick={() => {
+                              if (onLoadView) onLoadView(view.id);
+                              setShowViews(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-2.5 overflow-hidden">
+                              <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 transition-colors
+                                ${activeViewId === view.id 
+                                  ? (isDarkMode ? 'bg-[#13C296]/20 text-[#13C296]' : 'bg-[#13C296]/20 text-[#0a8066]')
+                                  : (isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-500')}`}
+                              >
+                                {activeViewId === view.id ? (
+                                  <Check className="w-3.5 h-3.5 text-[#13C296]" />
+                                ) : (
+                                  <Bookmark className="w-3.5 h-3.5" />
+                                )}
+                              </div>
+                              <span className="text-[12.5px] font-medium truncate">{view.name}</span>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (onDeleteView) onDeleteView(view.id);
+                              }}
+                              className={`p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all
+                                ${isDarkMode ? 'text-gray-400 hover:text-red-400 hover:bg-gray-700' : 'text-gray-400 hover:text-red-600 hover:bg-white'}
+                              `}
+                              title="Delete View"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
 
@@ -539,6 +654,9 @@ export function TableToolbar({
               </button>
             )}
 
+            {/* Divider */}
+            <div className={`w-px h-4 mx-0.5 ${isDarkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+
             {/* Settings (Reset) */}
             <div className="relative" ref={settingsRef}>
               <button
@@ -551,65 +669,90 @@ export function TableToolbar({
               </button>
               
               {showSettings && (
-                <div 
-                  className={`absolute right-0 top-full mt-2 w-56 rounded-xl shadow-lg border z-50 py-1 origin-top-right
-                    ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-                  style={{ animation: 'slideDownFade 0.2s ease-out forwards' }}
-                >
-                  
-                  <div className={`px-4 py-2 mt-1 text-[11px] font-bold uppercase tracking-wider
-                    ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    Display
-                  </div>
-                  
-                  <button onClick={() => { onOpenSidebar(); setShowSettings(false); }}
-                    className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2 text-[13px] font-medium rounded-md transition-colors flex items-center gap-2.5
-                    ${isDarkMode ? 'text-gray-200 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <PanelRight className="w-4 h-4 opacity-70" />
-                    Manage Columns
-                  </button>
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowSettings(false)} />
+                  <div 
+                    className={`absolute right-0 top-full mt-1.5 w-56 max-h-[min(520px,calc(100vh-120px))] overflow-y-auto p-1.5 rounded-xl shadow-xl border z-50 backdrop-blur-xl origin-top-right
+                      ${isDarkMode ? 'bg-gray-900/95 border-gray-800 shadow-[0_12px_36px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-gray-200 shadow-[0_12px_36px_rgba(0,0,0,0.1)]'}`}
+                    style={{ animation: 'slideDownFade 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
+                  >
+                    <div className={`text-center w-full px-2 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Display
+                    </div>
+                    
+                    <button 
+                      onClick={() => { onOpenSidebar(); setShowSettings(false); }}
+                      className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                        ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                    >
+                      <div className="w-6 h-6 rounded-md bg-[#13C296]/10 text-[#13C296] group-hover:bg-[#13C296]/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                        <PanelRight className="w-3.5 h-3.5" />
+                      </div>
+                      Manage Columns
+                    </button>
 
-                  <div className={`my-2 h-px ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'}`} />
+                    <div className={`my-1 mx-1 h-px ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'}`} />
 
-                  <div className={`px-4 py-1 text-[11px] font-bold uppercase tracking-wider
-                    ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    Reset Options
+                    <div className={`text-center w-full px-2 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Reset Options
+                    </div>
+                    
+                    <div className="flex flex-col gap-0.5">
+                      <button 
+                        onClick={() => { onResetPins(); setShowSettings(false); }}
+                        className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                          ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                      >
+                        <div className="w-6 h-6 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                          <PinOff className="w-3.5 h-3.5" />
+                        </div>
+                        Reset Pins
+                      </button>
+                      <button 
+                        onClick={() => { onResetVisibility(); setShowSettings(false); }}
+                        className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                          ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                      >
+                        <div className="w-6 h-6 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                          <EyeOff className="w-3.5 h-3.5" />
+                        </div>
+                        Reset Visibility
+                      </button>
+                      <button 
+                        onClick={() => { onResetWidths(); setShowSettings(false); }}
+                        className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                          ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                      >
+                        <div className="w-6 h-6 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                          <Maximize className="w-3.5 h-3.5" />
+                        </div>
+                        Reset Column Widths
+                      </button>
+                      <button 
+                        onClick={() => { onResetOrder(); setShowSettings(false); }}
+                        className={`w-full text-left px-2 py-1.5 text-[12.5px] font-medium rounded-lg transition-all duration-150 flex items-center gap-2.5 group
+                          ${isDarkMode ? 'text-gray-300 hover:bg-gray-800/80 hover:text-white' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}
+                      >
+                        <div className="w-6 h-6 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                          <ArrowLeftRight className="w-3.5 h-3.5" />
+                        </div>
+                        Reset Column Order
+                      </button>
+                    </div>
+                    
+                    <div className={`my-1 mx-1 h-px ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'}`} />
+                    
+                    <button 
+                      onClick={() => { onFactoryReset(); setShowSettings(false); }}
+                      className={`w-full text-left px-2 py-1.5 text-[12.5px] font-semibold rounded-lg transition-all duration-150 flex items-center gap-2.5 group text-rose-500 hover:bg-rose-500/10 dark:text-rose-400`}
+                    >
+                      <div className="w-6 h-6 rounded-md bg-rose-500/10 text-rose-500 group-hover:bg-rose-500/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </div>
+                      Factory Reset
+                    </button>
                   </div>
-                  
-                  <button onClick={() => { onResetPins(); setShowSettings(false); }}
-                    className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2 text-[13px] font-medium rounded-md transition-colors flex items-center gap-2.5
-                    ${isDarkMode ? 'text-gray-200 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <PinOff className="w-4 h-4 opacity-70" />
-                    Reset Pins
-                  </button>
-                  <button onClick={() => { onResetVisibility(); setShowSettings(false); }}
-                    className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2 text-[13px] font-medium rounded-md transition-colors flex items-center gap-2.5
-                    ${isDarkMode ? 'text-gray-200 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <EyeOff className="w-4 h-4 opacity-70" />
-                    Reset Visibility
-                  </button>
-                  <button onClick={() => { onResetWidths(); setShowSettings(false); }}
-                    className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2 text-[13px] font-medium rounded-md transition-colors flex items-center gap-2.5
-                    ${isDarkMode ? 'text-gray-200 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <Maximize className="w-4 h-4 opacity-70" />
-                    Reset Column Widths
-                  </button>
-                  <button onClick={() => { onResetOrder(); setShowSettings(false); }}
-                    className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2 text-[13px] font-medium rounded-md transition-colors flex items-center gap-2.5
-                    ${isDarkMode ? 'text-gray-200 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-100'}`}>
-                    <ArrowLeftRight className="w-4 h-4 opacity-70" />
-                    Reset Column Order
-                  </button>
-                  
-                  <div className={`my-2 h-px ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-100'}`} />
-                  
-                  <button onClick={() => { onFactoryReset(); setShowSettings(false); }}
-                    className={`w-[calc(100%-16px)] mx-2 mb-2 text-left px-3 py-2 text-[13px] font-medium rounded-md transition-colors flex items-center gap-2.5
-                    ${isDarkMode ? 'text-red-400 hover:bg-red-500/10' : 'text-red-600 hover:bg-red-50'}`}>
-                    <RotateCcw className="w-4 h-4 opacity-70" />
-                    Factory Reset
-                  </button>
-                </div>
+                </>
               )}
             </div>
           </div>

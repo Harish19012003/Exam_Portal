@@ -90,6 +90,7 @@ export interface TableStateHandlers {
   handleResetOrder: () => void;
   handleResetWidths: () => void;
   handleFactoryReset: () => void;
+  handleRefresh: () => Promise<void> | void;
 
   // UI toggles
   density: Density;
