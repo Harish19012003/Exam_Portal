@@ -3,6 +3,8 @@ import * as examRepository from './exam.repository.js';
 import * as settingsService from '../settings/settings.service.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
+import { dropTableForExam, createTableFromServicePreset } from '../exam-tables/exam-table.service.js';
+import { logger } from '../../../core/logger.js';
 
 const snapshotFields = (fields = []) =>
   (Array.isArray(fields) ? fields : []).map((f, index) => ({
@@ -58,12 +60,21 @@ export const createExam = async ({ values, fields, id }, userId) => {
     throw new AppError('Exam already exists', 409, ERROR_CODES.CONFLICT);
   }
 
-  return examRepository.create({
+  const exam = await examRepository.create({
     id: examId,
     values: values && typeof values === 'object' ? values : {},
     fields: snapshotFields(fieldDefs),
     createdBy: userId || null,
   });
+
+  // Give the exam its own table pre-filled from its service's preset. Never blocks exam creation;
+  // the Explore page can still create the table by hand.
+  try {
+    await createTableFromServicePreset(examId, userId, exam?.values?.service ?? values?.service);
+  } catch (error) {
+    logger.warn('Could not create the exam table from a preset', { examId, reason: error?.message });
+  }
+  return exam;
 };
 
 export const updateExam = async (id, { values, fields }, userId) => {
@@ -85,6 +96,7 @@ export const deleteExam = async (id) => {
   if (!ok) {
     throw new AppError('Exam not found', 404, ERROR_CODES.NOT_FOUND);
   }
+  await dropTableForExam(id);
   return { success: true, id };
 };
 

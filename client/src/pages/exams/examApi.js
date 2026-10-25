@@ -13,6 +13,12 @@ export const listExams = async () => {
   return Array.isArray(rows) ? rows : [];
 };
 
+/** Fetch one exam from SQL by id. */
+export const getExam = async (id) => {
+  const { data } = await apiClient.get(`/exams/${encodeURIComponent(id)}`);
+  return unwrap(data);
+};
+
 export const createExam = async ({ values, fields = [] }) => {
   const { data } = await apiClient.post('/exams', { values, fields });
   return unwrap(data);

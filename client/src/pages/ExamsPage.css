@@ -1746,3 +1746,45 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
     gap: 8px;
   }
 }
+
+/* Fields drawer: bulk add */
+.exams-field-section-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.exams-field-builder textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg-input, var(--bg-card, #fff));
+  color: var(--text-primary, #0f172a);
+  font: inherit;
+  resize: vertical;
+}
+
+.exams-bulk-preview {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exams-bulk-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exams-bulk-item.has-error .exams-field-row-label,
+.exams-bulk-item.has-error .exams-field-row-meta {
+  color: #dc2626;
+}

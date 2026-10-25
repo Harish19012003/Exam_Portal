@@ -26,7 +26,7 @@ const parseJson = (value, fallback) => {
 /** Only allow safe MySQL identifiers that match field keys */
 export const isSafeColumnName = (key) => /^[a-z][a-z0-9_]{0,39}$/.test(String(key || ''));
 
-const sqlTypeForDataType = (dataType) => {
+export const sqlTypeForDataType = (dataType) => {
   switch (dataType) {
     case 'number':
     case 'currency':
@@ -57,7 +57,7 @@ const sqlTypeForDataType = (dataType) => {
   }
 };
 
-const encodeCellValue = (value, dataType) => {
+export const encodeCellValue = (value, dataType) => {
   if (value === undefined) return null;
   if (value === null || value === '') return null;
 
@@ -82,7 +82,7 @@ const encodeCellValue = (value, dataType) => {
   return value;
 };
 
-const decodeCellValue = (value, dataType) => {
+export const decodeCellValue = (value, dataType) => {
   if (value == null) {
     if (dataType === 'boolean' || dataType === 'checkbox' || dataType === 'dot') return false;
     if (dataType === 'multiselect' || dataType === 'tags' || dataType === 'attachment') return [];

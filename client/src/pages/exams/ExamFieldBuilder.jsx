@@ -26,6 +26,7 @@ import {
   Clock,
   BadgeCheck,
   SquareCheck,
+  ListPlus,
 } from 'lucide-react';
 import {
   EXAM_FIELD_TYPES,
@@ -42,6 +43,14 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { SearchableSelect } from './SearchableSelect';
+import { parseBulkFields, toFieldDefinition } from './examBulkFields';
+
+const BULK_PLACEHOLDER = `Roll No*
+Candidate Name*
+Marks | number
+Exam Date | date
+Center | dropdown | Lucknow, Delhi, Noida
+Present | yes/no`;
 
 const TYPE_ICONS = {
   text: Type,
@@ -79,6 +88,13 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
   const [typesOpen, setTypesOpen] = useState(false);
   const [dragFieldId, setDragFieldId] = useState(null);
   const [dragOverFieldId, setDragOverFieldId] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkType, setBulkType] = useState('text');
+  const bulkTypes = EXAM_FIELD_TYPES.filter((t) => t.value !== 'formula' && t.value !== 'composite');
+  const bulkResult = bulkOpen
+    ? parseBulkFields(bulkText, fields, { defaultType: bulkType, types: EXAM_FIELD_TYPES })
+    : { items: [], valid: [] };
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -108,6 +124,9 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       setForm(emptyFieldForm());
       setError('');
       setTypesOpen(false);
+      setBulkOpen(false);
+      setBulkText('');
+      setBulkType('text');
     }
   }, [open]);
 
@@ -119,6 +138,8 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
           setEditorOpen(false);
           setForm(emptyFieldForm());
           setError('');
+        } else if (bulkOpen) {
+          setBulkOpen(false);
         } else {
           onClose();
         }
@@ -130,7 +151,7 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       document.body.style.overflow = '';
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [open, editorOpen, onClose]);
+  }, [open, editorOpen, bulkOpen, onClose]);
 
   if (!open) return null;
 
@@ -181,6 +202,26 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
     });
     setError('');
     setEditorOpen(true);
+  };
+
+  const openBulk = () => {
+    setTypesOpen(false);
+    setBulkOpen(true);
+  };
+
+  const closeBulk = () => {
+    setBulkOpen(false);
+    setBulkText('');
+  };
+
+  const handleBulkAdd = (e) => {
+    e.preventDefault();
+    if (!bulkResult.valid.length) return;
+    onChange([
+      ...fields,
+      ...bulkResult.valid.map((item, i) => toFieldDefinition(item, fields.length + i + 1)),
+    ]);
+    closeBulk();
   };
 
   const closeEditor = () => {
@@ -330,9 +371,9 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
           <div className="exams-field-header-text">
             <h2 className="exams-drawer-title">
               <Settings2 size={16} className="exams-drawer-title-icon" />
-              <span>{editorOpen ? (isEditing ? 'Edit field' : 'New field') : 'Fields'}</span>
+              <span>{editorOpen ? (isEditing ? 'Edit field' : 'New field') : bulkOpen ? 'Bulk add fields' : 'Fields'}</span>
             </h2>
-            {!editorOpen && (
+            {!editorOpen && !bulkOpen && (
               <p className="exams-field-header-sub">
                 {fields.length === 0
                   ? 'Pick a type to add to the create form'
@@ -343,29 +384,94 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
           <button
             type="button"
             className="exams-drawer-close compact"
-            onClick={editorOpen ? closeEditor : onClose}
-            title={editorOpen ? 'Back' : 'Close'}
-            aria-label={editorOpen ? 'Back' : 'Close'}
+            onClick={editorOpen ? closeEditor : bulkOpen ? closeBulk : onClose}
+            title={editorOpen || bulkOpen ? 'Back' : 'Close'}
+            aria-label={editorOpen || bulkOpen ? 'Back' : 'Close'}
           >
             <X size={16} />
           </button>
         </div>
 
-        {!editorOpen ? (
+        {bulkOpen ? (
+          <form className="exams-drawer-form" onSubmit={handleBulkAdd}>
+            <div className="exams-drawer-body">
+              <div className="exams-form-group">
+                <label htmlFor={`${formId}-bulk`}>Fields (one per line)</label>
+                <textarea
+                  id={`${formId}-bulk`}
+                  rows={9}
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  placeholder={BULK_PLACEHOLDER}
+                  spellCheck={false}
+                  autoFocus
+                />
+                <p className="exams-config-empty-hint">
+                  Format: <code>Name | type | options</code>. Add <code>*</code> after a name to make it
+                  required. Type is optional (uses the default below). You can paste a column from Excel.
+                </p>
+              </div>
+
+              <div className="exams-form-group">
+                <label htmlFor={`${formId}-bulk-type`}>Default type</label>
+                <select id={`${formId}-bulk-type`} value={bulkType} onChange={(e) => setBulkType(e.target.value)}>
+                  {bulkTypes.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {bulkResult.items.length > 0 && (
+                <ul className="exams-field-list exams-bulk-preview" aria-label="Preview">
+                  {bulkResult.items.map((item) => (
+                    <li key={`${item.line}-${item.label}`} className={`exams-bulk-item${item.error ? ' has-error' : ''}`}>
+                      <span className="exams-field-row-label">{item.label || '(empty)'}</span>
+                      <span className="exams-field-row-meta">
+                        {item.error
+                          ? `Line ${item.line}: ${item.error} — skipped`
+                          : [item.key, typeLabel(item.dataType), item.required ? 'Required' : ''].filter(Boolean).join(' · ')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="exams-drawer-footer exams-drawer-footer-compact">
+              <button type="button" className="exams-btn secondary compact" onClick={closeBulk}>
+                Cancel
+              </button>
+              <button type="submit" className="exams-btn primary compact" disabled={bulkResult.valid.length === 0}>
+                <ListPlus size={14} />
+                <span>
+                  {bulkResult.valid.length === 0
+                    ? 'Add fields'
+                    : `Add ${bulkResult.valid.length} field${bulkResult.valid.length === 1 ? '' : 's'}`}
+                </span>
+              </button>
+            </div>
+          </form>
+        ) : !editorOpen ? (
           <div className="exams-drawer-body exams-field-list-body">
             {fields.length > 0 && (
               <div className="exams-fields-panel">
                 <div className="exams-field-section-bar">
                   <span>Fields · {fields.length}</span>
-                  <button
-                    type="button"
-                    className="exams-text-add-btn"
-                    onClick={() => setTypesOpen((v) => !v)}
-                    aria-expanded={typesOpen}
-                  >
-                    <Plus size={13} />
-                    {typesOpen ? 'Close' : 'Add'}
-                  </button>
+                  <span className="exams-field-section-actions">
+                    <button type="button" className="exams-text-add-btn" onClick={openBulk}>
+                      <ListPlus size={13} />
+                      Bulk add
+                    </button>
+                    <button
+                      type="button"
+                      className="exams-text-add-btn"
+                      onClick={() => setTypesOpen((v) => !v)}
+                      aria-expanded={typesOpen}
+                    >
+                      <Plus size={13} />
+                      {typesOpen ? 'Close' : 'Add'}
+                    </button>
+                  </span>
                 </div>
 
                 <ul className="exams-field-list">
@@ -459,6 +565,12 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
               <div className={`exams-type-picker ${fields.length > 0 ? 'with-fields' : ''}`}>
                 <div className="exams-field-section-bar">
                   <span>{fields.length === 0 ? 'Choose a field type' : 'Add field type'}</span>
+                  {fields.length === 0 && (
+                    <button type="button" className="exams-text-add-btn" onClick={openBulk}>
+                      <ListPlus size={13} />
+                      Bulk add
+                    </button>
+                  )}
                 </div>
                 <div className="exams-type-grid">
                   {EXAM_FIELD_TYPES.map((t) => {
