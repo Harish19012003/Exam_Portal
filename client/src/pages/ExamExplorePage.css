@@ -1,0 +1,125 @@
+.exam-explore-page {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2vw, 20px);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.exam-explore-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.exam-explore-title {
+  font-size: clamp(1.125rem, 2vw, 1.25rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exam-explore-back {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg-card, #ffffff);
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.exam-explore-back:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.exam-explore-panel {
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 16px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.exam-explore-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: clamp(32px, 8vw, 72px) 16px;
+  text-align: center;
+  color: var(--text-secondary, #64748b);
+}
+
+.exam-explore-empty-title {
+  margin: 4px 0 0;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.exam-explore-empty-hint {
+  margin: 0;
+  max-width: 420px;
+  font-size: 0.875rem;
+}
+
+.exam-explore-create {
+  margin-top: 12px;
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary-color, #4f46e5);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.exam-explore-create:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.exam-explore-error {
+  margin: 6px 0 0;
+  color: #dc2626;
+  font-size: 0.875rem;
+}
+
+.exam-explore-create-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.exam-explore-create-row .exam-explore-create {
+  margin-top: 12px;
+}
+
+.exam-explore-create.secondary {
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-primary, #0f172a);
+}
+
+@media (max-width: 480px) {
+  .exam-explore-create-row,
+  .exam-explore-create-row .exam-explore-create {
+    width: 100%;
+  }
+}

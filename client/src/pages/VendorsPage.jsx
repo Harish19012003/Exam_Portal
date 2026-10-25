@@ -14,6 +14,8 @@ import {
   FileText,
 } from 'lucide-react';
 import { apiClient } from '../api/client';
+import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
+import { TABLE_IDS } from '../constants/tableIds';
 import './UsersPage.css';
 
 export const VendorsPage = () => {
@@ -21,6 +23,17 @@ export const VendorsPage = () => {
     return document.documentElement.getAttribute('data-theme') === 'dark' ||
            localStorage.getItem('theme') === 'dark';
   });
+
+  const {
+    layoutReady,
+    layoutPrefs,
+    hasUserLayoutOverride,
+    layoutEpoch,
+    canSaveLayoutAsDefault,
+    onLayoutPrefsChange,
+    onSaveLayoutAsDefault,
+    onResetLayoutToDefault,
+  } = useTableLayoutPrefs(TABLE_IDS.VENDORS);
 
   const [rows, setRows] = useState(VENDOR_ROWS);
   const [isLoading, setIsLoading] = useState(false);
@@ -514,16 +527,48 @@ export const VendorsPage = () => {
 
       {/* Main Vendor Data Table */}
       <div style={{ flex: 1, minHeight: '650px', width: '100%', display: 'flex', flexDirection: 'column' }}>
-        <DynamicTable
-          tableId="vendor_master_data_v3"
-          initialColumns={VENDOR_COLUMN_CONFIG}
-          initialRows={rows}
-          onRowUpdate={handleRowUpdate}
-          onRowDelete={handleRowDelete}
-          onRefresh={fetchVendorsFromBackend}
-          showAddRow={false}
-          isDarkMode={isDarkMode}
-        />
+        {!layoutReady ? (
+          <div style={{ padding: '2rem', color: 'var(--text-secondary, #64748b)' }}>Loading table layout…</div>
+        ) : (
+          <DynamicTable
+            key={`vendors_layout_${layoutEpoch}`}
+            tableId={TABLE_IDS.VENDORS}
+            shareState={false}
+            initialColumns={VENDOR_COLUMN_CONFIG}
+            initialRows={rows}
+            layoutPrefs={layoutPrefs}
+            onLayoutPrefsChange={onLayoutPrefsChange}
+            canSaveLayoutAsDefault={canSaveLayoutAsDefault}
+            hasUserLayoutOverride={hasUserLayoutOverride}
+            onSaveLayoutAsDefault={
+              canSaveLayoutAsDefault
+                ? async (prefs) => {
+                    const result = await onSaveLayoutAsDefault?.(prefs);
+                    if (result?.message) {
+                      if (result.ok) setSuccessMsg(result.message);
+                      else setErrorMsg(result.message);
+                    }
+                  }
+                : undefined
+            }
+            onResetLayoutToDefault={
+              hasUserLayoutOverride
+                ? async () => {
+                    const result = await onResetLayoutToDefault?.();
+                    if (result?.message) {
+                      if (result.ok) setSuccessMsg(result.message);
+                      else setErrorMsg(result.message);
+                    }
+                  }
+                : undefined
+            }
+            onRowUpdate={handleRowUpdate}
+            onRowDelete={handleRowDelete}
+            onRefresh={fetchVendorsFromBackend}
+            showAddRow={false}
+            isDarkMode={isDarkMode}
+          />
+        )}
       </div>
 
       {/* ── ADD VENDOR SLIDE-IN MODAL / DRAWER ───────────────────────────────── */}

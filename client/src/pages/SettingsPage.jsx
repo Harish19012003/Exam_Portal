@@ -2,12 +2,17 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { UsersPage } from './UsersPage';
 import { MessageTemplatesTab } from './settings/MessageTemplatesTab';
+import { ConfigTab } from './settings/ConfigTab';
+import { ExamTableConfigTab } from './settings/ExamTableConfigTab';
 import {
   Users,
   Mail,
+  SlidersHorizontal,
+  Table2,
   Search,
   Check,
   ChevronDown,
+  Info,
 } from 'lucide-react';
 import './SettingsPage.css';
 
@@ -29,6 +34,24 @@ const TABS_CONFIG = [
     badgeType: 'orange',
     adminOnly: false,
     description: 'Customizable email & notification templates for OTPs, exams, and alerts.',
+  },
+  {
+    id: 'config',
+    title: 'Config',
+    icon: SlidersHorizontal,
+    badge: null,
+    badgeType: 'slate',
+    adminOnly: true,
+    description: 'Create dropdown lists and other generic settings values used across the portal.',
+  },
+  {
+    id: 'exam-table',
+    title: 'Exam table',
+    icon: Table2,
+    badge: 'Admin',
+    badgeType: 'admin',
+    adminOnly: true,
+    description: 'Shared Exam management fields and Feature Builder config published for all portal members.',
   },
 ];
 
@@ -85,11 +108,18 @@ export const SettingsPage = () => {
   const dropdownRef = useRef(null);
   const searchInputRef = useRef(null);
 
+  // Info Tooltip state
+  const [showInfoTooltip, setShowInfoTooltip] = useState(false);
+  const infoTooltipRef = useRef(null);
+
   // Close dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsDropdownOpen(false);
+      }
+      if (infoTooltipRef.current && !infoTooltipRef.current.contains(event.target)) {
+        setShowInfoTooltip(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -112,10 +142,13 @@ export const SettingsPage = () => {
       if (e.key === 'Escape' && isDropdownOpen) {
         setIsDropdownOpen(false);
       }
+      if (e.key === 'Escape' && showInfoTooltip) {
+        setShowInfoTooltip(false);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDropdownOpen]);
+  }, [isDropdownOpen, showInfoTooltip]);
 
   // Filtered tabs for the dropdown search
   const filteredTabs = useMemo(() => {
@@ -133,11 +166,40 @@ export const SettingsPage = () => {
     <div className="settings-page">
       {/* TOP TOOLBAR: Left Title & Right-Aligned Tab Selector Dropdown */}
       <div className="settings-top-toolbar">
-        {/* Left Side: Section Title & Description */}
+        {/* Left Side: Section Title with Info Tooltip Icon */}
         <div className="settings-toolbar-left">
           <div className="settings-header-title-group">
-            <h1 className="settings-main-title">{currentTabConfig.title}</h1>
-            <p className="settings-main-subtitle">{currentTabConfig.description}</p>
+            <div className="settings-title-row">
+              <h1 className="settings-main-title">{currentTabConfig.title}</h1>
+              {currentTabConfig.description && (
+                <div
+                  className="settings-info-tooltip-wrap"
+                  ref={infoTooltipRef}
+                  onMouseEnter={() => setShowInfoTooltip(true)}
+                  onMouseLeave={() => setShowInfoTooltip(false)}
+                >
+                  <button
+                    type="button"
+                    className={`settings-info-btn ${showInfoTooltip ? 'active' : ''}`}
+                    onClick={() => setShowInfoTooltip((prev) => !prev)}
+                    title={currentTabConfig.description}
+                    aria-label={`About ${currentTabConfig.title}`}
+                    aria-expanded={showInfoTooltip}
+                  >
+                    <Info size={15} />
+                  </button>
+                  {showInfoTooltip && (
+                    <div className="settings-info-popover" role="tooltip">
+                      <div className="settings-info-popover-header">
+                        <Info size={13} className="popover-info-icon" />
+                        <span>About {currentTabConfig.title}</span>
+                      </div>
+                      <p className="settings-info-popover-text">{currentTabConfig.description}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -243,6 +305,20 @@ export const SettingsPage = () => {
         {activeTab === 'templates' && (
           <div className="settings-panel-view">
             <MessageTemplatesTab />
+          </div>
+        )}
+
+        {/* 3. CONFIG */}
+        {activeTab === 'config' && isAdmin && (
+          <div className="settings-panel-view">
+            <ConfigTab />
+          </div>
+        )}
+
+        {/* 4. EXAM TABLE (shared Feature Builder config) */}
+        {activeTab === 'exam-table' && isAdmin && (
+          <div className="settings-panel-view">
+            <ExamTableConfigTab />
           </div>
         )}
       </div>

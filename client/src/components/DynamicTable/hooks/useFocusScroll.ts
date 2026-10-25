@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ColumnConfig } from '../types';
 
 interface FocusedCell {
@@ -24,8 +24,22 @@ export function useFocusScroll({
   checkboxWidth,
   actionsWidth,
 }: UseFocusScrollOptions) {
+  const prevCellRef = useRef<FocusedCell | null>(null);
+
   useEffect(() => {
-    if (!focusedCell || !scrollWrapperRef.current) return;
+    if (!focusedCell || !scrollWrapperRef.current) {
+      prevCellRef.current = null;
+      return;
+    }
+
+    // Only scroll into view when the focused cell changes, NOT on column width changes!
+    if (
+      prevCellRef.current?.rowId === focusedCell.rowId &&
+      prevCellRef.current?.colKey === focusedCell.colKey
+    ) {
+      return;
+    }
+    prevCellRef.current = focusedCell;
 
     const el = document.getElementById(`cell-${focusedCell.rowId}-${focusedCell.colKey}`);
     if (!el) return;

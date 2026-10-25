@@ -6,8 +6,7 @@ type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 
 export function loadSavedViews(tableId?: string): SavedView[] {
   try {
-    const key = getStorageKey(tableId) + '_views';
-    const saved = localStorage.getItem(key);
+    const saved = localStorage.getItem(getStorageKey(tableId) + '_views');
     if (saved) return JSON.parse(saved) as SavedView[];
   } catch {
     /* ignore corrupt storage */
@@ -32,6 +31,7 @@ export function createSavedViewHandlers(
   setSort: SetState<SortConfig[]>,
   tableId?: string,
 ) {
+  const viewsKey = getStorageKey(tableId) + '_views';
   return {
     handleSaveView: (name: string) => {
       const id = genRowId();
@@ -46,7 +46,7 @@ export function createSavedViewHandlers(
       };
       setSavedViews(prev => {
         const next = [...prev, newView];
-        localStorage.setItem(getStorageKey(tableId) + '_views', JSON.stringify(next));
+        localStorage.setItem(viewsKey, JSON.stringify(next));
         return next;
       });
       setActiveViewId(id);
@@ -64,7 +64,7 @@ export function createSavedViewHandlers(
     handleDeleteView: (id: string) => {
       setSavedViews(prev => {
         const next = prev.filter(v => v.id !== id);
-        localStorage.setItem(getStorageKey(tableId) + '_views', JSON.stringify(next));
+        localStorage.setItem(viewsKey, JSON.stringify(next));
         return next;
       });
       if (activeViewId === id) setActiveViewId(null);

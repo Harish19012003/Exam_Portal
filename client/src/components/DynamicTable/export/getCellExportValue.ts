@@ -3,13 +3,12 @@ import type { ColumnConfig, DataRow } from '../types';
 
 /** Resolve a display/export value for one cell (composites → primary field). */
 export function getCellExportValue(col: ColumnConfig, row: DataRow): unknown {
-  const valMap = (row?.values ?? row ?? {}) as Record<string, unknown>;
   if (isCompositeColumn(col)) {
     const primary = col.composedOf.find(p => p.role === 'primary');
-    return primary ? (valMap[primary.field] ?? '') : '';
+    return primary ? (row.values[primary.field] ?? '') : '';
   }
   if (isFieldColumn(col)) {
-    return valMap[col.key] ?? '';
+    return row.values[col.key] ?? '';
   }
   return '';
 }

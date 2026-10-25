@@ -28,6 +28,11 @@ import {
   XCircle,
   FileText,
   Upload,
+  Eye,
+  EyeOff,
+  Info,
+  Zap,
+  ShieldOff,
 } from 'lucide-react';
 import './UsersPage.css';
 
@@ -57,6 +62,30 @@ export const UsersPage = ({ embedded = false }) => {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('activity_desc'); // activity_desc, activity_asc, name_asc, name_desc, role, created_desc
+
+  // Toggle summary stats cards visibility (default: false / off)
+  const [showStats, setShowStats] = useState(() => {
+    try {
+      const saved = localStorage.getItem('users_show_stats_v2');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleStats = () => {
+    setShowStats((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('users_show_stats_v2', String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  const [showStandaloneInfo, setShowStandaloneInfo] = useState(false);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -103,15 +132,79 @@ export const UsersPage = ({ embedded = false }) => {
   });
 
   // Current logged in user
-  const currentUser = (() => {
+  const [currentUser, setCurrentUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('user') || '{}');
     } catch {
       return {};
     }
-  })();
-  const isSuperAdmin = currentUser.role === 'super_admin';
-  const isPrimaryAdmin = Boolean(currentUser.is_primary);
+  });
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const isPrimaryAdmin = Boolean(currentUser?.is_primary);
+  const canDisable2FA = ['super_admin', 'global_admin', 'admin'].includes(currentUser?.role);
+
+  // Transfer Primary state
+  const [transferTargetUser, setTransferTargetUser] = useState(null);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferConfirmText, setTransferConfirmText] = useState('');
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+
+  // Sync currentUser with localStorage on external or tab updates
+  useEffect(() => {
+    const handleStorageChange = () => {
+      try {
+        setCurrentUser(JSON.parse(localStorage.getItem('user') || '{}'));
+      } catch {
+        setCurrentUser({});
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const handleOpenTransferModal = (user) => {
+    setTransferTargetUser(user);
+    setTransferConfirmText('');
+    setIsTransferModalOpen(true);
+  };
+
+  const handleTransferPrimarySubmit = async (e) => {
+    e.preventDefault();
+    if (!transferTargetUser || transferConfirmText.trim().toUpperCase() !== 'TRANSFER') {
+      return;
+    }
+    try {
+      setTransferSubmitting(true);
+      setError('');
+      const response = await apiClient.post(`/users/${transferTargetUser.id}/transfer-primary`);
+      setSuccessMsg(
+        response.data?.data?.message ||
+        `Primary Super Admin status successfully transferred to ${transferTargetUser.first_name || ''} ${transferTargetUser.last_name || ''} (${transferTargetUser.email}).`
+      );
+
+      // Update localStorage & state for current user
+      const stored = JSON.parse(localStorage.getItem('user') || '{}');
+      const updatedUser = { ...stored, is_primary: false };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setCurrentUser(updatedUser);
+      window.dispatchEvent(new Event('storage'));
+
+      setIsTransferModalOpen(false);
+      setTransferTargetUser(null);
+      setTransferConfirmText('');
+
+      // Close edit drawer if open
+      setIsEditModalOpen(false);
+      setSelectedUser(null);
+
+      // Refresh users list
+      fetchUsers();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to transfer Primary Super Admin status.');
+    } finally {
+      setTransferSubmitting(false);
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -132,14 +225,15 @@ export const UsersPage = ({ embedded = false }) => {
 
   // Lock body scroll and listen for ESC key when any modal is open
   useEffect(() => {
-    const isAnyOpen = isEditModalOpen || isCreateModalOpen || isBulkUploadModalOpen;
+    const isAnyOpen = isEditModalOpen || isCreateModalOpen || isBulkUploadModalOpen || isTransferModalOpen;
     if (isAnyOpen) {
       document.body.style.overflow = 'hidden';
       const handleKeyDown = (e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Escape' && !transferSubmitting) {
           setIsEditModalOpen(false);
           setIsCreateModalOpen(false);
           setIsBulkUploadModalOpen(false);
+          setIsTransferModalOpen(false);
         }
       };
       window.addEventListener('keydown', handleKeyDown);
@@ -150,7 +244,7 @@ export const UsersPage = ({ embedded = false }) => {
     } else {
       document.body.style.overflow = '';
     }
-  }, [isEditModalOpen, isCreateModalOpen, isBulkUploadModalOpen]);
+  }, [isEditModalOpen, isCreateModalOpen, isBulkUploadModalOpen, isTransferModalOpen, transferSubmitting]);
 
   // Format relative last activity time
   const formatLastActivity = (timestamp) => {
@@ -360,7 +454,6 @@ export const UsersPage = ({ embedded = false }) => {
         role: editForm.role,
         status: editForm.status,
         timezone: editForm.timezone,
-        two_factor_enabled: editForm.two_factor_enabled,
         permissions: editForm.permissions,
       };
 
@@ -552,6 +645,7 @@ export const UsersPage = ({ embedded = false }) => {
       setSuccessMsg(`2FA has been disabled for ${userEmail}.`);
       if (selectedUser && selectedUser.id === userId) {
         setSelectedUser({ ...selectedUser, two_factor_enabled: false });
+        setEditForm((prev) => ({ ...prev, two_factor_enabled: false }));
       }
       fetchUsers();
     } catch (err) {
@@ -620,40 +714,45 @@ export const UsersPage = ({ embedded = false }) => {
 
   return (
     <div className={`users-page ${embedded ? 'embedded' : ''}`}>
-      {/* Top Header */}
-      <div className="users-header">
-        {!embedded && (
+      {/* Top Header (Non-embedded only) */}
+      {!embedded && (
+        <div className="users-header">
           <div className="users-title-group">
-            <h1 className="users-title">
-              <span>User & Role Governance</span>
-            </h1>
-            <p className="users-subtitle">
-              Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity.
-            </p>
+            <div className="settings-title-row">
+              <h1 className="users-title">
+                <span>User & Role Governance</span>
+              </h1>
+              <div
+                className="settings-info-tooltip-wrap"
+                onMouseEnter={() => setShowStandaloneInfo(true)}
+                onMouseLeave={() => setShowStandaloneInfo(false)}
+              >
+                <button
+                  type="button"
+                  className={`settings-info-btn ${showStandaloneInfo ? 'active' : ''}`}
+                  onClick={() => setShowStandaloneInfo((prev) => !prev)}
+                  title="Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity."
+                  aria-label="About User & Role Governance"
+                  aria-expanded={showStandaloneInfo}
+                >
+                  <Info size={15} />
+                </button>
+                {showStandaloneInfo && (
+                  <div className="settings-info-popover" role="tooltip">
+                    <div className="settings-info-popover-header">
+                      <Info size={13} className="popover-info-icon" />
+                      <span>About Users & Roles</span>
+                    </div>
+                    <p className="settings-info-popover-text">
+                      Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        )}
-
-        {isSuperAdmin && (
-          <div className="users-header-actions">
-            <button
-              className="bulk-upload-trigger-btn"
-              onClick={() => setIsBulkUploadModalOpen(true)}
-              title="Bulk import users via CSV file"
-            >
-              <UploadCloud size={16} />
-              <span>Bulk Upload (CSV)</span>
-            </button>
-            <button
-              className="add-user-btn"
-              onClick={() => setIsCreateModalOpen(true)}
-              title="Create new user"
-            >
-              <Plus size={16} />
-              <span>Add New User</span>
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Notifications */}
       {successMsg && (
@@ -669,50 +768,7 @@ export const UsersPage = ({ embedded = false }) => {
         </div>
       )}
 
-      {/* Stats Row */}
-      <div className="users-stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon total">
-            <Users size={20} />
-          </div>
-          <div className="stat-info">
-            <span className="stat-label">Total Accounts</span>
-            <span className="stat-value">{totalUsers}</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon super">
-            <Crown size={20} />
-          </div>
-          <div className="stat-info">
-            <span className="stat-label">Super Admins</span>
-            <span className="stat-value">{superAdminCount}</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon admin">
-            <Shield size={20} />
-          </div>
-          <div className="stat-info">
-            <span className="stat-label">Admins</span>
-            <span className="stat-value">{adminCount}</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon twofa">
-            <ShieldCheck size={20} />
-          </div>
-          <div className="stat-info">
-            <span className="stat-label">2FA Protected</span>
-            <span className="stat-value">{twoFaEnabledCount}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls Bar: Search, Filters, Sort */}
+      {/* Controls Bar: Search, Filters, Sort & Action Icons in One Row */}
       <div className="users-controls">
         <div className="search-box">
           <Search size={16} />
@@ -764,8 +820,89 @@ export const UsersPage = ({ embedded = false }) => {
             <option value="role">Role Priority</option>
             <option value="created_desc">Date Created (Newest)</option>
           </select>
+
+          <div className="users-header-actions">
+            {isSuperAdmin && (
+              <>
+                <span className="users-actions-divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="bulk-upload-trigger-btn"
+                  onClick={() => setIsBulkUploadModalOpen(true)}
+                  title="Bulk Upload (CSV)"
+                  aria-label="Bulk Upload (CSV)"
+                >
+                  <UploadCloud size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="add-user-btn"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  title="Add New User"
+                  aria-label="Add New User"
+                >
+                  <Plus size={18} />
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className={`toggle-stats-btn ${!showStats ? 'hidden-stats' : ''}`}
+              onClick={toggleStats}
+              title={showStats ? "Hide summary labels" : "Show summary labels"}
+              aria-label={showStats ? "Hide summary labels" : "Show summary labels"}
+              aria-pressed={showStats}
+            >
+              {showStats ? <Eye size={18} /> : <EyeOff size={18} />}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Stats Row (Below Filters & Actions, toggleable via Eye icon) */}
+      {showStats && (
+        <div className="users-stats-grid">
+          <div className="stat-card">
+            <div className="stat-icon total">
+              <Users size={20} />
+            </div>
+            <div className="stat-info">
+              <span className="stat-label">Total Accounts</span>
+              <span className="stat-value">{totalUsers}</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon super">
+              <Crown size={20} />
+            </div>
+            <div className="stat-info">
+              <span className="stat-label">Super Admins</span>
+              <span className="stat-value">{superAdminCount}</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon admin">
+              <Shield size={20} />
+            </div>
+            <div className="stat-info">
+              <span className="stat-label">Admins</span>
+              <span className="stat-value">{adminCount}</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon twofa">
+              <ShieldCheck size={20} />
+            </div>
+            <div className="stat-info">
+              <span className="stat-label">2FA Protected</span>
+              <span className="stat-value">{twoFaEnabledCount}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Users Table */}
       <div className="users-table-card">
@@ -830,8 +967,9 @@ export const UsersPage = ({ embedded = false }) => {
                             <span className="user-full-name">
                               {[u.first_name, u.last_name].filter(Boolean).join(' ') || 'User'}
                               {isPrimary && (
-                                <span className="table-primary-tag" title="Supreme Authority">
-                                  <Crown size={11} /> PRIMARY
+                                <span className="table-primary-tag" title="Primary Administrator (Root Authority)">
+                                  <Zap size={10} strokeWidth={2.4} fill="currentColor" />
+                                  <span>Primary</span>
                                 </span>
                               )}
                             </span>
@@ -875,7 +1013,7 @@ export const UsersPage = ({ embedded = false }) => {
                               </>
                             )}
                           </span>
-                          {is2FA && isSuperAdmin && (
+                          {is2FA && canDisable2FA && (
                             <button
                               className="btn-disable-2fa-mini"
                               onClick={() => handleDisable2FA(u.id, u.email)}
@@ -915,6 +1053,19 @@ export const UsersPage = ({ embedded = false }) => {
                             >
                               <Pencil size={13} />
                               <span>Edit</span>
+                            </button>
+                          )}
+
+                          {/* Transfer Primary Tag to other Super Admin */}
+                          {isPrimaryAdmin && !isPrimary && u.role === 'super_admin' && u.status === 'active' && (
+                            <button
+                              className="action-btn transfer-primary"
+                              onClick={() => handleOpenTransferModal(u)}
+                              title={`Transfer Primary Super Admin authority to ${u.first_name || u.email}`}
+                              aria-label="Transfer Primary Tag"
+                            >
+                              <Zap size={13} fill="currentColor" />
+                              <span>Transfer</span>
                             </button>
                           )}
 
@@ -1092,20 +1243,20 @@ export const UsersPage = ({ embedded = false }) => {
                   </select>
                 </div>
 
-                {/* 2FA Toggle */}
-                <div className="toggle-field">
+                {/* 2FA Informational Notice */}
+                <div className="toggle-field twofa-info-field">
                   <div className="toggle-field-label">
-                    <span className="toggle-title">Enable Two-Factor Authentication (2FA)</span>
-                    <span className="toggle-sub">Require 2FA authentication code during login</span>
+                    <span className="toggle-title">Two-Factor Authentication (2FA)</span>
+                    <span className="toggle-sub">
+                      Disabled by default. For security reasons, 2FA must be configured and verified by the user themselves from their profile settings after login.
+                    </span>
                   </div>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={createForm.two_factor_enabled}
-                      onChange={(e) => setCreateForm({ ...createForm, two_factor_enabled: e.target.checked })}
-                    />
-                    <span className="slider"></span>
-                  </label>
+                  <div className="twofa-action-controls">
+                    <span className="badge-2fa-status disabled">
+                      <ShieldAlert size={13} />
+                      <span>User Setup Only</span>
+                    </span>
+                  </div>
                 </div>
 
                 {/* Granular Rights Checklist */}
@@ -1183,8 +1334,8 @@ export const UsersPage = ({ embedded = false }) => {
                     </h2>
                     {selectedUser.is_primary && (
                       <span className="profile-primary-badge" title="Primary Super Admin with supreme authority">
-                        <Crown size={12} />
-                        <span>PRIMARY SUPER ADMIN</span>
+                        <Zap size={11} strokeWidth={2.4} fill="currentColor" />
+                        <span>Primary Admin</span>
                       </span>
                     )}
                   </div>
@@ -1215,6 +1366,30 @@ export const UsersPage = ({ embedded = false }) => {
                   <div className="primary-admin-warning">
                     <AlertTriangle size={16} />
                     <span><strong>Primary Super Admin:</strong> This account holds supreme system authority. The primary admin role cannot be demoted.</span>
+                  </div>
+                )}
+
+                {/* Transfer Primary Banner - Available when Primary Super Admin edits another active Super Admin */}
+                {isPrimaryAdmin && !selectedUser.is_primary && selectedUser.role === 'super_admin' && selectedUser.status === 'active' && (
+                  <div className="transfer-primary-banner">
+                    <div className="transfer-primary-icon-wrap">
+                      <Zap size={18} fill="currentColor" />
+                    </div>
+                    <div className="transfer-primary-details">
+                      <span className="transfer-primary-title">Transfer Primary Ownership</span>
+                      <span className="transfer-primary-sub">
+                        Assign supreme Primary Super Admin authority to this account. Your account will automatically step down to standard Super Admin.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-transfer-primary-trigger"
+                      onClick={() => handleOpenTransferModal(selectedUser)}
+                      title="Transfer Primary Super Admin authority to this user"
+                    >
+                      <Zap size={13} fill="currentColor" />
+                      <span>Transfer Primary Tag</span>
+                    </button>
                   </div>
                 )}
 
@@ -1317,33 +1492,43 @@ export const UsersPage = ({ embedded = false }) => {
                   </select>
                 </div>
 
-                {/* 2FA Toggle switch */}
-                <div className="toggle-field">
+                {/* 2FA Status & Admin Management */}
+                <div className="toggle-field twofa-management-field">
                   <div className="toggle-field-label">
                     <span className="toggle-title">Two-Factor Authentication (2FA)</span>
                     <span className="toggle-sub">
-                      {editForm.two_factor_enabled ? 'Active — account protected by two-factor authentication' : 'Two-factor authentication is disabled'}
+                      {selectedUser.two_factor_enabled
+                        ? 'Active — account protected by two-factor authentication'
+                        : 'Two-factor authentication is disabled. 2FA can only be enabled by the user in their own profile settings.'}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {selectedUser.two_factor_enabled && isSuperAdmin && (
-                      <button
-                        type="button"
-                        className="btn-disable-2fa-action"
-                        onClick={() => handleDisable2FA(selectedUser.id, selectedUser.email)}
-                        title="Disable 2FA for this user"
-                      >
-                        Disable 2FA
-                      </button>
+                  <div className="twofa-action-controls">
+                    {selectedUser.two_factor_enabled ? (
+                      <div className="twofa-status-group">
+                        <span className="badge-2fa-status enabled">
+                          <ShieldCheck size={13} />
+                          <span>Active</span>
+                        </span>
+                        {canDisable2FA && (
+                          <button
+                            type="button"
+                            className="btn-disable-2fa-action"
+                            onClick={() => handleDisable2FA(selectedUser.id, selectedUser.email)}
+                            title="Disable 2FA for this user"
+                          >
+                            <ShieldOff size={13} />
+                            <span>Disable 2FA</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="twofa-status-group">
+                        <span className="badge-2fa-status disabled">
+                          <ShieldAlert size={13} />
+                          <span>Disabled</span>
+                        </span>
+                      </div>
                     )}
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={editForm.two_factor_enabled}
-                        onChange={(e) => setEditForm({ ...editForm, two_factor_enabled: e.target.checked })}
-                      />
-                      <span className="slider"></span>
-                    </label>
                   </div>
                 </div>
 
@@ -1651,6 +1836,113 @@ export const UsersPage = ({ embedded = false }) => {
                 </span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Primary Confirmation Modal */}
+      {isTransferModalOpen && transferTargetUser && (
+        <div className="modal-overlay" onClick={() => !transferSubmitting && setIsTransferModalOpen(false)}>
+          <div
+            className="modal-content modal-transfer-primary"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Transfer Primary Super Admin Tag"
+          >
+            <div className="modal-header">
+              <div className="transfer-modal-header-title">
+                <div className="transfer-header-icon">
+                  <Zap size={18} fill="currentColor" />
+                </div>
+                <div>
+                  <h2 className="modal-title">Transfer Primary Tag</h2>
+                  <p className="modal-subtitle">Reassign supreme system authority to another Super Admin</p>
+                </div>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => !transferSubmitting && setIsTransferModalOpen(false)}
+                title="Close"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleTransferPrimarySubmit} className="transfer-modal-body">
+              {/* Target User Info Card */}
+              <div className="transfer-target-card">
+                <div className="transfer-target-avatar">
+                  {(transferTargetUser.first_name?.[0] || transferTargetUser.email?.[0] || 'U').toUpperCase()}
+                </div>
+                <div className="transfer-target-info">
+                  <div className="transfer-target-name">
+                    {[transferTargetUser.first_name, transferTargetUser.last_name].filter(Boolean).join(' ') || 'Super Admin'}
+                  </div>
+                  <div className="transfer-target-email">{transferTargetUser.email}</div>
+                  <div className="transfer-target-role-flow">
+                    <span className="badge-role super_admin">SUPER ADMIN</span>
+                    <span className="transfer-arrow">&rarr;</span>
+                    <span className="profile-primary-badge">
+                      <Zap size={11} strokeWidth={2.4} fill="currentColor" />
+                      <span>Primary Super Admin</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Warning Notice Box */}
+              <div className="transfer-warning-box">
+                <AlertTriangle size={18} className="transfer-warning-icon" />
+                <div className="transfer-warning-text">
+                  <div className="transfer-warning-title">Irreversible Ownership Transfer</div>
+                  <p>
+                    Transferring the Primary tag to <strong>{transferTargetUser.first_name || transferTargetUser.email}</strong> will make them the supreme administrator of the entire portal.
+                  </p>
+                  <p>
+                    Your account will automatically be demoted to a regular Super Admin. You will forfeit exclusive Primary Admin locks and rights.
+                  </p>
+                </div>
+              </div>
+
+              {/* Security Confirmation Input */}
+              <div className="transfer-confirmation-field">
+                <label htmlFor="transfer-confirm-input">
+                  To confirm, type <strong>TRANSFER</strong> below:
+                </label>
+                <input
+                  id="transfer-confirm-input"
+                  type="text"
+                  className="form-input"
+                  placeholder="TRANSFER"
+                  value={transferConfirmText}
+                  onChange={(e) => setTransferConfirmText(e.target.value)}
+                  autoComplete="off"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              <div className="modal-footer transfer-modal-footer">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsTransferModalOpen(false)}
+                  disabled={transferSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-confirm-transfer"
+                  disabled={transferConfirmText.trim().toUpperCase() !== 'TRANSFER' || transferSubmitting}
+                >
+                  <Zap size={14} fill="currentColor" />
+                  <span>{transferSubmitting ? 'Transferring Authority...' : 'Confirm Transfer'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

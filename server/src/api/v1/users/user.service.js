@@ -3,6 +3,7 @@ import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { pool } from '../../../database/connection.js';
 
 /**
  * Service to handle user-related business logic.
@@ -69,7 +70,7 @@ export const createUser = async (userData, creatorUser) => {
     role: userData.role || 'user',
     status: userData.status || 'active',
     is_primary: false,
-    two_factor_enabled: Boolean(userData.two_factor_enabled),
+    two_factor_enabled: false, // 2FA is always initialized as false; must be self-configured by user
     timezone: userData.timezone || 'UTC',
     last_active_at: new Date(),
     permissions: JSON.stringify(userPermissions),
@@ -120,7 +121,19 @@ export const updateUser = async (targetId, updateData, currentActor) => {
   if (updateData.status !== undefined) payload.status = updateData.status;
   if (updateData.timezone !== undefined) payload.timezone = updateData.timezone;
   if (updateData.two_factor_enabled !== undefined) {
-    payload.two_factor_enabled = updateData.two_factor_enabled ? 1 : 0;
+    const isEnabling = Boolean(updateData.two_factor_enabled);
+    if (isEnabling && !targetUser.two_factor_enabled) {
+      throw new AppError(
+        'Two-Factor Authentication can only be enabled by the user themselves from their profile security settings.',
+        400,
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+    payload.two_factor_enabled = isEnabling ? 1 : 0;
+    if (!isEnabling) {
+      // Clear out user 2FA secret when disabled
+      await pool.query('DELETE FROM system_settings WHERE setting_key = ?', [`user_2fa:${targetId}`]);
+    }
   }
   if (updateData.last_active_at !== undefined) {
     payload.last_active_at = updateData.last_active_at;
@@ -142,6 +155,79 @@ export const updateUser = async (targetId, updateData, currentActor) => {
 
 export const disable2FA = async (targetId, currentActor) => {
   return await updateUser(targetId, { two_factor_enabled: false }, currentActor);
+};
+
+export const transferPrimarySuperAdmin = async (targetId, currentActor) => {
+  if (!currentActor) {
+    throw new AppError('Authentication required.', 401, ERROR_CODES.UNAUTHORIZED);
+  }
+
+  // 1. Verify actor exists and is currently Primary Super Admin in DB
+  const actor = await userRepository.findById(currentActor.id);
+  if (!actor || !actor.is_primary) {
+    throw new AppError(
+      'Only the active Primary Super Admin has authority to transfer primary status.',
+      403,
+      ERROR_CODES.FORBIDDEN
+    );
+  }
+
+  // 2. Prevent self-transfer
+  if (currentActor.id === targetId) {
+    throw new AppError(
+      'You are already the Primary Super Admin.',
+      400,
+      ERROR_CODES.VALIDATION_ERROR
+    );
+  }
+
+  // 3. Find target user
+  const targetUser = await userRepository.findById(targetId);
+  if (!targetUser) {
+    throw new AppError('Target user not found.', 404, ERROR_CODES.NOT_FOUND);
+  }
+
+  // 4. Verify target user is a super_admin and active
+  if (targetUser.role !== 'super_admin') {
+    throw new AppError(
+      'Primary status can only be transferred to another Super Admin account.',
+      400,
+      ERROR_CODES.VALIDATION_ERROR
+    );
+  }
+
+  if (targetUser.status !== 'active') {
+    throw new AppError(
+      'Primary status cannot be transferred to an inactive or suspended user.',
+      400,
+      ERROR_CODES.VALIDATION_ERROR
+    );
+  }
+
+  // 5. Transfer atomically using transaction
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    await connection.query('UPDATE users SET is_primary = FALSE WHERE id = ?', [currentActor.id]);
+    await connection.query('UPDATE users SET is_primary = TRUE WHERE id = ?', [targetId]);
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const updatedTarget = await getUserById(targetId);
+  const updatedActor = await getUserById(currentActor.id);
+
+  return {
+    message: `Primary Super Admin status successfully transferred to ${updatedTarget.first_name || ''} ${updatedTarget.last_name || ''} (${updatedTarget.email}).`,
+    targetUser: updatedTarget,
+    actorUser: updatedActor,
+  };
 };
 
 export const getAllUsers = async () => {

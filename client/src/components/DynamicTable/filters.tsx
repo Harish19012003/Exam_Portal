@@ -258,10 +258,13 @@ export function FilterUI(props: FilterComponentProps) {
   switch (dt) {
     case 'number':
     case 'currency':
+    case 'percent':
       return <NumberFilter {...props} />;
     case 'status':
     case 'dropdown':
+    case 'select':
     case 'multiselect':
+    case 'tags':
       return <SetFilter {...props} />;
     case 'date':
     case 'datetime':

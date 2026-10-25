@@ -17,6 +17,7 @@ export type DataType =
   | 'datetime'
   | 'boolean'
   | 'dropdown'
+  | 'select'
   | 'multiselect'
   | 'image'
   | 'link'
@@ -32,9 +33,7 @@ export type DataType =
   | 'formula'
   | 'icon'
   | 'time'
-  | 'dot'
-  | 'code'
-  | 'mono';
+  | (string & {});
 
 export type CompositeRole =
   | 'avatar'
@@ -69,10 +68,14 @@ interface BaseColumn {
   key: string;
   label: string;
   description?: string;
-  order: number;
-  visible: boolean;
-  pinned: PinDirection;
-  width: number;
+  order?: number;
+  visible?: boolean;
+  pinned?: PinDirection;
+  width?: number;
+  editable?: boolean;
+  allowCustom?: boolean;
+  aggregation?: AggregationType;
+  composedOf?: { field: string; role: CompositeRole }[];
 }
 
 export interface FieldColumn extends BaseColumn {
@@ -81,13 +84,15 @@ export interface FieldColumn extends BaseColumn {
   sortable?: boolean;
   editable?: boolean;
   options?: string[]; // for dropdown | multiselect | status
+  selectOptions?: string[]; // Alias for options
   allowCustom?: boolean; // Allow custom inputs for dropdown, status, multiselect
   required?: boolean;
-  isPrimaryKey?: boolean;
   maxLength?: number;
   aggregation?: AggregationType;
   formula?: string;
   resultType?: DataType;
+  parentColumnKey?: string; // Key of parent column in same row for dependent dropdowns
+  dependentOptionsMap?: Record<string, string[]>; // Map parent values -> dependent choices
 }
 
 export interface CompositeColumnDef extends BaseColumn {
@@ -120,10 +125,21 @@ export interface SavedView {
 
 export interface DataRow {
   rowId: string;
+  id?: string;
   version?: number;
   values: Record<string, unknown>;
   subRows?: DataRow[];
+  pinnedDirection?: 'top' | 'bottom' | null;
 }
+
+export type RowData = {
+  rowId?: string;
+  id?: string;
+  version?: number;
+  values: Record<string, unknown>;
+  subRows?: DataRow[];
+  pinnedDirection?: 'top' | 'bottom' | null;
+};
 
 // ─── Table State ──────────────────────────────────────────────────────────────
 
@@ -260,3 +276,186 @@ export interface ConditionalFormatRule {
   style: ConditionalFormatStyle;
   enabled: boolean;
 }
+
+// ─── Feature Flags & Modular Configuration ─────────────────────────────────────
+
+export type DetailViewMode =
+  | 'inline-subtable'
+  | 'sidebar-drawer'
+  | 'page-redirect'
+  | 'open-modal'
+  | 'copy-column-value'
+  | 'filter-by-column'
+  | 'toggle-column-vis'
+  | 'sort-column';
+
+export type SelectionColumnMode = 'checkbox' | 'checkbox-and-icon' | 'icon-only' | 'none';
+
+export interface CustomIconElement {
+  id: string;
+  label: string;
+  iconName: string;
+  action: DetailViewMode;
+  targetColumnKey?: string;
+  showSubRowCount?: boolean;
+  enabled: boolean;
+}
+
+export interface SelectionColumnConfig {
+  mode?: SelectionColumnMode;
+  width?: number;
+  iconName?: string;
+  renderIcon?: (row: DataRow, isExpanded?: boolean) => React.ReactNode;
+  onIconClick?: (row: DataRow, e: React.MouseEvent) => void;
+  renderHeaderIcon?: () => React.ReactNode;
+  elementOrder?: string[];
+  showSubRowCount?: boolean;
+  expanderIcon?: string;
+  expanderOperation?: DetailViewMode;
+  detailViewMode?: DetailViewMode;
+  customIconElements?: CustomIconElement[];
+  onOpenDrawer?: (row: DataRow) => void;
+  onRedirectPage?: (row: DataRow) => void;
+  onOpenModal?: (row: DataRow) => void;
+  onFilterColumn?: (key: string, value: any) => void;
+  onToggleColumnVis?: (key: string) => void;
+  onSortColumn?: (key: string) => void;
+}
+
+export type RowActionType = 'edit' | 'delete' | 'share' | 'open-modal' | 'sidebar-drawer' | 'copy-column-value';
+
+export interface CustomRowActionButton {
+  id: string;
+  label: string;
+  action: RowActionType;
+  iconName: string;
+  color?: string;
+  size?: 'sm' | 'md' | 'lg';
+  enabled: boolean;
+  targetColumnKey?: string;
+}
+
+export interface RowActionsConfig {
+  width?: number;
+  label?: string;
+  showLabel?: boolean;
+  showOnHover?: boolean;
+  showEdit?: boolean;
+  showDelete?: boolean;
+  /** Explore / drill-into row (destination wired by page via onExploreRow) */
+  showExplore?: boolean;
+  /** Duplicate row (page creates a copy via onDuplicateRow) */
+  showDuplicate?: boolean;
+  iconName?: string;
+  customButtons?: CustomRowActionButton[];
+  renderCustomActions?: (row: DataRow) => React.ReactNode;
+}
+
+export interface SummaryChipConfig {
+  id: string;
+  fieldKey: string;
+  aggregations: AggregationType[];
+}
+
+export const MAX_AGGREGATIONS_PER_CHIP = 3;
+
+export interface TableFeaturesConfig {
+  enableRowSelection?: boolean;
+  enableActionsColumn?: boolean;
+  selectionColumn?: SelectionColumnConfig;
+  rowActions?: RowActionsConfig;
+  enableSearch?: boolean;
+  enableAddRow?: boolean;
+  enableRefresh?: boolean;
+  enableDensity?: boolean;
+  enableExport?: boolean;
+  /** CSV import control in the table toolbar */
+  enableImport?: boolean;
+  enableSavedViews?: boolean;
+  enableFullScreen?: boolean;
+  enableTranspose?: boolean;
+  enableSettings?: boolean;
+  enableBulkActions?: boolean;
+  enableColumnPinning?: boolean;
+  enableColumnSorting?: boolean;
+  enableColumnFiltering?: boolean;
+  enableColumnResizing?: boolean;
+  enableColumnReorder?: boolean;
+  enableAddColumn?: boolean;
+  enableCellEditing?: boolean;
+  enableContextMenu?: boolean;
+  enableFooter?: boolean;
+  enableSummaryChips?: boolean;
+  enableQuickFilters?: boolean;
+  summaryChips?: SummaryChipConfig[];
+  enableSidebar?: boolean;
+  enableSubRows?: boolean;
+  subRowsConfig?: SubRowsConfig;
+}
+
+export interface SubRowRenderProps {
+  parentRow: DataRow;
+  subRows: DataRow[];
+  subRowColumns: ColumnConfig[];
+  isDarkMode: boolean;
+}
+
+export interface SubRowsConfig {
+  mode?: 'nested' | 'tree';
+  subRowColumns?: ColumnConfig[];
+  getSubRowColumns?: (parentRow: DataRow) => ColumnConfig[];
+  renderSubRows?: (props: SubRowRenderProps) => React.ReactNode;
+  getRenderSubRows?: (parentRow: DataRow) => ((props: SubRowRenderProps) => React.ReactNode) | undefined;
+}
+
+export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' | 'selectionColumn' | 'subRowsConfig' | 'summaryChips'>> & {
+  selectionColumn: SelectionColumnConfig;
+  rowActions: RowActionsConfig;
+  subRowsConfig?: SubRowsConfig;
+  summaryChips?: SummaryChipConfig[];
+} = {
+  enableRowSelection: true,
+  enableActionsColumn: true,
+  selectionColumn: {
+    mode: 'checkbox',
+    renderIcon: undefined,
+    onIconClick: undefined,
+    renderHeaderIcon: undefined,
+  },
+  rowActions: {
+    showOnHover: true,
+    showEdit: true,
+    showDelete: true,
+    showExplore: false,
+    showDuplicate: false,
+    renderCustomActions: undefined,
+  },
+  enableSearch: false,
+  enableAddRow: true,
+  enableRefresh: false,
+  enableDensity: false,
+  enableExport: false,
+  enableImport: false,
+  enableSavedViews: true,
+  enableFullScreen: false,
+  enableTranspose: true,
+  enableSettings: true,
+  enableBulkActions: true,
+  enableColumnPinning: true,
+  enableColumnSorting: true,
+  enableColumnFiltering: true,
+  enableColumnResizing: true,
+  enableColumnReorder: true,
+  enableAddColumn: true,
+  enableCellEditing: true,
+  enableContextMenu: true,
+  enableFooter: true,
+  enableSummaryChips: false,
+  enableQuickFilters: false,
+  summaryChips: [],
+  enableSidebar: true,
+  enableSubRows: true,
+  subRowsConfig: undefined,
+};
+
+

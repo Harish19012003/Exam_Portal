@@ -806,6 +806,15 @@
 
 .main-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 24px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dynamic table pages need a fixed-height flex chain (not document scroll) */
+.main-content:has(.exams-page--table),
+.main-content:has(.tables-page--dynamic) {
+  overflow: hidden;
 }

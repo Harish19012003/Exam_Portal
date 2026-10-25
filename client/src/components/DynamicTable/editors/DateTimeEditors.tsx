@@ -1,64 +1,61 @@
-import { useEffect, useRef, useState } from 'react';
 import type { CellEditorProps } from '../types';
-import { editorBase, asFieldColumn } from './shared';
+import {
+  DynamicDatePicker,
+  DynamicDateTimePicker,
+  DynamicTimePicker,
+  toDateValue,
+  toDatetimeLocalValue,
+  toTimeValue,
+} from '../../DynamicData/fields';
+import { asFieldColumn } from './shared';
 
 export function DateEditor({ value, column, onSave, onCancel, isDarkMode, autoFocus }: CellEditorProps) {
   const field = asFieldColumn(column);
-  const [val, setVal] = useState(String(value ?? ''));
-  const ref = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { if (autoFocus) { ref.current?.focus(); } }, [autoFocus]);
-
-  const commit = () => {
-    if (field?.required && !val) { return; }
-    onSave(val || null);
-  };
 
   return (
-    <input
-      ref={ref}
-      type="date"
-      value={val}
-      onChange={e => setVal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === 'Enter') commit();
-        if (e.key === 'Escape') onCancel();
-      }}
-      className={editorBase(isDarkMode) + ' px-0.5 tracking-tighter'}
-      aria-label={`Edit ${column.label}`}
+    <DynamicDatePicker
+      value={toDateValue(value)}
+      onChange={onSave}
+      isDarkMode={isDarkMode}
+      defaultOpen={!!autoFocus}
+      variant="editor"
+      required={field?.required}
+      onCancel={onCancel}
+      commitOnBlur
     />
   );
 }
 
-// ─── Time editor ───────────────────────────────────────────────────────────────
+export function DateTimeEditor({ value, column, onSave, onCancel, isDarkMode, autoFocus }: CellEditorProps) {
+  const field = asFieldColumn(column);
+
+  return (
+    <DynamicDateTimePicker
+      value={toDatetimeLocalValue(value)}
+      onChange={onSave}
+      isDarkMode={isDarkMode}
+      defaultOpen={!!autoFocus}
+      variant="editor"
+      required={field?.required}
+      onCancel={onCancel}
+      commitOnBlur
+    />
+  );
+}
 
 export function TimeEditor({ value, column, onSave, onCancel, isDarkMode, autoFocus }: CellEditorProps) {
   const field = asFieldColumn(column);
-  const [val, setVal] = useState(String(value ?? ''));
-  const ref = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { if (autoFocus) { ref.current?.focus(); } }, [autoFocus]);
-
-  const commit = () => {
-    if (field?.required && !val) { return; }
-    onSave(val || null);
-  };
 
   return (
-    <input
-      ref={ref}
-      type="time"
-      value={val}
-      onChange={e => setVal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === 'Enter') commit();
-        if (e.key === 'Escape') onCancel();
-      }}
-      className={editorBase(isDarkMode) + ' px-0.5 tracking-tighter'}
-      aria-label={`Edit ${column.label}`}
+    <DynamicTimePicker
+      value={toTimeValue(value)}
+      onChange={onSave}
+      isDarkMode={isDarkMode}
+      defaultOpen={!!autoFocus}
+      variant="editor"
+      required={field?.required}
+      onCancel={onCancel}
+      commitOnBlur
     />
   );
 }
-

@@ -56,8 +56,12 @@ function formatTemporalAgg(effectiveType: DataType, agg: AggregationType, aggVal
   return formatDate(aggValue);
 }
 
-export function formatAggregationValue(col: FieldColumn, aggValue: number): string {
-  const agg = col.aggregation;
+export function formatAggregationValue(
+  col: FieldColumn,
+  aggValue: number,
+  aggregation?: AggregationType,
+): string {
+  const agg = aggregation ?? col.aggregation;
   if (!agg) return String(aggValue);
 
   // Formula columns follow resultType (number → number footer, currency → currency, …)
@@ -100,6 +104,51 @@ export function formatAggregationValue(col: FieldColumn, aggValue: number): stri
 export function formatAggregationLabel(agg: AggregationType | undefined): string {
   if (!agg) return 'None';
   return AGGREGATION_LABELS[agg];
+}
+
+/** Short forms when the last word of AGGREGATION_LABELS is too long / ambiguous. */
+const SUMMARY_UNIT_OVERRIDE: Partial<Record<AggregationType, string>> = {
+  avg: 'avg',
+  min: 'min',
+  max: 'max',
+  count: 'count',
+};
+
+/** Compact unit for summary chips — derived from AGGREGATION_LABELS (with few short overrides). */
+export function getSummaryAggregationUnit(agg: AggregationType): string {
+  const override = SUMMARY_UNIT_OVERRIDE[agg];
+  if (override) return override;
+  const parts = AGGREGATION_LABELS[agg].toLowerCase().split(/\s+/);
+  return parts[parts.length - 1]!;
+}
+
+/** One-line card value — type is in the string, no extra subtitle. */
+export function formatSummaryCardValue(
+  col: FieldColumn,
+  aggValue: number,
+  aggregation: AggregationType,
+): string {
+  const base = formatAggregationValue(col, aggValue, aggregation);
+  const unit = getSummaryAggregationUnit(aggregation);
+  // Value already includes the unit word (e.g. "56 unique")
+  if (new RegExp(`\\s+${unit}$`, 'i').test(base)) return base;
+  return `${base} ${unit}`;
+}
+
+/** Split summary value into hero number/text + unit for chip UI. */
+export function formatSummaryChipParts(
+  col: FieldColumn,
+  aggValue: number,
+  aggregation: AggregationType,
+): { primary: string; unit: string; title: string } {
+  const base = formatAggregationValue(col, aggValue, aggregation);
+  const unit = getSummaryAggregationUnit(aggregation);
+  const title = formatSummaryCardValue(col, aggValue, aggregation);
+  const suffix = new RegExp(`\\s+${unit}$`, 'i');
+  if (suffix.test(base)) {
+    return { primary: base.replace(suffix, ''), unit, title };
+  }
+  return { primary: base, unit, title };
 }
 
 /**

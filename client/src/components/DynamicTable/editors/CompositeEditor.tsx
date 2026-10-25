@@ -28,8 +28,7 @@ export function CompositeEditor({ row, column, onSaveBatch, onCancel, isDarkMode
       </div>
       
       {column.composedOf.map(p => {
-        const rowVals = (row?.values ?? row ?? {}) as Record<string, unknown>;
-        const val = updates[p.field] !== undefined ? updates[p.field] : rowVals[p.field];
+        const val = updates[p.field] !== undefined ? updates[p.field] : row.values[p.field];
         return (
           <div key={p.field} className="flex flex-col gap-1.5">
             <label className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>

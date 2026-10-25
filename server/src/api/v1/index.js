@@ -6,6 +6,10 @@ import announcementRoutes from './announcements/announcement.routes.js';
 import legalRoutes from './legal/legal.routes.js';
 import searchRoutes from './search/search.routes.js';
 import vendorRoutes from './vendors/vendor.routes.js';
+import settingsRoutes from './settings/settings.routes.js';
+import examRoutes from './exams/exam.routes.js';
+import examTableRoutes from './exam-tables/exam-table.routes.js';
+import examPresetRoutes from './exam-presets/exam-preset.routes.js';
 
 const router = Router();
 
@@ -17,6 +21,10 @@ router.use('/announcements', announcementRoutes);
 router.use('/legal', legalRoutes);
 router.use('/search', searchRoutes);
 router.use('/vendors', vendorRoutes);
+router.use('/settings', settingsRoutes);
+router.use('/exam-presets', examPresetRoutes);
+router.use('/exams', examTableRoutes);
+router.use('/exams', examRoutes);
 
 // Export main v1 router
 export default router;

@@ -1,65 +1,110 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import type { AggregationType, ColumnConfig, ConditionalFormatRule, DataRow, FilterValue, PendingDelete, SortConfig, PendingEdit, SavedView, Density } from '../types';
-import { isFieldColumn } from '../types';
+import type { AggregationType, ColumnConfig, ConditionalFormatRule, DataRow, RowData, FilterValue, PendingDelete, SortConfig, PendingEdit, SavedView, Density } from '../types';
 import { genRowId } from '../utils';
-import { readPref, saveTablePrefs, TABLE_PREFS_KEY } from '../utils/prefsStorage';
+import {
+  readPref,
+  saveTablePrefs,
+  TABLE_PREFS_KEY,
+  loadTablePrefs,
+  mergeColumnOrder,
+  mergeColumnVisibility,
+  pickLayoutSlice,
+  type TablePrefs,
+} from '../utils/prefsStorage';
+import { publishSharedColumns } from '../../DynamicData/schemaStore';
+import { getSharedRows, publishSharedRows, subscribeSharedRows } from '../../DynamicData/rowsStore';
 import { normalizeConditionalFormatRule } from '../utils/conditionalFormat';
-import { loadInitialColumns, syncColumnsWithInitial } from './tableState/columnMerge';
 import { createCompositeColumnHandlers } from './tableState/compositeColumnHandlers';
 import { createConditionalFormatHandlers } from './tableState/conditionalFormatHandlers';
 import { createSavedViewHandlers, loadSavedViews } from './tableState/savedViewHandlers';
 export type { TableStateHandlers } from './tableState/types';
 import type { TableStateHandlers } from './tableState/types';
 
-export function normalizeDataRows(rawRows: unknown[]): DataRow[] {
-  if (!Array.isArray(rawRows)) return [];
-  return rawRows.map((r, i) => {
-    if (!r || typeof r !== 'object') {
-      return { rowId: `row_${i}`, version: 1, values: {} };
-    }
-    const obj = r as Record<string, unknown>;
-    if ('values' in obj && obj.values && typeof obj.values === 'object') {
-      return {
-        rowId: String(obj.rowId || (obj as any).id || `row_${i}`),
-        version: typeof obj.version === 'number' ? obj.version : 1,
-        values: { ...(obj.values as Record<string, unknown>) },
-      };
-    }
-    const rowId = String(obj.rowId || obj.id || `row_${i}`);
+const sanitizeColumns = (cols: ColumnConfig[]): ColumnConfig[] => {
+  return cols.map((col, idx) => ({
+    order: col.order ?? idx + 1,
+    visible: col.visible ?? true,
+    pinned: col.pinned ?? null,
+    width: col.width ?? 180,
+    ...col,
+  }));
+};
+
+const resolveLayoutSeed = (
+  cols: ColumnConfig[],
+  serverLayout?: TablePrefs | null,
+  tableId?: string,
+): {
+  columnOrder: string[];
+  columnVisibility: Record<string, boolean>;
+  columnWidths: Record<string, number>;
+  density: Density;
+} => {
+  const keys = cols.map((c) => c.key);
+  const schemaVisibility = cols.reduce<Record<string, boolean>>((acc, c) => {
+    acc[c.key] = c.visible !== false;
+    return acc;
+  }, {});
+  const local = loadTablePrefs(tableId);
+  const layout = pickLayoutSlice(serverLayout);
+  const fromLocal = pickLayoutSlice(local);
+  // Server (user/org) wins over localStorage cache
+  const preferred = {
+    columnOrder: layout.columnOrder ?? fromLocal.columnOrder,
+    columnVisibility: layout.columnVisibility ?? fromLocal.columnVisibility,
+    columnWidths: layout.columnWidths ?? fromLocal.columnWidths,
+    density: layout.density ?? fromLocal.density,
+  };
+
+  return {
+    columnOrder: mergeColumnOrder(keys, preferred.columnOrder),
+    columnVisibility: mergeColumnVisibility(keys, schemaVisibility, preferred.columnVisibility),
+    columnWidths: { ...(preferred.columnWidths || {}) },
+    density: (preferred.density as Density) || 'standard',
+  };
+};
+
+const sanitizeRows = (rws: (DataRow | RowData)[]): DataRow[] => {
+  return rws.map((r, idx) => {
+    const { rowId, ...rest } = r;
     return {
-      rowId,
-      version: typeof obj.version === 'number' ? obj.version : 1,
-      values: { ...obj },
+      ...rest,
+      rowId: rowId || r.id || `row_${idx + 1}`,
     };
   });
-}
+};
+
+export type UseTableStateOptions = {
+  tableId?: string;
+  /** When false, do not sync into the shared Dynamic* view store (e.g. Vendors). Default true. */
+  shareState?: boolean;
+  /** Resolved layout from SQL (user override or org default). */
+  layoutPrefs?: TablePrefs | null;
+  /** Debounced personal layout save (SQL). */
+  onLayoutPrefsChange?: (prefs: TablePrefs) => void;
+  onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
+  onRowDelete?: (rowIds: string[]) => Promise<void> | void;
+  onRefresh?: () => Promise<void> | void;
+};
 
 export function useTableState(
   initialColumns: ColumnConfig[],
   initialRows: DataRow[],
-  tableId?: string,
-  callbacks?: {
-    onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
-    onRowDelete?: (rowIds: string[]) => Promise<void> | void;
-    onRefresh?: () => Promise<void> | void;
-  },
+  options: UseTableStateOptions = {},
 ): TableStateHandlers {
-  const callbacksRef = useRef(callbacks);
-  useEffect(() => {
-    callbacksRef.current = callbacks;
-  }, [callbacks]);
+  const {
+    tableId,
+    shareState = true,
+    layoutPrefs = null,
+    onLayoutPrefsChange,
+    onRowUpdate,
+    onRowDelete,
+  } = options;
 
-  const initialRowsRef = useRef(initialRows);
-  const [rows, setRows] = useState<DataRow[]>(() => normalizeDataRows(initialRows));
-
-  useEffect(() => {
-    initialRowsRef.current = initialRows;
-    if (initialRows) {
-      setRows(normalizeDataRows(initialRows));
-    }
-  }, [initialRows]);
-
-  const [columns, setColumns] = useState<ColumnConfig[]>(() => loadInitialColumns(initialColumns, tableId));
+  const [rows, setRows] = useState<DataRow[]>(() =>
+    sanitizeRows((shareState ? getSharedRows() : null) ?? initialRows),
+  );
+  const [columns, setColumns] = useState<ColumnConfig[]>(() => sanitizeColumns(initialColumns));
 
   const [sort, setSort] = useState<SortConfig[]>([]);
   const [filters, setFilters] = useState<Record<string, FilterValue>>({});
@@ -69,7 +114,9 @@ export function useTableState(
   const [pageSize, setPageSize] = useState(15);
 
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ rowId: string; colKey: string } | null>(null);
+
   const [editingRowIds, setEditingRowIds] = useState<Set<string>>(new Set());
   const [rowDrafts, setRowDrafts] = useState<Record<string, Record<string, unknown>>>({});
   const [focusedCell, setFocusedCell] = useState<{ rowId: string; colKey: string } | null>(null);
@@ -77,35 +124,18 @@ export function useTableState(
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
 
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
-    readPref('columnWidths', {}, tableId),
-  );
+  const initialSeed = resolveLayoutSeed(sanitizeColumns(initialColumns), layoutPrefs, tableId);
+
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => initialSeed.columnWidths);
 
   const [savedViews, setSavedViews] = useState<SavedView[]>(() => loadSavedViews(tableId));
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
-  const [columnOrder, setColumnOrder] = useState<string[]>(() => {
-    const defaultOrder = [...initialColumns].sort((a, b) => a.order - b.order).map(c => c.key);
-    const saved: string[] = readPref('columnOrder', defaultOrder, tableId);
-    const initKeys = new Set(initialColumns.map(c => c.key));
-    const validSaved = saved.filter(k => initKeys.has(k));
-    if (validSaved.length === 0) return defaultOrder;
-    const missing = defaultOrder.filter(k => !validSaved.includes(k));
-    return [...validSaved, ...missing];
-  });
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => initialSeed.columnOrder);
 
-  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
-    const defaults: Record<string, boolean> = {};
-    initialColumns.forEach(c => { defaults[c.key] = c.visible; });
-    const saved = readPref('columnVisibility', defaults, tableId);
-    const initKeys = new Set(initialColumns.map(c => c.key));
-    const filteredSaved: Record<string, boolean> = {};
-    Object.keys(saved).forEach(k => {
-      if (initKeys.has(k)) filteredSaved[k] = saved[k];
-    });
-    const hasKeys = Object.keys(filteredSaved).some(k => initKeys.has(k));
-    return hasKeys ? { ...defaults, ...filteredSaved } : defaults;
-  });
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(
+    () => initialSeed.columnVisibility,
+  );
 
   const [highlightedColKey, setHighlightedColKey] = useState<string | null>(null);
 
@@ -119,9 +149,7 @@ export function useTableState(
   }, [highlightedColKey]);
   const [transitioningCols, setTransitioningCols] = useState<Record<string, 'show' | 'hide'>>({});
 
-  const [density, setDensity] = useState<Density>(() =>
-    readPref('density', 'standard', tableId),
-  );
+  const [density, setDensity] = useState<Density>(() => initialSeed.density);
 
   const [conditionalFormats, setConditionalFormats] = useState<ConditionalFormatRule[]>(() =>
     readPref('conditionalFormats', [], tableId).map(normalizeConditionalFormatRule),
@@ -130,15 +158,30 @@ export function useTableState(
     readPref('recentFormatColors', [], tableId),
   );
 
+  // Sync when parent switches presets (prop identity change) — not on first mount,
+  // so we don't clobber rows another view already published this session.
+  const skipInitialPropSync = useRef(true);
+  const layoutPrefsRef = useRef(layoutPrefs);
+  layoutPrefsRef.current = layoutPrefs;
+
   useEffect(() => {
-    const nextLoaded = loadInitialColumns(initialColumns, tableId);
-    setColumns(nextLoaded);
-    const defaultOrder = [...nextLoaded].sort((a, b) => a.order - b.order).map(c => c.key);
-    setColumnOrder(defaultOrder);
-    const defaults: Record<string, boolean> = {};
-    nextLoaded.forEach(c => { defaults[c.key] = c.visible; });
-    setColumnVisibility(defaults);
-  }, [initialColumns, tableId]);
+    const cleanCols = sanitizeColumns(initialColumns);
+    const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId);
+    setColumns(cleanCols);
+    setColumnOrder(seed.columnOrder);
+    setColumnVisibility(seed.columnVisibility);
+    setColumnWidths((prev) => ({ ...seed.columnWidths, ...prev }));
+    if (seed.density) setDensity(seed.density);
+    setSort([]);
+    setFilters({});
+    setSearch('');
+    setSelectedRows(new Set());
+    if (skipInitialPropSync.current) {
+      skipInitialPropSync.current = false;
+      return;
+    }
+    setRows(sanitizeRows(initialRows));
+  }, [initialColumns, initialRows, tableId]);
 
   useEffect(() => {
     saveTablePrefs({
@@ -152,8 +195,52 @@ export function useTableState(
     }, tableId);
   }, [columns, columnWidths, columnOrder, columnVisibility, density, conditionalFormats, recentFormatColors, tableId]);
 
+  // Debounced SQL persist of personal layout (skip first paint)
+  const skipInitialLayoutSave = useRef(true);
+  const onLayoutPrefsChangeRef = useRef(onLayoutPrefsChange);
+  onLayoutPrefsChangeRef.current = onLayoutPrefsChange;
+  useEffect(() => {
+    if (!onLayoutPrefsChangeRef.current) return;
+    if (skipInitialLayoutSave.current) {
+      skipInitialLayoutSave.current = false;
+      return;
+    }
+    const slice = pickLayoutSlice({
+      columnOrder,
+      columnVisibility,
+      columnWidths,
+      density,
+    });
+    const timer = window.setTimeout(() => {
+      onLayoutPrefsChangeRef.current?.(slice);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [columnOrder, columnVisibility, columnWidths, density]);
+
+  // Let the sibling Dynamic* views render composites/formulas built here.
+  useEffect(() => {
+    if (!shareState) return;
+    publishSharedColumns(columns);
+  }, [columns, shareState]);
+
+  // Keep parent chrome + sibling views on the same live row set.
+  useEffect(() => {
+    if (!shareState) return;
+    publishSharedRows(rows);
+  }, [rows, shareState]);
+
+  // Pick up edits published by List/Card/… without fighting our own publishes.
+  useEffect(() => {
+    if (!shareState) return undefined;
+    return subscribeSharedRows(() => {
+      const next = getSharedRows();
+      if (!next) return;
+      setRows(prev => (prev === next ? prev : next));
+    });
+  }, [shareState]);
+
   const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);
-  const [activeSidebar, setActiveSidebar] = useState<'columns' | null>(null);
+  const [activeSidebar, setActiveSidebar] = useState<'columns' | 'construction' | null>(null);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [dragColKey, setDragColKey] = useState<string | null>(null);
@@ -227,15 +314,17 @@ export function useTableState(
   // ── Inline edit ────────────────────────────────────────────────────────────
   const handleCellSave = useCallback((rowId: string, colKey: string, newValue: unknown) => {
     setRows(prev => {
-      const nextRows = prev.map(r => r.rowId === rowId ? { ...r, values: { ...r.values, [colKey]: newValue } } : r);
-      const target = nextRows.find(r => r.rowId === rowId);
-      if (callbacksRef.current?.onRowUpdate && target) {
-        callbacksRef.current.onRowUpdate(rowId, { [colKey]: newValue }, target);
+      const next = prev.map(r =>
+        r.rowId === rowId ? { ...r, values: { ...r.values, [colKey]: newValue } } : r
+      );
+      const updated = next.find(r => r.rowId === rowId);
+      if (updated && onRowUpdate) {
+        void onRowUpdate(rowId, { [colKey]: newValue }, updated);
       }
-      return nextRows;
+      return next;
     });
     setEditingCell(null);
-  }, []);
+  }, [onRowUpdate]);
 
   const handleRowDraftChange = useCallback((rowId: string, colKey: string, newValue: unknown) => {
     setRowDrafts(prev => ({
@@ -262,12 +351,12 @@ export function useTableState(
             });
           }
 
-          const nextRows = rPrev.map(r => 
+          const nextRows = rPrev.map(r =>
             r.rowId === rowId ? { ...r, values: { ...r.values, ...draft } } : r
           );
-          const target = nextRows.find(r => r.rowId === rowId);
-          if (callbacksRef.current?.onRowUpdate && target) {
-            callbacksRef.current.onRowUpdate(rowId, draft, target);
+          const updated = nextRows.find(r => r.rowId === rowId);
+          if (updated && onRowUpdate) {
+            void onRowUpdate(rowId, draft, updated);
           }
           return nextRows;
         });
@@ -281,7 +370,7 @@ export function useTableState(
       next.delete(rowId);
       return next;
     });
-  }, []);
+  }, [onRowUpdate]);
 
   const cancelRowDraft = useCallback((rowId: string) => {
     setRowDrafts(prev => {
@@ -316,16 +405,13 @@ export function useTableState(
     setSelectedRows(prev => { const s = new Set(prev); s.delete(rowId); return s; });
     setContextMenu(null);
 
-    if (callbacksRef.current?.onRowDelete) {
-      callbacksRef.current.onRowDelete([rowId]);
-    }
-
     const timerId = setTimeout(() => {
       setPendingDelete(null);
+      if (onRowDelete) void onRowDelete([rowId]);
     }, 15000);
     deleteTimerRef.current = timerId;
     setPendingDelete({ rowId, row, timerId, index });
-  }, [rows]);
+  }, [rows, onRowDelete]);
 
   const handleUndoDelete = useCallback(() => {
     if (!pendingDelete) return;
@@ -350,19 +436,15 @@ export function useTableState(
   }, [pendingEdit]);
 
   const handleDeleteSelected = useCallback(() => {
-    const idsToDelete = Array.from(selectedRows);
+    const ids = Array.from(selectedRows);
     setRows(prev => prev.filter(r => !selectedRows.has(r.rowId)));
     setSelectedRows(new Set());
     setShowBulkConfirm(false);
-
-    if (callbacksRef.current?.onRowDelete && idsToDelete.length > 0) {
-      callbacksRef.current.onRowDelete(idsToDelete);
-    }
-  }, [selectedRows]);
+    if (ids.length && onRowDelete) void onRowDelete(ids);
+  }, [selectedRows, onRowDelete]);
 
   const handleBulkUpdate = useCallback((updates: Record<string, unknown>) => {
     if (selectedRows.size === 0 || Object.keys(updates).length === 0) return;
-    const ids = Array.from(selectedRows);
     
     setRows(prev => {
       const originalRows = prev.filter(r => selectedRows.has(r.rowId));
@@ -380,18 +462,9 @@ export function useTableState(
         return { id: String(Date.now()), originalRows: newRows, timerId: editTimerRef.current! };
       });
 
-      const nextRows = prev.map(r => 
+      return prev.map(r => 
         selectedRows.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r
       );
-
-      if (callbacksRef.current?.onRowUpdate) {
-        ids.forEach(id => {
-          const target = nextRows.find(r => r.rowId === id);
-          if (target) callbacksRef.current?.onRowUpdate?.(id, updates, target);
-        });
-      }
-
-      return nextRows;
     });
     
     setSelectedRows(new Set());
@@ -399,23 +472,15 @@ export function useTableState(
   }, [selectedRows]);
 
   const handleAddRow = useCallback(() => {
-    const pkCol = initialColumns.find(c => isFieldColumn(c) && (c.isPrimaryKey || c.key === 'vendor_code'));
-    const initialVals: Record<string, unknown> = {};
-    let newId = genRowId();
-    if (pkCol) {
-      const prefix = pkCol.key.includes('vendor') ? 'VND' : 'ID';
-      const code = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-      initialVals[pkCol.key] = code;
-      newId = code;
-    }
-    const newRow: DataRow = { rowId: newId, version: 1, values: initialVals };
+    const newRow: DataRow = { rowId: genRowId(), version: 1, values: {} };
     setRows(prev => [newRow, ...prev]);
     setPage(1);
-  }, [initialColumns]);
+  }, []);
 
   // ── Column management ──────────────────────────────────────────────────────
   const handleColumnWidthChange = useCallback((key: string, width: number) => {
-    setColumnWidths(prev => ({ ...prev, [key]: Math.max(60, width) }));
+    const minW = key === '__checkbox' ? 32 : key === '__actions' ? 40 : 50;
+    setColumnWidths(prev => ({ ...prev, [key]: Math.max(minW, width) }));
   }, []);
 
   const handleColumnReorder = useCallback((fromKey: string, toKey: string) => {
@@ -470,12 +535,12 @@ export function useTableState(
   }, [initialColumns]);
 
   const handleResetOrder = useCallback(() => {
-    setColumnOrder([...initialColumns].sort((a, b) => a.order - b.order).map(c => c.key));
+    setColumnOrder([...initialColumns].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(c => c.key));
   }, [initialColumns]);
 
   const handleResetWidths = useCallback(() => {
     const w: Record<string, number> = {};
-    initialColumns.forEach(c => { w[c.key] = c.width; });
+    initialColumns.forEach(c => { if (c.width) w[c.key] = c.width; });
     setColumnWidths(w);
   }, [initialColumns]);
 
@@ -490,20 +555,6 @@ export function useTableState(
     localStorage.removeItem(TABLE_PREFS_KEY);
     setActiveViewId(null);
   }, [initialColumns]);
-
-  const handleRefresh = useCallback(async () => {
-    if (callbacksRef.current?.onRefresh) {
-      try {
-        await callbacksRef.current.onRefresh();
-      } catch (err) {
-        console.error('Error refreshing table data:', err);
-      }
-    }
-    setRows(normalizeDataRows(initialRowsRef.current));
-    setEditingRowIds(new Set());
-    setRowDrafts({});
-    setEditingCell(null);
-  }, []);
 
   const {
     handleAddCompositeColumn,
@@ -551,7 +602,7 @@ export function useTableState(
       }
       return prev;
     });
-    setColumnWidths(prev => ({ ...prev, [col.key]: col.width }));
+    setColumnWidths(prev => ({ ...prev, [col.key]: col.width ?? 180 }));
     setColumnVisibility(prev => ({ ...prev, [col.key]: true }));
   }, []);
 
@@ -567,12 +618,22 @@ export function useTableState(
     setColumns(prev => prev.map(c => c.key === colKey ? { ...c, [prop]: value } : c));
   }, []);
 
+  const handleToggleExpandRow = useCallback((rowId: string) => {
+    setExpandedRowIds(prev => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }, []);
+
   return {
     rows, setRows, columns, setColumns,
     sort, filters, search,
     handleSort, handleFilterChange, handleSearch, handleClearAll,
     page, pageSize, setPage, setPageSize,
     selectedRows, handleToggleRowSelect, handleSelectAll, handleClearSelection,
+    expandedRowIds, handleToggleExpandRow,
     editingCell, setEditingCell,
     editingRowIds, setEditingRowIds,
     rowDrafts, setRowDrafts,
@@ -587,7 +648,7 @@ export function useTableState(
     handleColumnWidthChange, handleColumnReorder,
     handleToggleColumnVisibility, handlePinColumn, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
     handleDeleteCompositeColumn, handleUpdateCompositeColumn,
-    handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset, handleRefresh,
+    handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset,
     openFilterKey, setOpenFilterKey,
     density, setDensity,
     activeSidebar, setActiveSidebar,
@@ -607,4 +668,5 @@ export function useTableState(
     handleToggleConditionalFormat,
     handlePushRecentFormatColor,
   };
+
 }

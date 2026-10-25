@@ -8,6 +8,7 @@ import { CompositeCell } from '../renderers';
 import { FormulaBuilder } from './FormulaBuilder';
 import { ConditionalFormatBuilder } from './ConditionalFormatBuilder';
 import type { ColumnConfig, CompositeColumnDef, CompositeRole, ConditionalFormatRule, DataRow } from '../types';
+import { isFieldColumn, isCompositeColumn } from '../types';
 
 interface SidebarManagerProps {
   columns: ColumnConfig[];
@@ -30,6 +31,10 @@ interface SidebarManagerProps {
   onPushRecentFormatColor: (hex: string) => void;
   onClose: () => void;
   isDarkMode: boolean;
+  canSaveLayoutAsDefault?: boolean;
+  hasUserLayoutOverride?: boolean;
+  onSaveLayoutAsDefault?: () => void | Promise<void>;
+  onResetLayoutToDefault?: () => void | Promise<void>;
 }
 
 export function SidebarManager({
@@ -53,6 +58,10 @@ export function SidebarManager({
   onPushRecentFormatColor,
   onClose,
   isDarkMode,
+  canSaveLayoutAsDefault = false,
+  hasUserLayoutOverride = false,
+  onSaveLayoutAsDefault,
+  onResetLayoutToDefault,
 }: SidebarManagerProps) {
   const [view, setView] = useState<'list' | 'edit' | 'formula' | 'format'>('list');
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -130,7 +139,7 @@ export function SidebarManager({
     <>
       {/* Backdrop */}
       <div 
-        className={`fixed inset-0 z-[9990] transition-opacity duration-300 ${isAnimatingIn ? 'opacity-100' : 'opacity-0'} ${isDetailView ? 'bg-black/20 backdrop-blur-sm' : 'bg-transparent'}`} 
+        className={`fixed inset-0 z-[9990] transition-opacity duration-300 ${isAnimatingIn ? 'opacity-100' : 'opacity-0'} ${isDetailView ? 'bg-black/15' : 'bg-transparent'}`} 
         onClick={view === 'list' ? handleClose : undefined}
       />
       
@@ -187,6 +196,10 @@ export function SidebarManager({
               onEditGroup={handleEdit}
               onUpdateColumnProp={onUpdateColumnProp}
               isDarkMode={isDarkMode}
+              canSaveLayoutAsDefault={canSaveLayoutAsDefault}
+              hasUserLayoutOverride={hasUserLayoutOverride}
+              onSaveLayoutAsDefault={onSaveLayoutAsDefault}
+              onResetLayoutToDefault={onResetLayoutToDefault}
             />
           )}
           
@@ -262,6 +275,10 @@ interface ListViewProps {
   onEditGroup: (key: string) => void;
   onUpdateColumnProp: (colKey: string, prop: string, value: unknown) => void;
   isDarkMode: boolean;
+  canSaveLayoutAsDefault?: boolean;
+  hasUserLayoutOverride?: boolean;
+  onSaveLayoutAsDefault?: () => void | Promise<void>;
+  onResetLayoutToDefault?: () => void | Promise<void>;
 }
 
 function ListView({
@@ -280,8 +297,23 @@ function ListView({
   onEditGroup,
   onUpdateColumnProp,
   isDarkMode,
+  canSaveLayoutAsDefault = false,
+  hasUserLayoutOverride = false,
+  onSaveLayoutAsDefault,
+  onResetLayoutToDefault,
 }: ListViewProps) {
   const [dragKey, setDragKey] = useState<string | null>(null);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+
+  const runLayoutAction = async (fn?: () => void | Promise<void>) => {
+    if (!fn || layoutBusy) return;
+    setLayoutBusy(true);
+    try {
+      await fn();
+    } finally {
+      setLayoutBusy(false);
+    }
+  };
 
   const orderedColumns = columnOrder
     .map(key => columns.find(c => c.key === key))
@@ -484,15 +516,15 @@ function ListView({
               {!isGroup && ['dropdown', 'multiselect', 'status'].includes(col.dataType) && (
                 <div 
                   className={`flex items-center gap-2 ml-2 px-2 py-1 rounded-lg border transition-colors cursor-pointer select-none
-                    ${col.allowCustom ? (isDarkMode ? 'border-[#13C296]/30 bg-[#13C296]/10 text-[#13C296]' : 'border-[#13C296]/30 bg-[#13C296]/5 text-[#13C296]') : (isDarkMode ? 'border-gray-700 text-gray-400 hover:text-gray-300 hover:bg-white/5' : 'border-gray-200 text-gray-500 hover:text-gray-600 hover:bg-gray-50')}`}
-                  onClick={() => onUpdateColumnProp(col.key, 'allowCustom', !col.allowCustom)}
+                    ${isFieldColumn(col) && col.allowCustom ? (isDarkMode ? 'border-[#13C296]/30 bg-[#13C296]/10 text-[#13C296]' : 'border-[#13C296]/30 bg-[#13C296]/5 text-[#13C296]') : (isDarkMode ? 'border-gray-700 text-gray-400 hover:text-gray-300 hover:bg-white/5' : 'border-gray-200 text-gray-500 hover:text-gray-600 hover:bg-gray-50')}`}
+                  onClick={() => onUpdateColumnProp(col.key, 'allowCustom', isFieldColumn(col) ? !col.allowCustom : false)}
                   title="Allow Custom Input"
                 >
                   <span className="text-[10px] font-semibold whitespace-nowrap">Custom</span>
                   <div className={`w-6 h-3.5 rounded-full transition-colors relative flex-shrink-0
-                    ${col.allowCustom ? 'bg-[#13C296]' : isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}>
+                    ${isFieldColumn(col) && col.allowCustom ? 'bg-[#13C296]' : isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}>
                     <div className={`absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm
-                      ${col.allowCustom ? 'translate-x-[10px]' : 'translate-x-0'}`} />
+                      ${isFieldColumn(col) && col.allowCustom ? 'translate-x-[10px]' : 'translate-x-0'}`} />
                   </div>
                 </div>
               )}
@@ -500,6 +532,40 @@ function ListView({
           );
         })}
       </div>
+
+      {(canSaveLayoutAsDefault || (hasUserLayoutOverride && onResetLayoutToDefault)) && (
+        <div className={`p-4 border-t flex flex-col gap-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <p className={`text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+            Layout for this table saves automatically. Super admins can publish it as the default for everyone.
+          </p>
+          {hasUserLayoutOverride && onResetLayoutToDefault && (
+            <button
+              type="button"
+              disabled={layoutBusy}
+              onClick={() => runLayoutAction(onResetLayoutToDefault)}
+              className={`w-full min-h-[44px] px-3 py-2 rounded-lg text-sm font-medium border transition-colors
+                ${isDarkMode
+                  ? 'border-gray-600 text-gray-300 hover:bg-white/5 disabled:opacity-50'
+                  : 'border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50'}`}
+            >
+              Reset to default layout
+            </button>
+          )}
+          {canSaveLayoutAsDefault && onSaveLayoutAsDefault && (
+            <button
+              type="button"
+              disabled={layoutBusy}
+              onClick={() => runLayoutAction(onSaveLayoutAsDefault)}
+              className={`w-full min-h-[44px] px-3 py-2 rounded-lg text-sm font-semibold transition-colors
+                ${isDarkMode
+                  ? 'bg-[#13C296] text-white hover:bg-[#10a87f] disabled:opacity-50'
+                  : 'bg-[#13C296] text-white hover:bg-[#0ea978] disabled:opacity-50'}`}
+            >
+              Save as default for everyone
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -523,7 +589,7 @@ function EditView({ columns, editingKey, onSave, rows, isDarkMode }: EditViewPro
   const [label, setLabel] = useState(targetCol?.label || '');
   const [previewRowIndex, setPreviewRowIndex] = useState(0);
   const [parts, setParts] = useState<{ field: string; role: CompositeRole }[]>(
-    targetCol && targetCol.dataType === 'composite' ? [...targetCol.composedOf] : []
+    targetCol && isCompositeColumn(targetCol) ? [...(targetCol.composedOf || [])] : []
   );
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
 
@@ -565,12 +631,11 @@ function EditView({ columns, editingKey, onSave, rows, isDarkMode }: EditViewPro
 
   const previewRow: DataRow = useMemo(() => {
     const realRow = rows?.[previewRowIndex];
-    const realRowVals = (realRow?.values ?? realRow ?? {}) as Record<string, unknown>;
     const vals: Record<string, unknown> = {};
     parts.forEach((p, i) => {
       if (!p.field) return;
-      if (realRow && realRowVals[p.field] !== undefined && realRowVals[p.field] !== '') {
-        vals[p.field] = realRowVals[p.field];
+      if (realRow && realRow.values[p.field] !== undefined && realRow.values[p.field] !== '') {
+        vals[p.field] = realRow.values[p.field];
       } else {
         if (p.role === 'avatar') vals[p.field] = `https://i.pravatar.cc/150?u=${i}`;
         else if (p.role === 'icon') vals[p.field] = 'US';
