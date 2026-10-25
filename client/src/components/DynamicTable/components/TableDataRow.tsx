@@ -1,8 +1,10 @@
 import { memo } from 'react';
-import { Edit2, Trash2, X, Check, PanelRightOpen } from 'lucide-react';
+import { Edit2, Trash2, X, Check, PanelRightOpen, ExternalLink, Copy } from 'lucide-react';
 import { isCompositeColumn, isFieldColumn } from '../types';
 import type { ColumnConfig, ConditionalFormatRule, DataRow, RowActionsConfig, SelectionColumnConfig } from '../types';
 import type { TableThemeTokens } from '../utils/tableTheme';
+import { getStickyCellClassName, getStickyCellBackground } from '../utils/tableTheme';
+import '../stickyCells.css';
 import {
   getCellFormatStyle,
   getRowFormatStyle,
@@ -67,6 +69,10 @@ interface TableDataRowProps {
   enableContextMenu?: boolean;
   enableSubRows?: boolean;
   onOpenRecordSidebar?: (row?: DataRow) => void;
+  /** Explore action — page decides what opens */
+  onExploreRow?: (row: DataRow) => void;
+  /** Duplicate action — page creates a copy of the row */
+  onDuplicateRow?: (row: DataRow) => void;
   topOffset?: number;
   bottomOffset?: number;
   selectedRowIds?: Set<string>;
@@ -118,6 +124,8 @@ function TableDataRowComponent({
   enableContextMenu = true,
   enableSubRows = true,
   onOpenRecordSidebar,
+  onExploreRow,
+  onDuplicateRow,
   topOffset = 41,
   bottomOffset = 0,
   selectedRowIds,
@@ -162,14 +170,12 @@ function TableDataRowComponent({
           style={{
             width: checkboxWidth,
             minWidth: checkboxWidth,
-            position: 'sticky',
             left: 0,
-            zIndex: 5,
-            ...(!isSelected && rowFormatCss?.backgroundColor
-              ? { backgroundColor: rowFormatCss.backgroundColor }
-              : {}),
+            backgroundColor: !isSelected && rowFormatCss?.backgroundColor
+              ? String(rowFormatCss.backgroundColor)
+              : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`px-2 border-b ${theme.borderRow} ${isSelected ? theme.selectedCellBg : theme.bgPinnedLeft} transition-colors`}
+          className={`px-2 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })}`}
         >
           <div className="flex items-center justify-center gap-1.5">
             {(selectionColumn?.elementOrder ?? ['checkbox']).map(itemId => {
@@ -383,13 +389,24 @@ function TableDataRowComponent({
               : 'bg-[#13C296]/10 shadow-[inset_0_0_15px_rgba(19,194,150,0.2)] transition-all duration-300'
             : 'transition-all duration-1000';
 
-        const pinnedBg = isSelected ? theme.selectedCellBg : theme.bgPinnedLeft;
-        const stickyStyle: React.CSSProperties =
-          offset?.left !== undefined
-            ? { position: 'sticky', left: offset.left, zIndex: 4 }
-            : offset?.right !== undefined
-              ? { position: 'sticky', right: offset.right, zIndex: 4 }
-              : {};
+        const isLeftPinned = offset?.left !== undefined;
+        const isRightPinned = offset?.right !== undefined;
+        const isPinned = isLeftPinned || isRightPinned;
+        const stickyStyle: React.CSSProperties = isLeftPinned
+          ? {
+              left: offset.left,
+              backgroundColor: formatCss.backgroundColor
+                ? undefined
+                : getStickyCellBackground(isDarkMode, { isSelected }),
+            }
+          : isRightPinned
+            ? {
+                right: offset.right,
+                backgroundColor: formatCss.backgroundColor
+                  ? undefined
+                  : getStickyCellBackground(isDarkMode, { isSelected }),
+              }
+            : {};
 
         return (
           <td
@@ -409,7 +426,9 @@ function TableDataRowComponent({
               } as React.CSSProperties
             }
             className={`px-3 border-b overflow-hidden whitespace-nowrap ${theme.borderRow} ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
-              ${offset && !isHighlighted && !isHiding && !formatCss.backgroundColor ? pinnedBg : ''}
+              ${isPinned && !isHighlighted && !isHiding && !formatCss.backgroundColor
+                ? getStickyCellClassName(isRightPinned ? 'right' : 'left', { isSelected })
+                : 'dt-scroll-cell'}
               ${isLastLeftPinned ? 'shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}
               ${isFirstRightPinned ? 'shadow-[-4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}`}
             onDoubleClick={e => {
@@ -568,15 +587,12 @@ function TableDataRowComponent({
             width: actionsWidth,
             minWidth: actionsWidth,
             maxWidth: actionsWidth,
-            position: 'sticky',
             right: 0,
-            zIndex: 4,
-            ...(!isSelected && rowFormatCss?.backgroundColor
-              ? { backgroundColor: rowFormatCss.backgroundColor }
-              : {}),
+            backgroundColor: !isSelected && rowFormatCss?.backgroundColor
+              ? String(rowFormatCss.backgroundColor)
+              : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`border-b ${theme.borderRow} px-1 transition-colors
-            ${isSelected ? theme.selectedCellBg : theme.bgPinnedLeft}`}
+          className={`border-b ${theme.borderRow} px-1 ${getStickyCellClassName('right', { isSelected })}`}
         >
           <div
             className={`flex items-center justify-center gap-2 transition-opacity ${
@@ -611,6 +627,36 @@ function TableDataRowComponent({
             ) : (
               <>
                 {rowActions?.renderCustomActions && rowActions.renderCustomActions(row)}
+
+                {rowActions?.showExplore && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExploreRow?.(row);
+                    }}
+                    className="p-1 rounded-lg transition-colors"
+                    aria-label="Explore"
+                    title="Explore"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-gray-400 hover:text-[#13C296] transition-colors" aria-hidden="true" />
+                  </button>
+                )}
+
+                {rowActions?.showDuplicate && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDuplicateRow?.(row);
+                    }}
+                    className="p-1 rounded-lg transition-colors"
+                    aria-label="Duplicate"
+                    title="Duplicate"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-gray-400 hover:text-[#13C296] transition-colors" aria-hidden="true" />
+                  </button>
+                )}
 
                 {(() => {
                   const enabledCustomButtons = rowActions?.customButtons?.filter(b => b.enabled) || [];
@@ -671,6 +717,7 @@ function TableDataRowComponent({
                           <PanelRightOpen className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       )}
+                      {/* Explore already rendered above when showExplore — keep edit/delete here */}
                       {rowActions?.showEdit !== false && (
                         <button
                           type="button"

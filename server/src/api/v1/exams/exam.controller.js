@@ -35,7 +35,7 @@ export const createExam = async (req, res, next) => {
 
 export const updateExam = async (req, res, next) => {
   try {
-    const exam = await examService.updateExam(req.params.id, req.body || {});
+    const exam = await examService.updateExam(req.params.id, req.body || {}, req.user?.id);
     return successResponse(res, exam, 200);
   } catch (error) {
     next(error);

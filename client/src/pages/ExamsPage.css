@@ -266,6 +266,25 @@
   box-shadow: 0 0 0 3px rgba(92, 67, 250, 0.15);
 }
 
+.exams-form-group input:disabled,
+.exams-form-group input[readonly] {
+  opacity: 0.85;
+  cursor: not-allowed;
+  background: var(--bg-secondary, #f1f5f9);
+}
+
+[data-theme='dark'] .exams-form-group input:disabled,
+[data-theme='dark'] .exams-form-group input[readonly] {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.exams-field-key-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-tertiary, #94a3b8);
+}
+
 [data-theme='dark'] .exams-form-group input,
 [data-theme='dark'] .exams-form-group select {
   background: rgba(255, 255, 255, 0.04);
@@ -893,10 +912,11 @@
 .exams-field-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px 2px 6px;
+  gap: 2px;
+  padding: 2px 8px 2px 2px;
   min-width: 0;
   border-bottom: 1px solid var(--border-color, #e2e8f0);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 
 .exams-field-row:last-child {
@@ -907,8 +927,51 @@
   background: rgba(92, 67, 250, 0.04);
 }
 
+.exams-field-row.is-dragging {
+  opacity: 0.45;
+}
+
+.exams-field-row.is-drag-over {
+  box-shadow: inset 0 2px 0 0 var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.06);
+}
+
 [data-theme='dark'] .exams-field-row:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme='dark'] .exams-field-row.is-drag-over {
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.exams-field-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  min-width: 36px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary, #94a3b8);
+  cursor: grab;
+  touch-action: none;
+}
+
+.exams-field-drag-handle:active {
+  cursor: grabbing;
+  color: var(--primary-color, #5c43fa);
+}
+
+.exams-field-drag-handle:hover,
+.exams-field-row:hover .exams-field-drag-handle {
+  color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.08);
 }
 
 .exams-field-row-main {
@@ -924,16 +987,6 @@
   text-align: left;
   color: inherit;
   border-radius: 6px;
-}
-
-.exams-field-index {
-  width: 22px;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary, #94a3b8);
-  letter-spacing: 0.02em;
 }
 
 .exams-field-icon-wrap {
@@ -974,14 +1027,48 @@
 }
 
 .exams-page-toast {
-  align-self: flex-start;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(92, 67, 250, 0.1);
-  border: 1px solid rgba(92, 67, 250, 0.25);
-  color: var(--primary-color, #5c43fa);
+  position: fixed;
+  top: max(72px, env(safe-area-inset-top, 0px) + 56px);
+  right: max(16px, env(safe-area-inset-right, 0px) + 12px);
+  z-index: 10050;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--card-bg, #fff);
+  border: 1px solid rgba(19, 194, 150, 0.35);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  color: var(--text-primary, #0f172a);
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.35;
+  pointer-events: none;
+  animation: exams-toast-in 0.2s ease-out;
+}
+
+[data-theme='dark'] .exams-page-toast {
+  background: #13241f;
+  border-color: rgba(19, 194, 150, 0.45);
+  color: #e2e8f0;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes exams-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .exams-page-toast {
+    left: 16px;
+    right: 16px;
+    max-width: none;
+  }
 }
 
 .exams-list-panel,
@@ -1658,4 +1745,46 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-header-bar {
     gap: 8px;
   }
+}
+
+/* Fields drawer: bulk add */
+.exams-field-section-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.exams-field-builder textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg-input, var(--bg-card, #fff));
+  color: var(--text-primary, #0f172a);
+  font: inherit;
+  resize: vertical;
+}
+
+.exams-bulk-preview {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exams-bulk-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exams-bulk-item.has-error .exams-field-row-label,
+.exams-bulk-item.has-error .exams-field-row-meta {
+  color: #dc2626;
 }

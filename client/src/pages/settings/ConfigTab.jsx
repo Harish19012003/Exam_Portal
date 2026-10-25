@@ -7,11 +7,13 @@ import {
   Trash2,
   Pencil,
   GripVertical,
+  LayoutTemplate,
 } from 'lucide-react';
 import {
   loadConfigDropdownLists,
   saveConfigDropdownLists,
 } from './configStorage';
+import { FieldPresetsPanel } from './FieldPresetsPanel';
 
 const SECTIONS = [
   {
@@ -29,6 +31,14 @@ const SECTIONS = [
     emptyTitle: 'No settings values yet',
     emptyHint: 'Add portal-wide defaults and other config values here.',
     actionLabel: 'New value',
+  },
+  {
+    id: 'presets',
+    title: 'Field presets',
+    icon: LayoutTemplate,
+    emptyTitle: 'No field presets yet',
+    emptyHint: 'Create one preset per service; new exams of that service start with its fields.',
+    actionLabel: 'New preset',
   },
 ];
 
@@ -50,6 +60,7 @@ export const ConfigTab = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [form, setForm] = useState(emptyDropdownForm);
   const [formError, setFormError] = useState('');
+  const [presetCreateTick, setPresetCreateTick] = useState(0);
 
   const section = SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
   const SectionIcon = section.icon;
@@ -185,6 +196,8 @@ export const ConfigTab = () => {
   const handleSectionAction = () => {
     if (activeSection === 'dropdowns') {
       openCreateDropdown();
+    } else if (activeSection === 'presets') {
+      setPresetCreateTick((t) => t + 1);
     }
   };
 
@@ -283,6 +296,8 @@ export const ConfigTab = () => {
             )}
           </>
         )}
+
+        {activeSection === 'presets' && <FieldPresetsPanel createTick={presetCreateTick} />}
 
         {activeSection === 'values' && (
           <div className="config-empty-state">

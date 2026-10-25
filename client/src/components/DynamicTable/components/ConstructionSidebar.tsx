@@ -335,6 +335,16 @@ interface ConstructionSidebarProps {
   onOpenColorPickerForActionButton?: (id: string) => void;
   isTransposed?: boolean;
   onToggleTranspose?: () => void;
+  /** Portal admin: persist Feature Builder to SQL for all members */
+  onSaveFeatures?: () => void | Promise<void>;
+  isSavingFeatures?: boolean;
+  featuresDirty?: boolean;
+  onPatchRowActions?: (patch: {
+    showExplore?: boolean;
+    showDuplicate?: boolean;
+    showEdit?: boolean;
+    showDelete?: boolean;
+  }) => void;
 }
 
 function SectionLabel({ icon: Icon, children, isDarkMode }: { icon?: React.ElementType; children: ReactNode; isDarkMode: boolean }) {
@@ -685,6 +695,10 @@ export function ConstructionSidebar({
   onOpenColorPickerForActionButton: _onOpenColorPickerForActionButton,
   isTransposed: _isTransposed = false,
   onToggleTranspose: _onToggleTranspose,
+  onSaveFeatures,
+  isSavingFeatures = false,
+  featuresDirty = false,
+  onPatchRowActions,
 }: ConstructionSidebarProps) {
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   const [draggedKey, setDraggedKey] = useState<FirstColumnElementKey | null>(null);
@@ -787,7 +801,13 @@ export function ConstructionSidebar({
         <div className={`flex items-center justify-between border-b px-5 py-4 ${borderClass}`}>
           <div>
             <h2 className="text-sm font-bold tracking-tight">Feature Builder</h2>
-            <p className="text-[11px] text-gray-400">Grouped by intent · Shared = every supporting view</p>
+            <p className="text-[11px] text-gray-400">
+              {onSaveFeatures
+                ? featuresDirty
+                  ? 'Unsaved changes · Save to publish for everyone'
+                  : 'Saved for all portal members'
+                : 'Grouped by intent · Shared = every supporting view'}
+            </p>
           </div>
           <button
             type="button"
@@ -1067,6 +1087,60 @@ export function ConstructionSidebar({
                     </button>
                   </div>
 
+                  {/* Built-in Explore action */}
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-gray-700/30">
+                    <LabelWithInfo
+                      label="Explore action"
+                      info="Redirect-style button on each row — page defines what opens on click"
+                      isDarkMode={isDarkMode}
+                      labelClassName="text-xs font-semibold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPatchRowActions?.({
+                          showExplore: !customFeatures.rowActions?.showExplore,
+                        })
+                      }
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider transition-colors flex-shrink-0 ${
+                        customFeatures.rowActions?.showExplore
+                          ? 'bg-[#13C296]/20 text-[#0f9f7a]'
+                          : isDarkMode
+                            ? 'bg-gray-700 text-gray-200'
+                            : 'bg-slate-200 text-slate-700 border border-slate-300/70'
+                      }`}
+                    >
+                      {customFeatures.rowActions?.showExplore ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
+                  {/* Built-in Duplicate action */}
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-gray-700/30">
+                    <LabelWithInfo
+                      label="Duplicate action"
+                      info="Copy button — duplicates the row without auto-generated values"
+                      isDarkMode={isDarkMode}
+                      labelClassName="text-xs font-semibold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPatchRowActions?.({
+                          showDuplicate: !customFeatures.rowActions?.showDuplicate,
+                        })
+                      }
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider transition-colors flex-shrink-0 ${
+                        customFeatures.rowActions?.showDuplicate
+                          ? 'bg-[#13C296]/20 text-[#0f9f7a]'
+                          : isDarkMode
+                            ? 'bg-gray-700 text-gray-200'
+                            : 'bg-slate-200 text-slate-700 border border-slate-300/70'
+                      }`}
+                    >
+                      {customFeatures.rowActions?.showDuplicate ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
                   {/* Action Buttons List */}
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
@@ -1187,6 +1261,32 @@ export function ConstructionSidebar({
             </div>
           </section>
         </div>
+
+        {onSaveFeatures && (
+          <div className={`flex-shrink-0 border-t px-5 py-4 ${borderClass}`}>
+            <button
+              type="button"
+              disabled={isSavingFeatures || !featuresDirty}
+              onClick={() => onSaveFeatures()}
+              className={`w-full min-h-[44px] rounded-xl px-4 py-2.5 text-sm font-bold transition-colors
+                ${featuresDirty && !isSavingFeatures
+                  ? 'bg-[#13C296] text-white hover:bg-[#10a87f]'
+                  : isDarkMode
+                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+            >
+              {isSavingFeatures
+                ? 'Saving…'
+                : featuresDirty
+                  ? 'Save for everyone'
+                  : 'All changes saved'}
+            </button>
+            <p className={`mt-2 text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              Toggles preview live. Click Save to store them in MySQL for all users.
+            </p>
+          </div>
+        )}
       </div>
     </>
   );

@@ -19,6 +19,7 @@ import {
   copyToClipboardTSV,
   handlePrint,
 } from './export';
+import { ImportDataModal } from './components/ImportDataModal';
 import { buildCalculationsClipboardText } from './utils/formatAggregation';
 import {
   transposeTable,
@@ -64,7 +65,10 @@ interface DynamicTableProps {
   initialRows?: RowData[];
   features?: TableFeaturesConfig;
   enableFeatureBuilder?: boolean;
-  /** Prefs namespace — keeps Vendors / Tables / Exams isolated in localStorage */
+  /**
+   * Unique prefs namespace per portal table (localStorage + SQL).
+   * Use a stable id from `constants/tableIds` — never share one id across tables.
+   */
   tableId?: string;
   /** When false, skip shared Dynamic* store (use for standalone pages like Vendors) */
   shareState?: boolean;
@@ -73,11 +77,34 @@ interface DynamicTableProps {
    * (portal-published config) instead of browser-local Feature Builder stores.
    */
   usePortalFeatures?: boolean;
-  /** Fired when Feature Builder toggles change (admin publish hook). */
+  /** Fired when Feature Builder toggles change (live draft — not persisted until Save). */
   onFeaturesChange?: (features: TableFeaturesConfig) => void;
+  /** Explicit Save from Feature Builder footer (persist to SQL). */
+  onSaveFeatures?: (features: TableFeaturesConfig) => void | Promise<void>;
+  isSavingFeatures?: boolean;
+  featuresDirty?: boolean;
+  /** Resolved SQL layout (user → org default). */
+  layoutPrefs?: import('./utils/prefsStorage').TablePrefs | null;
+  /** Debounced personal layout persist. */
+  onLayoutPrefsChange?: (prefs: import('./utils/prefsStorage').TablePrefs) => void;
+  /** Super admin: publish current layout as org default. */
+  onSaveLayoutAsDefault?: (prefs: import('./utils/prefsStorage').TablePrefs) => void | Promise<void>;
+  /** Clear personal override and reload org default. */
+  onResetLayoutToDefault?: () => void | Promise<void>;
+  canSaveLayoutAsDefault?: boolean;
+  hasUserLayoutOverride?: boolean;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
+  /**
+   * CSV import: receives parsed objects keyed by column label/key.
+   * Feature Builder `enableImport` controls toolbar visibility.
+   */
+  onImportRows?: (rows: Record<string, string>[]) => Promise<void> | void;
+  /** Actions column Explore — page defines destination. */
+  onExploreRow?: (row: DataRow) => void;
+  /** Actions column Duplicate — page creates a copy of the row. */
+  onDuplicateRow?: (row: DataRow) => void | Promise<void>;
   /** @deprecated Prefer features.enableAddRow */
   showAddRow?: boolean;
 }
@@ -92,9 +119,21 @@ export function DynamicTable({
   shareState = true,
   usePortalFeatures = false,
   onFeaturesChange,
+  onSaveFeatures,
+  isSavingFeatures = false,
+  featuresDirty = false,
+  layoutPrefs = null,
+  onLayoutPrefsChange,
+  onSaveLayoutAsDefault,
+  onResetLayoutToDefault,
+  canSaveLayoutAsDefault = false,
+  hasUserLayoutOverride = false,
   onRowUpdate,
   onRowDelete,
   onRefresh,
+  onImportRows,
+  onExploreRow,
+  onDuplicateRow,
   showAddRow,
 }: DynamicTableProps) {
   const resolvedFeatures = useMemo(() => {
@@ -108,10 +147,11 @@ export function DynamicTable({
   const state = useTableState(
     initialColumns ?? COLUMN_CONFIG,
     (initialRows as DataRow[]) ?? MOCK_ROWS,
-    { tableId, shareState, onRowUpdate, onRowDelete, onRefresh },
+    { tableId, shareState, layoutPrefs, onLayoutPrefsChange, onRowUpdate, onRowDelete, onRefresh },
   );
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const handleOpenRecordSidebar = useCallback((row: DataRow) => {
     setEditingRecordSidebarRow(row);
@@ -580,6 +620,9 @@ export function DynamicTable({
           onCopyTSV={() => copyToClipboardTSV(activeExportRows, exportColumns)}
           onPrint={handlePrint}
           onPrintAll={() => exportToPDF(activeExportRows, exportColumns, 'print')}
+          onOpenImport={
+            onImportRows ? () => setImportModalOpen(true) : undefined
+          }
           density={state.density}
           onDensityChange={state.setDensity}
           savedViews={state.savedViews}
@@ -722,6 +765,8 @@ export function DynamicTable({
                       }}
                       onCancelRowDraft={() => state.cancelRowDraft(row.rowId)}
                       onCommitRowDraft={() => state.commitRowDraft(row.rowId)}
+                      onExploreRow={onExploreRow}
+                      onDuplicateRow={onDuplicateRow}
                       onDeleteRow={(targetRowId) => {
                         if (targetRowId) {
                           state.handleDeleteRow(targetRowId);
@@ -1072,6 +1117,18 @@ export function DynamicTable({
           onOpenIconPickerForActionButton={(id) => setIconPickerTarget(`btn_${id}`)}
           isTransposed={featureConfig.isTransposed}
           onToggleTranspose={featureConfig.toggleTranspose}
+          onSaveFeatures={
+            onSaveFeatures
+              ? () =>
+                  onSaveFeatures({
+                    ...activeFeatures,
+                    quickFilterFieldKeys: quickFiltersStore.fieldKeys,
+                  } as TableFeaturesConfig)
+              : undefined
+          }
+          isSavingFeatures={isSavingFeatures}
+          featuresDirty={featuresDirty}
+          onPatchRowActions={featureConfig.patchRowActions}
         />
       )}
 
@@ -1163,6 +1220,20 @@ export function DynamicTable({
           onPushRecentFormatColor={state.handlePushRecentFormatColor}
           onClose={() => state.setActiveSidebar(null)}
           isDarkMode={isDarkMode}
+          canSaveLayoutAsDefault={canSaveLayoutAsDefault}
+          hasUserLayoutOverride={hasUserLayoutOverride}
+          onSaveLayoutAsDefault={
+            onSaveLayoutAsDefault
+              ? () =>
+                  onSaveLayoutAsDefault({
+                    columnOrder: state.columnOrder,
+                    columnVisibility: state.columnVisibility,
+                    columnWidths: state.columnWidths,
+                    density: state.density,
+                  })
+              : undefined
+          }
+          onResetLayoutToDefault={onResetLayoutToDefault}
         />
       )}
 
@@ -1196,6 +1267,20 @@ export function DynamicTable({
           onApply={state.handleBulkUpdate}
           onClose={() => state.setShowBulkUpdate(false)}
           isDarkMode={isDarkMode}
+        />
+      )}
+
+      {importModalOpen && onImportRows && (
+        <ImportDataModal
+          columns={state.columns}
+          isDarkMode={isDarkMode}
+          title="Bulk Import"
+          subtitle="Upload CSV, Excel, or JSON — or paste table data to add multiple rows."
+          onClose={() => setImportModalOpen(false)}
+          onImport={async (rows) => {
+            await onImportRows(rows);
+            showSuccess(`Imported ${rows.length} row${rows.length === 1 ? '' : 's'}`);
+          }}
         />
       )}
 

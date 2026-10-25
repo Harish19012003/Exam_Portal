@@ -1,0 +1,110 @@
+/* Sticky checkbox / actions / pinned columns — must stay fully opaque while scrolling */
+
+.dt-sticky-cell {
+  position: sticky !important;
+  background-clip: border-box !important;
+  background-color: #ffffff !important;
+  /* Opaque curtain so scrolled text cannot peek under the sticky edge */
+  box-shadow: 0 0 0 0 transparent;
+}
+
+.dt-sticky-cell--left {
+  left: 0;
+  z-index: 12 !important;
+  box-shadow: 12px 0 0 0 #ffffff, 1px 0 0 0 #ffffff !important;
+}
+
+.dt-sticky-cell--right {
+  right: 0;
+  z-index: 12 !important;
+  box-shadow: -12px 0 0 0 #ffffff, -1px 0 0 0 #ffffff !important;
+}
+
+.group:hover > .dt-sticky-cell--left,
+.group:hover > .dt-sticky-cell--right {
+  background-color: #f3f0ff !important;
+}
+
+.group:hover > .dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #f3f0ff, 1px 0 0 0 #f3f0ff !important;
+}
+
+.group:hover > .dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #f3f0ff, -1px 0 0 0 #f3f0ff !important;
+}
+
+.dt-sticky-cell--selected {
+  background-color: #ebe4ff !important;
+}
+
+.dt-sticky-cell--selected.dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #ebe4ff, 1px 0 0 0 #ebe4ff !important;
+}
+
+.dt-sticky-cell--selected.dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #ebe4ff, -1px 0 0 0 #ebe4ff !important;
+}
+
+.group:hover > .dt-sticky-cell--selected.dt-sticky-cell--left {
+  background-color: #ebe4ff !important;
+  box-shadow: 12px 0 0 0 #ebe4ff, 1px 0 0 0 #ebe4ff !important;
+}
+
+.group:hover > .dt-sticky-cell--selected.dt-sticky-cell--right {
+  background-color: #ebe4ff !important;
+  box-shadow: -12px 0 0 0 #ebe4ff, -1px 0 0 0 #ebe4ff !important;
+}
+
+/* Dark theme */
+[data-theme='dark'] .dt-sticky-cell,
+.dark .dt-sticky-cell {
+  background-color: #111827 !important;
+}
+
+[data-theme='dark'] .dt-sticky-cell--left,
+.dark .dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #111827, 1px 0 0 0 #111827 !important;
+}
+
+[data-theme='dark'] .dt-sticky-cell--right,
+.dark .dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #111827, -1px 0 0 0 #111827 !important;
+}
+
+[data-theme='dark'] .group:hover > .dt-sticky-cell--left,
+[data-theme='dark'] .group:hover > .dt-sticky-cell--right,
+.dark .group:hover > .dt-sticky-cell--left,
+.dark .group:hover > .dt-sticky-cell--right {
+  background-color: #1f2937 !important;
+}
+
+[data-theme='dark'] .group:hover > .dt-sticky-cell--left,
+.dark .group:hover > .dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+}
+
+[data-theme='dark'] .group:hover > .dt-sticky-cell--right,
+.dark .group:hover > .dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
+}
+
+[data-theme='dark'] .dt-sticky-cell--selected,
+.dark .dt-sticky-cell--selected {
+  background-color: #2e1065 !important;
+}
+
+[data-theme='dark'] .dt-sticky-cell--selected.dt-sticky-cell--left,
+.dark .dt-sticky-cell--selected.dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #2e1065, 1px 0 0 0 #2e1065 !important;
+}
+
+[data-theme='dark'] .dt-sticky-cell--selected.dt-sticky-cell--right,
+.dark .dt-sticky-cell--selected.dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #2e1065, -1px 0 0 0 #2e1065 !important;
+}
+
+/* Scrolling body cells must stay under sticky columns */
+.dt-scroll-cell {
+  position: relative;
+  z-index: 0;
+}

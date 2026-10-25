@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, X, FilePlus2, SlidersHorizontal, CalendarDays } from 'lucide-react';
 import { DynamicTable } from '../components/DynamicTable';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
@@ -21,6 +22,7 @@ import {
   createExam,
   deleteExam,
   updateExam,
+  importExams,
   migrateLocalExamsToSqlIfNeeded,
 } from './exams/examApi';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
@@ -32,6 +34,8 @@ import {
   recoverFieldsFromExams,
   DEFAULT_EXAM_TABLE_FEATURES,
 } from './exams/examTableConfig';
+import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
+import { TABLE_IDS } from '../constants/tableIds';
 import {
   getSharedViewFeatures,
   replaceSharedViewFeatures,
@@ -44,108 +48,27 @@ import {
   getQuickFiltersState,
   replaceQuickFiltersState,
 } from '../components/DynamicData/quickFiltersStore';
+import {
+  hydrateFeatureStores,
+  buildEmptyForm,
+  mergeDraftIntoForm,
+  validateRequiredFields,
+} from './exams/examTableHelpers';
 import './ExamsPage.css';
 
-const hydrateFeatureStores = (features = {}) => {
-  replaceSharedViewFeatures({
-    enableSearch: Boolean(features.enableSearch),
-    enableRefresh: Boolean(features.enableRefresh),
-    enableExport: Boolean(features.enableExport),
-    enableFullScreen: Boolean(features.enableFullScreen),
-    enableDensity: Boolean(features.enableDensity),
-    enableOpenDetail: Boolean(features.enableOpenDetail),
-  });
-  replaceSummaryChipsState({
-    enabled: Boolean(features.enableSummaryChips),
-    chips: Array.isArray(features.summaryChips) ? features.summaryChips : [],
-    visible: true,
-  });
-  replaceQuickFiltersState({
-    enabled: Boolean(features.enableQuickFilters),
-    fieldKeys: Array.isArray(features.quickFilterFieldKeys)
-      ? features.quickFilterFieldKeys
-      : [],
-    visible: true,
-    values: {},
-  });
-};
-
-const applySameAsDefaults = (fields, values, flags) => {
-  const next = { ...values };
-  fields.forEach((f) => {
-    if (
-      f.sameAsFieldKey &&
-      DATE_LINK_TYPES.has(f.dataType) &&
-      flags[f.key]
-    ) {
-      next[f.key] = next[f.sameAsFieldKey] ?? '';
-    }
-  });
-  return next;
-};
-
-const buildEmptyForm = (fields = []) => {
-  const values = {};
-  fields.forEach((f) => {
-    values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
-  });
-  return applySameAsDefaults(fields, values, buildSameAsFlags(fields));
-};
-
-/** Merge a saved draft onto current field defs (drops removed keys, keeps user edits) */
-const mergeDraftIntoForm = (fields, draft) => {
-  const baseFlags = buildSameAsFlags(fields);
-  const flags = { ...baseFlags };
-  if (draft?.sameAsFlags) {
-    fields.forEach((f) => {
-      if (f.sameAsFieldKey && DATE_LINK_TYPES.has(f.dataType)) {
-        if (typeof draft.sameAsFlags[f.key] === 'boolean') {
-          flags[f.key] = draft.sameAsFlags[f.key];
-        }
-      }
-    });
-  }
-
-  const values = {};
-  fields.forEach((f) => {
-    const isAuto = f.autoFill && f.autoFill !== 'none';
-    if (isAuto) {
-      values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
-      return;
-    }
-    if (draft?.values && Object.prototype.hasOwnProperty.call(draft.values, f.key)) {
-      values[f.key] = draft.values[f.key];
-      return;
-    }
-    values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
-  });
-
-  return {
-    values: applySameAsDefaults(fields, values, flags),
-    flags,
-  };
-};
-
-const isEmptyValue = (value) => {
-  if (value === null || value === undefined) return true;
-  if (typeof value === 'string' && value.trim() === '') return true;
-  if (Array.isArray(value) && value.length === 0) return true;
-  return false;
-};
-
-const validateRequiredFields = (fields, values) => {
-  for (const field of fields) {
-    if (!field.required) continue;
-    if (field.autoFill && field.autoFill !== 'none') continue;
-    if (isEmptyValue(values[field.key])) {
-      return `${field.label} is required.`;
-    }
-  }
-  return '';
-};
-
 export const ExamsPage = () => {
+  const navigate = useNavigate();
   const canConfigure = useMemo(() => canConfigureExamTable(), []);
+  const {
+    layoutReady,
+    layoutPrefs,
+    hasUserLayoutOverride,
+    layoutEpoch,
+    canSaveLayoutAsDefault,
+    onLayoutPrefsChange,
+    onSaveLayoutAsDefault,
+    onResetLayoutToDefault,
+  } = useTableLayoutPrefs(TABLE_IDS.EXAMS);
   const [formFields, setFormFields] = useState(loadExamFields);
   const [tableFeatures, setTableFeatures] = useState(() => ({
     ...DEFAULT_EXAM_TABLE_FEATURES,
@@ -161,6 +84,8 @@ export const ExamsPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [pageMessage, setPageMessage] = useState('');
+  const [featuresDirty, setFeaturesDirty] = useState(false);
+  const [isSavingFeatures, setIsSavingFeatures] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return (
       document.documentElement.getAttribute('data-theme') === 'dark' ||
@@ -176,7 +101,9 @@ export const ExamsPage = () => {
   const formFieldsRef = useRef(formFields);
   const tableFeaturesRef = useRef(tableFeatures);
   const skipPublishRef = useRef(true);
+  const featuresSyncReadyRef = useRef(false);
   const storeSnapshotRef = useRef(null);
+  const lastSavedFeaturesRef = useRef(null);
 
   formRef.current = form;
   sameAsFlagsRef.current = sameAsFlags;
@@ -187,13 +114,34 @@ export const ExamsPage = () => {
   const tableColumns = useMemo(() => buildExamTableColumns(formFields), [formFields]);
   const tableRows = useMemo(() => buildExamTableRows(exams), [exams]);
 
-  const publishConfig = useCallback(async (fields, features, { announce = false } = {}) => {
-    if (!canConfigure) return;
+  const handleSaveLayoutAsDefault = useCallback(
+    async (prefs) => {
+      if (!onSaveLayoutAsDefault) return;
+      const result = await onSaveLayoutAsDefault(prefs);
+      if (result?.message) setPageMessage(result.message);
+    },
+    [onSaveLayoutAsDefault],
+  );
+
+  const handleResetLayoutToDefault = useCallback(async () => {
+    if (!onResetLayoutToDefault) return;
+    const result = await onResetLayoutToDefault();
+    if (result?.message) setPageMessage(result.message);
+  }, [onResetLayoutToDefault]);
+
+  const publishConfig = useCallback(async (fields, features, { announce = false, message } = {}) => {
+    if (!canConfigure) return false;
     try {
       await publishExamTableConfig({ fields, features });
-      if (announce) setPageMessage('Exam table settings saved for all members');
+      lastSavedFeaturesRef.current = features;
+      setFeaturesDirty(false);
+      if (announce) {
+        setPageMessage(message || 'Exam table settings saved for all members');
+      }
+      return true;
     } catch {
       setPageMessage('Could not save exam table settings');
+      return false;
     }
   }, [canConfigure]);
 
@@ -205,10 +153,14 @@ export const ExamsPage = () => {
     }, 700);
   }, [canConfigure, publishConfig]);
 
+  // Field schema changes still auto-publish (Field Builder). Feature toggles need explicit Save.
   useEffect(() => {
     saveExamFields(formFields);
     if (configReady && canConfigure) {
-      schedulePublish(formFields, tableFeaturesRef.current, { announce: true });
+      schedulePublish(formFields, tableFeaturesRef.current, {
+        announce: true,
+        message: 'Exam fields saved for all members',
+      });
     }
   }, [formFields, configReady, canConfigure, schedulePublish]);
 
@@ -282,6 +234,8 @@ export const ExamsPage = () => {
         setFormFields(fields);
         setTableFeatures(features);
         tableFeaturesRef.current = features;
+        lastSavedFeaturesRef.current = features;
+        setFeaturesDirty(false);
         formFieldsRef.current = fields;
         hydrateFeatureStores(features);
         setExams(rows);
@@ -305,12 +259,17 @@ export const ExamsPage = () => {
       }
 
       window.setTimeout(() => {
-        if (!cancelled) skipPublishRef.current = false;
-      }, 800);
+        if (!cancelled) {
+          skipPublishRef.current = false;
+          // Allow Feature Builder draft tracking after table finishes hydrating
+          featuresSyncReadyRef.current = true;
+        }
+      }, 1200);
     })();
 
     return () => {
       cancelled = true;
+      featuresSyncReadyRef.current = false;
       if (publishTimerRef.current) clearTimeout(publishTimerRef.current);
       const snap = storeSnapshotRef.current;
       if (snap) {
@@ -321,29 +280,56 @@ export const ExamsPage = () => {
     };
   }, []);
 
+  const normalizeFeaturesDraft = useCallback((features) => ({
+    ...DEFAULT_EXAM_TABLE_FEATURES,
+    ...features,
+    enableAddColumn: false,
+    enableAddRow: false,
+    enableSubRows: false,
+    quickFilterFieldKeys: Array.isArray(features.quickFilterFieldKeys)
+      ? features.quickFilterFieldKeys
+      : getQuickFiltersState().fieldKeys,
+    summaryChips: Array.isArray(features.summaryChips)
+      ? features.summaryChips
+      : getSummaryChipsState().chips,
+  }), []);
+
+  /** Live Feature Builder preview only — does not write SQL until Save */
   const handleFeaturesChange = useCallback((features) => {
     if (!canConfigure || !configReady) return;
-    const next = {
-      ...DEFAULT_EXAM_TABLE_FEATURES,
-      ...features,
-      enableAddColumn: false,
-      enableAddRow: false,
-      enableSubRows: false,
-      quickFilterFieldKeys: Array.isArray(features.quickFilterFieldKeys)
-        ? features.quickFilterFieldKeys
-        : getQuickFiltersState().fieldKeys,
-      summaryChips: Array.isArray(features.summaryChips)
-        ? features.summaryChips
-        : getSummaryChipsState().chips,
-    };
+    const next = normalizeFeaturesDraft(features);
     setTableFeatures(next);
     tableFeaturesRef.current = next;
-    schedulePublish(formFieldsRef.current, next, { announce: false });
-  }, [canConfigure, configReady, schedulePublish]);
+    // Ignore hydrate sync so we don't mark dirty before the user edits
+    if (!featuresSyncReadyRef.current) {
+      lastSavedFeaturesRef.current = next;
+      setFeaturesDirty(false);
+      return;
+    }
+    const saved = lastSavedFeaturesRef.current;
+    setFeaturesDirty(!saved || JSON.stringify(next) !== JSON.stringify(saved));
+  }, [canConfigure, configReady, normalizeFeaturesDraft]);
+
+  const handleSaveFeatures = useCallback(async (features) => {
+    if (!canConfigure || !configReady) return;
+    const next = normalizeFeaturesDraft(features || tableFeaturesRef.current);
+    setTableFeatures(next);
+    tableFeaturesRef.current = next;
+    setIsSavingFeatures(true);
+    try {
+      const ok = await publishConfig(formFieldsRef.current, next, {
+        announce: true,
+        message: 'Feature Builder settings saved for everyone',
+      });
+      if (!ok) setFeaturesDirty(true);
+    } finally {
+      setIsSavingFeatures(false);
+    }
+  }, [canConfigure, configReady, normalizeFeaturesDraft, publishConfig]);
 
   useEffect(() => {
     if (!pageMessage) return undefined;
-    const t = setTimeout(() => setPageMessage(''), 3200);
+    const t = setTimeout(() => setPageMessage(''), 4200);
     return () => clearTimeout(t);
   }, [pageMessage]);
 
@@ -486,6 +472,132 @@ export const ExamsPage = () => {
     setPageMessage(ids.length > 1 ? 'Exams deleted' : 'Exam deleted');
   };
 
+  /** Duplicate row: copy visible field values; skip auto-fill / audit / formula. */
+  const handleExploreRow = useCallback(
+    (row) => {
+      if (row?.id) navigate(`/exams/${encodeURIComponent(row.id)}`);
+    },
+    [navigate],
+  );
+
+  const handleDuplicateRow = useCallback(
+    async (row) => {
+      const fields = formFieldsRef.current || [];
+      const visibility = layoutPrefs?.columnVisibility || {};
+      const source =
+        row?.values && typeof row.values === 'object' ? row.values : {};
+      const skipKeys = new Set([
+        'id',
+        'created_at',
+        'updated_at',
+        '__created_by',
+        '__updated_by',
+        'created_by',
+        'createdby',
+        'created_by_user',
+        'modify_by',
+        'modified_by',
+        'updated_by',
+        'modifyby',
+        'modifiedby',
+      ]);
+
+      const values = {};
+      fields.forEach((field) => {
+        if (!field?.key) return;
+        const key = String(field.key);
+        if (skipKeys.has(key.toLowerCase())) return;
+        // Fresh auto values — never copy from source
+        if (field.autoFill && field.autoFill !== 'none') {
+          values[key] = defaultValueForType(
+            field.dataType,
+            field.autoFill,
+            field.allowMultiple,
+          );
+          return;
+        }
+        if (field.dataType === 'formula' || field.dataType === 'composite') return;
+        if (visibility[key] === false) return;
+
+        const raw = source[key];
+        if (raw === undefined) return;
+        values[key] = Array.isArray(raw) ? [...raw] : raw;
+      });
+
+      try {
+        const exam = await createExam({ values, fields });
+        setExams((prev) => [exam, ...prev]);
+        setPageMessage('Exam duplicated');
+      } catch {
+        setPageMessage('Could not duplicate exam');
+      }
+    },
+    [layoutPrefs?.columnVisibility],
+  );
+
+  /** Map CSV row objects (keyed by column label or field key) → exam values */
+  const handleImportRows = useCallback(
+    async (csvRows) => {
+      const fields = formFieldsRef.current || [];
+      const byLabel = new Map(
+        fields.map((f) => [String(f.label || f.key).trim().toLowerCase(), f.key]),
+      );
+      const byKey = new Map(fields.map((f) => [String(f.key).trim().toLowerCase(), f.key]));
+      const skip = new Set([
+        'id',
+        'created_at',
+        'updated_at',
+        'created at',
+        'updated at',
+        'created by',
+        'modify by',
+        '__created_by',
+        '__updated_by',
+      ]);
+
+      const exams = (Array.isArray(csvRows) ? csvRows : [])
+        .map((row) => {
+          const values = {};
+          Object.entries(row || {}).forEach(([header, raw]) => {
+            const h = String(header || '').trim();
+            if (!h || skip.has(h.toLowerCase())) return;
+            const key =
+              byKey.get(h.toLowerCase()) || byLabel.get(h.toLowerCase()) || null;
+            if (!key) return;
+            const field = fields.find((f) => f.key === key);
+            if (field?.autoFill && field.autoFill !== 'none') return;
+            let value = raw;
+            if (
+              field &&
+              (field.dataType === 'tags' ||
+                field.dataType === 'multiselect' ||
+                field.allowMultiple) &&
+              typeof raw === 'string' &&
+              raw.includes(',')
+            ) {
+              value = raw
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+            }
+            values[key] = value;
+          });
+          return Object.keys(values).length ? { values } : null;
+        })
+        .filter(Boolean);
+
+      if (!exams.length) {
+        throw new Error('CSV columns did not match any exam fields');
+      }
+
+      await importExams(exams);
+      const rows = await listExams();
+      setExams(rows);
+      setPageMessage(`Imported ${exams.length} exam${exams.length === 1 ? '' : 's'}`);
+    },
+    [],
+  );
+
   const fieldRows = groupFieldsForLayout(formFields);
   const fieldByKey = Object.fromEntries(formFields.map((f) => [f.key, f]));
 
@@ -539,10 +651,14 @@ export const ExamsPage = () => {
         </div>
       </div>
 
-      {pageMessage && <div className="exams-page-toast">{pageMessage}</div>}
+      {pageMessage && (
+        <div className="exams-page-toast" role="status" aria-live="polite">
+          {pageMessage}
+        </div>
+      )}
 
       <div className="exams-table-panel">
-        {examsLoading || !configReady ? (
+        {examsLoading || !configReady || !layoutReady ? (
           <div className="exams-list-empty">Loading exams…</div>
         ) : formFields.length === 0 ? (
           <div className="exams-list-empty">
@@ -557,18 +673,34 @@ export const ExamsPage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exams_schema_${formFields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
-              tableId="exam_management_v1"
+              key={`exams_schema_${layoutEpoch}_${formFields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              tableId={TABLE_IDS.EXAMS}
               shareState={false}
               usePortalFeatures
               isDarkMode={isDarkMode}
               initialColumns={tableColumns}
               initialRows={tableRows}
+              layoutPrefs={layoutPrefs}
+              onLayoutPrefsChange={onLayoutPrefsChange}
+              canSaveLayoutAsDefault={canSaveLayoutAsDefault}
+              hasUserLayoutOverride={hasUserLayoutOverride}
+              onSaveLayoutAsDefault={
+                canSaveLayoutAsDefault ? handleSaveLayoutAsDefault : undefined
+              }
+              onResetLayoutToDefault={
+                hasUserLayoutOverride ? handleResetLayoutToDefault : undefined
+              }
               onRowUpdate={handleRowUpdate}
               onRowDelete={handleRowDelete}
+              onDuplicateRow={handleDuplicateRow}
+              onExploreRow={handleExploreRow}
+              onImportRows={handleImportRows}
               showAddRow={false}
               enableFeatureBuilder={canConfigure}
               onFeaturesChange={canConfigure ? handleFeaturesChange : undefined}
+              onSaveFeatures={canConfigure ? handleSaveFeatures : undefined}
+              isSavingFeatures={isSavingFeatures}
+              featuresDirty={featuresDirty}
               features={{
                 ...DEFAULT_EXAM_TABLE_FEATURES,
                 ...tableFeatures,

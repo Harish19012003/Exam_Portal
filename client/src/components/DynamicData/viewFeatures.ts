@@ -98,6 +98,14 @@ export const SHARED_CHROME_FEATURES: ViewFeatureItem[] = [
     scope: 'shared',
   },
   {
+    key: 'enableImport',
+    label: 'Import',
+    subtitle: 'Show Import CSV in the table toolbar',
+    section: FEATURE_SECTION_CHROME,
+    views: ['table'],
+    scope: 'view',
+  },
+  {
     key: 'enableFullScreen',
     label: 'Fullscreen',
     subtitle: 'One setting for every view',

@@ -6,6 +6,7 @@ import { DashboardLayout } from '../layouts/DashboardLayout';
 
 import { DashboardHome } from '../pages/DashboardHome';
 import { ExamsPage } from '../pages/ExamsPage';
+import { ExamExplorePage } from '../pages/ExamExplorePage';
 
 import { LoginPage } from '../pages/LoginPage';
 import { ForgotPasswordPage } from '../pages/ForgotPasswordPage';
@@ -79,6 +80,10 @@ export const router = createBrowserRouter([
           {
             path: '/exams',
             element: <ExamsPage />,
+          },
+          {
+            path: '/exams/:examId',
+            element: <ExamExplorePage />,
           },
           {
             path: '/tables',

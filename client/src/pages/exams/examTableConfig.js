@@ -8,6 +8,7 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
   enableSearch: true,
   enableRefresh: true,
   enableExport: true,
+  enableImport: true,
   enableFullScreen: true,
   enableDensity: true,
   enableQuickFilters: true,
@@ -30,7 +31,9 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
     showOnHover: false,
     showEdit: true,
     showDelete: true,
-    width: 108,
+    showExplore: true,
+    showDuplicate: true,
+    width: 168,
   },
 };
 

@@ -13,6 +13,12 @@ export const listExams = async () => {
   return Array.isArray(rows) ? rows : [];
 };
 
+/** Fetch one exam from SQL by id. */
+export const getExam = async (id) => {
+  const { data } = await apiClient.get(`/exams/${encodeURIComponent(id)}`);
+  return unwrap(data);
+};
+
 export const createExam = async ({ values, fields = [] }) => {
   const { data } = await apiClient.post('/exams', { values, fields });
   return unwrap(data);
@@ -26,6 +32,12 @@ export const updateExam = async (id, patch = {}) => {
 export const deleteExam = async (id) => {
   await apiClient.delete(`/exams/${encodeURIComponent(id)}`);
   return true;
+};
+
+/** Bulk create/upsert exams (CSV import + IDB migration). */
+export const importExams = async (exams = []) => {
+  const { data } = await apiClient.post('/exams/import', { exams });
+  return unwrap(data) || { imported: 0, total: 0 };
 };
 
 const MIGRATION_FLAG = 'exam_idb_to_sql_migrated_v1';

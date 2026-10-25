@@ -1,7 +1,16 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import type { AggregationType, ColumnConfig, ConditionalFormatRule, DataRow, RowData, FilterValue, PendingDelete, SortConfig, PendingEdit, SavedView, Density } from '../types';
 import { genRowId } from '../utils';
-import { readPref, saveTablePrefs, TABLE_PREFS_KEY } from '../utils/prefsStorage';
+import {
+  readPref,
+  saveTablePrefs,
+  TABLE_PREFS_KEY,
+  loadTablePrefs,
+  mergeColumnOrder,
+  mergeColumnVisibility,
+  pickLayoutSlice,
+  type TablePrefs,
+} from '../utils/prefsStorage';
 import { publishSharedColumns } from '../../DynamicData/schemaStore';
 import { getSharedRows, publishSharedRows, subscribeSharedRows } from '../../DynamicData/rowsStore';
 import { normalizeConditionalFormatRule } from '../utils/conditionalFormat';
@@ -21,6 +30,40 @@ const sanitizeColumns = (cols: ColumnConfig[]): ColumnConfig[] => {
   }));
 };
 
+const resolveLayoutSeed = (
+  cols: ColumnConfig[],
+  serverLayout?: TablePrefs | null,
+  tableId?: string,
+): {
+  columnOrder: string[];
+  columnVisibility: Record<string, boolean>;
+  columnWidths: Record<string, number>;
+  density: Density;
+} => {
+  const keys = cols.map((c) => c.key);
+  const schemaVisibility = cols.reduce<Record<string, boolean>>((acc, c) => {
+    acc[c.key] = c.visible !== false;
+    return acc;
+  }, {});
+  const local = loadTablePrefs(tableId);
+  const layout = pickLayoutSlice(serverLayout);
+  const fromLocal = pickLayoutSlice(local);
+  // Server (user/org) wins over localStorage cache
+  const preferred = {
+    columnOrder: layout.columnOrder ?? fromLocal.columnOrder,
+    columnVisibility: layout.columnVisibility ?? fromLocal.columnVisibility,
+    columnWidths: layout.columnWidths ?? fromLocal.columnWidths,
+    density: layout.density ?? fromLocal.density,
+  };
+
+  return {
+    columnOrder: mergeColumnOrder(keys, preferred.columnOrder),
+    columnVisibility: mergeColumnVisibility(keys, schemaVisibility, preferred.columnVisibility),
+    columnWidths: { ...(preferred.columnWidths || {}) },
+    density: (preferred.density as Density) || 'standard',
+  };
+};
+
 const sanitizeRows = (rws: (DataRow | RowData)[]): DataRow[] => {
   return rws.map((r, idx) => {
     const { rowId, ...rest } = r;
@@ -35,6 +78,10 @@ export type UseTableStateOptions = {
   tableId?: string;
   /** When false, do not sync into the shared Dynamic* view store (e.g. Vendors). Default true. */
   shareState?: boolean;
+  /** Resolved layout from SQL (user override or org default). */
+  layoutPrefs?: TablePrefs | null;
+  /** Debounced personal layout save (SQL). */
+  onLayoutPrefsChange?: (prefs: TablePrefs) => void;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
@@ -48,6 +95,8 @@ export function useTableState(
   const {
     tableId,
     shareState = true,
+    layoutPrefs = null,
+    onLayoutPrefsChange,
     onRowUpdate,
     onRowDelete,
   } = options;
@@ -75,22 +124,18 @@ export function useTableState(
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
 
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
-    readPref('columnWidths', {}, tableId),
-  );
+  const initialSeed = resolveLayoutSeed(sanitizeColumns(initialColumns), layoutPrefs, tableId);
+
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => initialSeed.columnWidths);
 
   const [savedViews, setSavedViews] = useState<SavedView[]>(() => loadSavedViews(tableId));
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
-  const [columnOrder, setColumnOrder] = useState<string[]>(() => 
-    sanitizeColumns(initialColumns).map(c => c.key)
-  );
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => initialSeed.columnOrder);
 
-  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
-    const defaults: Record<string, boolean> = {};
-    sanitizeColumns(initialColumns).forEach(c => { defaults[c.key] = c.visible !== false; });
-    return defaults;
-  });
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(
+    () => initialSeed.columnVisibility,
+  );
 
   const [highlightedColKey, setHighlightedColKey] = useState<string | null>(null);
 
@@ -104,9 +149,7 @@ export function useTableState(
   }, [highlightedColKey]);
   const [transitioningCols, setTransitioningCols] = useState<Record<string, 'show' | 'hide'>>({});
 
-  const [density, setDensity] = useState<Density>(() =>
-    readPref('density', 'standard', tableId),
-  );
+  const [density, setDensity] = useState<Density>(() => initialSeed.density);
 
   const [conditionalFormats, setConditionalFormats] = useState<ConditionalFormatRule[]>(() =>
     readPref('conditionalFormats', [], tableId).map(normalizeConditionalFormatRule),
@@ -118,13 +161,17 @@ export function useTableState(
   // Sync when parent switches presets (prop identity change) — not on first mount,
   // so we don't clobber rows another view already published this session.
   const skipInitialPropSync = useRef(true);
+  const layoutPrefsRef = useRef(layoutPrefs);
+  layoutPrefsRef.current = layoutPrefs;
+
   useEffect(() => {
     const cleanCols = sanitizeColumns(initialColumns);
+    const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId);
     setColumns(cleanCols);
-    setColumnOrder(cleanCols.map(c => c.key));
-    setColumnVisibility(
-      cleanCols.reduce((acc, c) => ({ ...acc, [c.key]: c.visible !== false }), {}),
-    );
+    setColumnOrder(seed.columnOrder);
+    setColumnVisibility(seed.columnVisibility);
+    setColumnWidths((prev) => ({ ...seed.columnWidths, ...prev }));
+    if (seed.density) setDensity(seed.density);
     setSort([]);
     setFilters({});
     setSearch('');
@@ -134,7 +181,7 @@ export function useTableState(
       return;
     }
     setRows(sanitizeRows(initialRows));
-  }, [initialColumns, initialRows]);
+  }, [initialColumns, initialRows, tableId]);
 
   useEffect(() => {
     saveTablePrefs({
@@ -147,6 +194,28 @@ export function useTableState(
       recentFormatColors,
     }, tableId);
   }, [columns, columnWidths, columnOrder, columnVisibility, density, conditionalFormats, recentFormatColors, tableId]);
+
+  // Debounced SQL persist of personal layout (skip first paint)
+  const skipInitialLayoutSave = useRef(true);
+  const onLayoutPrefsChangeRef = useRef(onLayoutPrefsChange);
+  onLayoutPrefsChangeRef.current = onLayoutPrefsChange;
+  useEffect(() => {
+    if (!onLayoutPrefsChangeRef.current) return;
+    if (skipInitialLayoutSave.current) {
+      skipInitialLayoutSave.current = false;
+      return;
+    }
+    const slice = pickLayoutSlice({
+      columnOrder,
+      columnVisibility,
+      columnWidths,
+      density,
+    });
+    const timer = window.setTimeout(() => {
+      onLayoutPrefsChangeRef.current?.(slice);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [columnOrder, columnVisibility, columnWidths, density]);
 
   // Let the sibling Dynamic* views render composites/formulas built here.
   useEffect(() => {

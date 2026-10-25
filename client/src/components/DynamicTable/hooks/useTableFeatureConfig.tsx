@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useMemo, useState } from 'react';
-import type { CustomIconElement, CustomRowActionButton, DataRow, DetailViewMode, RowActionType, SelectionColumnConfig, SummaryChipConfig, TableFeaturesConfig } from '../types';
+import type { CustomIconElement, CustomRowActionButton, DataRow, DetailViewMode, RowActionType, RowActionsConfig, SelectionColumnConfig, SummaryChipConfig, TableFeaturesConfig } from '../types';
 
 export type FirstColumnElementKey = 'expander' | 'checkbox' | 'icon';
 
@@ -11,6 +11,7 @@ export const FEATURE_TOGGLE_ITEMS: { key: keyof TableFeaturesConfig; label: stri
   { key: 'enableSearch', label: 'Search Input' },
   { key: 'enableAddRow', label: 'Add Row Button' },
   { key: 'enableExport', label: 'Export Menu' },
+  { key: 'enableImport', label: 'Import CSV' },
   { key: 'enableSavedViews', label: 'Saved Views' },
   { key: 'enableDensity', label: 'Density Switcher' },
   { key: 'enableRefresh', label: 'Refresh Button' },
@@ -33,6 +34,7 @@ const DEFAULT_CUSTOM_FEATURES: TableFeaturesConfig = {
   enableRefresh: false,
   enableDensity: false,
   enableExport: false,
+  enableImport: false,
   enableSavedViews: false,
   enableFullScreen: false,
   enableTranspose: true,
@@ -196,6 +198,16 @@ export function useTableFeatureConfig({
     });
   }, []);
 
+  const patchRowActions = useCallback((patch: Partial<RowActionsConfig>) => {
+    setCustomFeatures((prev) => ({
+      ...prev,
+      rowActions: {
+        ...prev.rowActions,
+        ...patch,
+      },
+    }));
+  }, []);
+
   const updateSummaryChips = useCallback((chips: SummaryChipConfig[]) => {
     setCustomFeatures(prev => ({
       ...prev,
@@ -287,9 +299,14 @@ export function useTableFeatureConfig({
       enableBulkActions: hasCheckbox && Boolean(customFeatures.enableBulkActions),
       selectionColumn: selectionColConfig,
       rowActions: {
+        ...customFeatures.rowActions,
         showOnHover: !actionsAlwaysVisible,
         showLabel: true,
-        label: 'Actions',
+        label: customFeatures.rowActions?.label || 'Actions',
+        showEdit: customFeatures.rowActions?.showEdit !== false,
+        showDelete: customFeatures.rowActions?.showDelete !== false,
+        showExplore: Boolean(customFeatures.rowActions?.showExplore),
+        showDuplicate: Boolean(customFeatures.rowActions?.showDuplicate),
         customButtons: customRowActionButtons,
       },
     };
@@ -331,6 +348,7 @@ export function useTableFeatureConfig({
     setIsTransposed,
     customFeatures,
     toggleFeature,
+    patchRowActions,
     updateSummaryChips,
     resolvedFeatures,
   };

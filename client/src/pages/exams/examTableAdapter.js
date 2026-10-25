@@ -8,9 +8,48 @@ const toTableDataType = (field) => {
   return t || 'text';
 };
 
+const toIsoDateTime = (value) => {
+  if (value == null || value === '') return '';
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  return d.toISOString();
+};
+
+const auditCol = (key, label, dataType, order, width = 160) => ({
+  key,
+  label,
+  dataType,
+  order,
+  visible: true,
+  pinned: null,
+  width,
+  editable: false,
+  required: false,
+  filterable: true,
+  sortable: true,
+});
+
+/** System audit columns always shown on the exams table */
+export const EXAM_AUDIT_COLUMNS = [
+  auditCol('__created_by', 'Created by', 'text', 8998, 160),
+  auditCol('__updated_by', 'Modify by', 'text', 8999, 160),
+  auditCol('created_at', 'Created at', 'datetime', 9001, 170),
+  auditCol('updated_at', 'Updated at', 'datetime', 9002, 170),
+];
+
+/** Builder field keys that should show the resolved creator / modifier */
+const CREATED_BY_KEYS = new Set(['created_by', 'createdby', 'created_by_user']);
+const MODIFY_BY_KEYS = new Set([
+  'modify_by',
+  'modified_by',
+  'updated_by',
+  'modifyby',
+  'modifiedby',
+]);
+
 /** Build DynamicTable columns from field-builder defs (fully dynamic) */
-export const buildExamTableColumns = (fields = []) =>
-  (fields || []).map((field, index) => {
+export const buildExamTableColumns = (fields = []) => {
+  const dynamic = (fields || []).map((field, index) => {
     const dataType = toTableDataType(field);
     const isAuto = field.autoFill && field.autoFill !== 'none';
     const options = resolveFieldOptions(field);
@@ -32,11 +71,63 @@ export const buildExamTableColumns = (fields = []) =>
     };
   });
 
-/** Build DynamicTable rows from IndexedDB exam records */
+  // Avoid duplicating if builder already defined these keys
+  const keys = new Set(dynamic.map((c) => c.key));
+  const lowerKeys = new Set([...keys].map((k) => String(k).toLowerCase()));
+  const hasCreatedByField = [...CREATED_BY_KEYS].some((k) => lowerKeys.has(k));
+  const hasModifyByField = [...MODIFY_BY_KEYS].some((k) => lowerKeys.has(k));
+
+  const audit = EXAM_AUDIT_COLUMNS.filter((c) => {
+    if (keys.has(c.key)) return false;
+    if (c.key === '__created_by' && hasCreatedByField) return false;
+    if (c.key === '__updated_by' && hasModifyByField) return false;
+    return true;
+  });
+  return [...dynamic, ...audit];
+};
+
+const resolveActorLabel = (label, email, fallback) =>
+  label || email || fallback || '';
+
+/** Build DynamicTable rows from SQL exam records */
 export const buildExamTableRows = (exams = []) =>
-  (exams || []).map((exam) => ({
-    rowId: exam.id,
-    id: exam.id,
-    version: 1,
-    values: exam.values && typeof exam.values === 'object' ? { ...exam.values } : {},
-  }));
+  (exams || []).map((exam) => {
+    const values =
+      exam.values && typeof exam.values === 'object' ? { ...exam.values } : {};
+
+    const createdLabel = resolveActorLabel(
+      exam.createdByLabel,
+      exam.createdByEmail,
+      '',
+    );
+    const updatedLabel = resolveActorLabel(
+      exam.updatedByLabel,
+      exam.updatedByEmail,
+      createdLabel,
+    );
+
+    values.created_at = toIsoDateTime(exam.createdAt ?? values.created_at);
+    values.updated_at = toIsoDateTime(exam.updatedAt ?? values.updated_at);
+    values.__created_by = createdLabel;
+    values.__updated_by = updatedLabel;
+
+    // Always resolve builder Created by / Modify by keys from SQL user join
+    Object.keys(values).forEach((key) => {
+      const lower = String(key).toLowerCase();
+      if (CREATED_BY_KEYS.has(lower)) values[key] = createdLabel;
+      if (MODIFY_BY_KEYS.has(lower)) values[key] = updatedLabel;
+    });
+    CREATED_BY_KEYS.forEach((k) => {
+      if (!(k in values)) values[k] = createdLabel;
+    });
+    MODIFY_BY_KEYS.forEach((k) => {
+      if (!(k in values)) values[k] = updatedLabel;
+    });
+
+    return {
+      rowId: exam.id,
+      id: exam.id,
+      version: 1,
+      values,
+    };
+  });

@@ -11,7 +11,7 @@ const ADMIN_ROLES = [ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN];
 router.use(authenticate);
 
 router.get('/', examController.listExams);
-router.post('/import', authorize(ADMIN_ROLES), examController.importExams);
+router.post('/import', authorize(WRITE_ROLES), examController.importExams);
 router.get('/:id', examController.getExam);
 router.post('/', authorize(WRITE_ROLES), examController.createExam);
 router.put('/:id', authorize(WRITE_ROLES), examController.updateExam);

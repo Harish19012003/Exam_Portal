@@ -46,6 +46,8 @@ interface TableToolbarProps {
   onCopyTSV?: () => void;
   onPrint?: () => void;
   onPrintAll?: () => void;
+  /** Opens the Import modal (CSV upload + paste table). */
+  onOpenImport?: () => void;
   density?: Density;
   onDensityChange?: (d: Density) => void;
   savedViews?: { id: string; name: string }[];
@@ -91,6 +93,7 @@ export function TableToolbar({
   onCopyTSV,
   onPrint,
   onPrintAll,
+  onOpenImport,
   density = 'standard',
   onDensityChange,
   savedViews = [],
@@ -145,6 +148,7 @@ export function TableToolbar({
   const densityEnabled = features?.enableDensity !== false && Boolean(onDensityChange);
   const exportEnabled =
     features?.enableExport !== false && Boolean(onExportCSV || onExportExcel || onExportPDF);
+  const importEnabled = Boolean(features?.enableImport) && Boolean(onOpenImport);
   const savedViewsEnabled = features?.enableSavedViews !== false;
   const fullScreenEnabled = features?.enableFullScreen !== false && Boolean(onToggleFullScreen);
   const settingsEnabled = features?.enableSettings !== false;
@@ -159,6 +163,7 @@ export function TableToolbar({
     showTranspose ||
     densityEnabled ||
     exportEnabled ||
+    importEnabled ||
     savedViewsEnabled ||
     fullScreenEnabled ||
     settingsEnabled;
@@ -368,6 +373,19 @@ export function TableToolbar({
                 aria-pressed={isTransposed}
               >
                 <TransposeIcon className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Import (opens modal) */}
+            {importEnabled && (
+              <button
+                type="button"
+                onClick={onOpenImport}
+                className={iconBtnCls}
+                title="Import data"
+                aria-label="Import data"
+              >
+                <Icon icon="hugeicons:file-upload" className="w-[18px] h-[18px]" />
               </button>
             )}
 

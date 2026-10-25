@@ -7,7 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
+// import rateLimit from 'express-rate-limit'; // re-enable with globalLimiter below
 import env from './config/env.js';
 import { logger } from './core/logger.js';
 import { errorResponse } from './core/response.js';
@@ -27,17 +27,17 @@ app.use(
 app.use(cookieParser());
 
 
-// Global rate limiter
-const globalLimiter = rateLimit({
-  windowMs: env.RATE_LIMIT_WINDOW_MS,
-  max: env.RATE_LIMIT_MAX,
-  message: {
-    success: false,
-    code: ERROR_CODES.RATE_LIMITED,
-    message: 'Too many requests from this IP, please try again later.',
-  },
-});
-app.use('/api', globalLimiter);
+// Global rate limiter — temporarily disabled
+// const globalLimiter = rateLimit({
+//   windowMs: env.RATE_LIMIT_WINDOW_MS,
+//   max: env.RATE_LIMIT_MAX,
+//   message: {
+//     success: false,
+//     code: ERROR_CODES.RATE_LIMITED,
+//     message: 'Too many requests from this IP, please try again later.',
+//   },
+// });
+// app.use('/api', globalLimiter);
 
 // ── Request parsing ────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));

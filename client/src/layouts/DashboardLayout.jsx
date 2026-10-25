@@ -66,6 +66,8 @@ export const DashboardLayout = () => {
   const avatarRef = useRef(null);
 
   const [isExpanded, setIsExpanded] = useState(true);
+  // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
+  const [breadcrumbTail, setBreadcrumbTail] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('theme') === 'dark';
@@ -124,6 +126,9 @@ export const DashboardLayout = () => {
 
   const getBreadcrumb = () => {
     const path = location.pathname.replace(/\/$/, '');
+    if (/^\/exams\/[^/]+$/.test(path)) {
+      return { label: 'Exams', icon: GraduationCap, to: '/exams', tail: breadcrumbTail || 'Exam' };
+    }
     if (path === '/dashboard/exams' || path === '/exams') {
       return { label: 'Exams', icon: GraduationCap };
     }
@@ -284,10 +289,23 @@ export const DashboardLayout = () => {
               {currentBreadcrumb && (
                 <>
                   <ChevronRight size={14} className="topbar-breadcrumb-separator" />
-                  <span className="topbar-breadcrumb-current">
-                    {currentBreadcrumb.icon && <currentBreadcrumb.icon size={15} />}
-                    <span>{currentBreadcrumb.label}</span>
-                  </span>
+                  {currentBreadcrumb.to ? (
+                    <>
+                      <Link to={currentBreadcrumb.to} className="topbar-breadcrumb-link">
+                        {currentBreadcrumb.icon && <currentBreadcrumb.icon size={15} />}
+                        <span>{currentBreadcrumb.label}</span>
+                      </Link>
+                      <ChevronRight size={14} className="topbar-breadcrumb-separator" />
+                      <span className="topbar-breadcrumb-current">
+                        <span>{currentBreadcrumb.tail}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <span className="topbar-breadcrumb-current">
+                      {currentBreadcrumb.icon && <currentBreadcrumb.icon size={15} />}
+                      <span>{currentBreadcrumb.label}</span>
+                    </span>
+                  )}
                 </>
               )}
             </nav>
@@ -322,7 +340,7 @@ export const DashboardLayout = () => {
         </header>
 
         <main className="main-content">
-          <Outlet />
+          <Outlet context={{ setBreadcrumbTail }} />
         </main>
       </div>
     </div>
