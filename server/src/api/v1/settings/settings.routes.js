@@ -19,4 +19,14 @@ router.put(
   settingsController.putExamTableConfig,
 );
 
+/** Table layout: user prefs + org default (super admin sets default) */
+router.get('/table-layout/:tableId', settingsController.getTableLayout);
+router.put('/table-layout/:tableId', settingsController.putUserTableLayout);
+router.delete('/table-layout/:tableId', settingsController.deleteUserTableLayout);
+router.put(
+  '/table-layout/:tableId/default',
+  authorize([ROLES.SUPER_ADMIN]),
+  settingsController.putOrgTableLayoutDefault,
+);
+
 export default router;

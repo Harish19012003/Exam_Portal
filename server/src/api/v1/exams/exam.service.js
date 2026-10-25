@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import * as examRepository from './exam.repository.js';
+import * as settingsService from '../settings/settings.service.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 
@@ -12,10 +13,32 @@ const snapshotFields = (fields = []) =>
     order: typeof f.order === 'number' ? f.order : index,
   }));
 
-export const listExams = async () => examRepository.findAll();
+const loadConfiguredFields = async () => {
+  try {
+    const config = await settingsService.getExamTableConfig();
+    return Array.isArray(config?.fields) ? config.fields : [];
+  } catch {
+    return [];
+  }
+};
+
+export const listExams = async () => {
+  const fields = await loadConfiguredFields();
+  if (fields.length) {
+    await examRepository.syncFieldColumns(fields);
+    // Best-effort migrate any leftover JSON blobs into columns
+    try {
+      await examRepository.migrateLegacyJsonRows(fields);
+    } catch {
+      // ignore
+    }
+  }
+  return examRepository.findAll(fields);
+};
 
 export const getExam = async (id) => {
-  const exam = await examRepository.findById(id);
+  const fields = await loadConfiguredFields();
+  const exam = await examRepository.findById(id, fields);
   if (!exam) {
     throw new AppError('Exam not found', 404, ERROR_CODES.NOT_FOUND);
   }
@@ -28,7 +51,9 @@ export const createExam = async ({ values, fields, id }, userId) => {
       ? id.trim()
       : `exam_${Date.now()}_${randomUUID().slice(0, 8)}`;
 
-  const existing = await examRepository.findById(examId);
+  const configured = await loadConfiguredFields();
+  const fieldDefs = Array.isArray(fields) && fields.length ? fields : configured;
+  const existing = await examRepository.findById(examId, fieldDefs);
   if (existing) {
     throw new AppError('Exam already exists', 409, ERROR_CODES.CONFLICT);
   }
@@ -36,15 +61,18 @@ export const createExam = async ({ values, fields, id }, userId) => {
   return examRepository.create({
     id: examId,
     values: values && typeof values === 'object' ? values : {},
-    fields: snapshotFields(fields),
+    fields: snapshotFields(fieldDefs),
     createdBy: userId || null,
   });
 };
 
-export const updateExam = async (id, { values, fields }) => {
+export const updateExam = async (id, { values, fields }, userId) => {
+  const configured = await loadConfiguredFields();
+  const fieldDefs = Array.isArray(fields) && fields.length ? fields : configured;
   const updated = await examRepository.update(id, {
     values,
-    fields: fields !== undefined ? snapshotFields(fields) : undefined,
+    fields: snapshotFields(fieldDefs),
+    updatedBy: userId || null,
   });
   if (!updated) {
     throw new AppError('Exam not found', 404, ERROR_CODES.NOT_FOUND);
@@ -60,19 +88,47 @@ export const deleteExam = async (id) => {
   return { success: true, id };
 };
 
-/** Import browser IndexedDB rows into SQL (idempotent upsert). */
+/**
+ * Bulk import exams into SQL.
+ * - Rows with `id` → upsert
+ * - Rows without `id` → create (CSV import)
+ */
 export const importExams = async (exams = [], userId) => {
+  const configured = await loadConfiguredFields();
   const list = Array.isArray(exams) ? exams : [];
   let imported = 0;
   for (const row of list) {
-    if (!row?.id) continue;
-    await examRepository.upsert({
-      id: String(row.id),
-      values: row.values && typeof row.values === 'object' ? row.values : {},
-      fields: snapshotFields(row.fields),
-      createdBy: userId || null,
-    });
+    const fieldDefs =
+      Array.isArray(row.fields) && row.fields.length ? row.fields : configured;
+    const values = row.values && typeof row.values === 'object' ? row.values : {};
+    if (row?.id) {
+      await examRepository.upsert({
+        id: String(row.id),
+        values,
+        fields: snapshotFields(fieldDefs),
+        createdBy: userId || null,
+      });
+    } else {
+      const examId = `exam_${Date.now()}_${randomUUID().slice(0, 8)}`;
+      await examRepository.create({
+        id: examId,
+        values,
+        fields: snapshotFields(fieldDefs),
+        createdBy: userId || null,
+      });
+    }
     imported += 1;
   }
   return { imported, total: list.length };
+};
+
+/** Ensure SQL columns match published field keys */
+export const syncExamColumnsFromConfig = async (fields = []) => {
+  const result = await examRepository.syncFieldColumns(fields);
+  try {
+    await examRepository.migrateLegacyJsonRows(fields);
+  } catch {
+    // ignore
+  }
+  return result;
 };

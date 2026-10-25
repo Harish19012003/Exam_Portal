@@ -36,6 +36,7 @@ export const AUTO_FILL_OPTIONS = [
   { value: 'none', label: 'None (user enters)' },
   { value: 'currentUser', label: 'Current user (auto)' },
   { value: 'today', label: 'Today’s date (auto)' },
+  { value: 'timestamp', label: 'Timestamp (auto)' },
   { value: 'dash', label: 'Dash — (auto)' },
 ];
 
@@ -56,6 +57,21 @@ export const slugifyKey = (label) =>
     .replace(/^_|_$/g, '')
     .slice(0, 40) || `field_${Date.now()}`;
 
+/** Normalize a user-entered field key (slug). Empty string if nothing usable. */
+export const normalizeFieldKey = (raw) => {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 40);
+  return key;
+};
+
+/** Valid persisted key: starts with a letter, then letters/digits/underscore */
+export const isValidFieldKey = (key) => /^[a-z][a-z0-9_]{0,39}$/.test(String(key || ''));
+
 /** ISO date (yyyy-mm-dd) — safe for DynamicTable date/datetime columns */
 export const formatISODate = (date = new Date()) => {
   const d = date instanceof Date ? date : new Date(date);
@@ -64,6 +80,18 @@ export const formatISODate = (date = new Date()) => {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
   return `${year}-${month}-${day}`;
+};
+
+/** Local datetime (yyyy-mm-ddThh:mm) — works with datetime-local inputs */
+export const formatISODateTime = (date = new Date()) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const hour = String(d.getHours()).padStart(2, '0');
+  const minute = String(d.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 };
 
 /** Display date (dd/mm/yyyy) for form audit labels */
@@ -92,6 +120,8 @@ export const resolveAutoFillValue = (autoFill) => {
       return getCurrentUserName();
     case 'today':
       return formatISODate();
+    case 'timestamp':
+      return formatISODateTime();
     case 'dash':
       return '—';
     default:
@@ -155,6 +185,9 @@ export const saveExamFields = (fields) => {
 export const emptyFieldForm = () => ({
   id: null,
   label: '',
+  key: '',
+  /** When true, label changes no longer overwrite the key (user edited key). */
+  keyTouched: false,
   dataType: 'text',
   required: false,
   optionsText: '',

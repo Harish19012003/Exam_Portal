@@ -28,6 +28,12 @@ export const deleteExam = async (id) => {
   return true;
 };
 
+/** Bulk create/upsert exams (CSV import + IDB migration). */
+export const importExams = async (exams = []) => {
+  const { data } = await apiClient.post('/exams/import', { exams });
+  return unwrap(data) || { imported: 0, total: 0 };
+};
+
 const MIGRATION_FLAG = 'exam_idb_to_sql_migrated_v1';
 
 /**

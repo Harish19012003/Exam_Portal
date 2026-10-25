@@ -5,8 +5,7 @@ import {
   X,
   Pencil,
   Trash2,
-  ChevronUp,
-  ChevronDown,
+  GripVertical,
   Type,
   Hash,
   Calendar,
@@ -36,6 +35,8 @@ import {
   DATE_LINK_TYPES,
   emptyFieldForm,
   slugifyKey,
+  normalizeFieldKey,
+  isValidFieldKey,
   loadConfigDropdownLists,
   getConfigListOptions,
   getDateLinkCandidates,
@@ -76,6 +77,8 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
   const [form, setForm] = useState(emptyFieldForm);
   const [error, setError] = useState('');
   const [typesOpen, setTypesOpen] = useState(false);
+  const [dragFieldId, setDragFieldId] = useState(null);
+  const [dragOverFieldId, setDragOverFieldId] = useState(null);
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -135,7 +138,9 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
     EXAM_FIELD_TYPES.find((t) => t.value === value)?.label || value;
 
   const fieldMeta = (field) => {
-    const parts = [typeLabel(field.dataType)];
+    const parts = [];
+    if (field.key) parts.push(field.key);
+    parts.push(typeLabel(field.dataType));
     if (field.allowMultiple) parts.push('Multi');
     if (field.optionsSource === 'config') parts.push('Config');
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
@@ -160,6 +165,8 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
     setForm({
       id: field.id,
       label: field.label,
+      key: field.key || '',
+      keyTouched: true,
       dataType: field.dataType,
       required: Boolean(field.required),
       optionsText: (field.options || []).join('\n'),
@@ -226,12 +233,27 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       return;
     }
 
-    const key = slugifyKey(label);
-    const duplicate = fields.some(
-      (f) => f.id !== form.id && (f.key === key || f.label.toLowerCase() === label.toLowerCase())
+    // Key is locked after create — editing keeps the existing key forever
+    const existing = isEditing ? fields.find((f) => f.id === form.id) : null;
+    const key = isEditing
+      ? existing?.key || normalizeFieldKey(form.key) || slugifyKey(label)
+      : normalizeFieldKey(form.key) || slugifyKey(label);
+
+    if (!isValidFieldKey(key)) {
+      setError('Key must start with a letter and use only a–z, 0–9, underscore.');
+      return;
+    }
+
+    const duplicateKey = fields.some((f) => f.id !== form.id && f.key === key);
+    const duplicateLabel = fields.some(
+      (f) => f.id !== form.id && f.label.toLowerCase() === label.toLowerCase(),
     );
-    if (duplicate) {
-      setError('A field with this name already exists.');
+    if (duplicateKey) {
+      setError('A field with this key already exists.');
+      return;
+    }
+    if (duplicateLabel) {
+      setError('A field with this label already exists.');
       return;
     }
 
@@ -284,14 +306,14 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
     );
   };
 
-  const moveField = (id, direction) => {
-    const index = fields.findIndex((f) => f.id === id);
-    if (index < 0) return;
-    const next = index + direction;
-    if (next < 0 || next >= fields.length) return;
+  const reorderFields = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    const fromIndex = fields.findIndex((f) => f.id === fromId);
+    const toIndex = fields.findIndex((f) => f.id === toId);
+    if (fromIndex < 0 || toIndex < 0) return;
     const copy = [...fields];
-    const [item] = copy.splice(index, 1);
-    copy.splice(next, 0, item);
+    const [item] = copy.splice(fromIndex, 1);
+    copy.splice(toIndex, 0, item);
     onChange(copy.map((f, i) => ({ ...f, order: i + 1 })));
   };
 
@@ -347,19 +369,56 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
                 </div>
 
                 <ul className="exams-field-list">
-                  {fields.map((field, index) => {
+                  {fields.map((field) => {
                     const Icon = TYPE_ICONS[field.dataType] || Type;
+                    const isDragging = dragFieldId === field.id;
+                    const isDragOver = dragOverFieldId === field.id && dragFieldId !== field.id;
                     return (
-                      <li key={field.id} className="exams-field-row">
+                      <li
+                        key={field.id}
+                        className={`exams-field-row${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverFieldId !== field.id) setDragOverFieldId(field.id);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverFieldId === field.id) setDragOverFieldId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const fromId = e.dataTransfer.getData('text/plain') || dragFieldId;
+                          reorderFields(fromId, field.id);
+                          setDragFieldId(null);
+                          setDragOverFieldId(null);
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="exams-field-drag-handle"
+                          draggable
+                          title="Drag to reorder"
+                          aria-label={`Drag to reorder ${field.label}`}
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', field.id);
+                            setDragFieldId(field.id);
+                          }}
+                          onDragEnd={() => {
+                            setDragFieldId(null);
+                            setDragOverFieldId(null);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <GripVertical size={16} strokeWidth={2} aria-hidden="true" />
+                        </button>
+
                         <button
                           type="button"
                           className="exams-field-row-main"
                           onClick={() => openEdit(field)}
                           title={`Edit ${field.label}`}
                         >
-                          <span className="exams-field-index">
-                            {String(index + 1).padStart(2, '0')}
-                          </span>
                           <span className="exams-field-icon-wrap" aria-hidden="true">
                             <Icon size={14} strokeWidth={2} />
                           </span>
@@ -370,26 +429,6 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
                         </button>
 
                         <div className="exams-field-row-actions">
-                          <button
-                            type="button"
-                            className="exams-icon-btn"
-                            disabled={index === 0}
-                            onClick={() => moveField(field.id, -1)}
-                            aria-label="Move up"
-                            title="Move up"
-                          >
-                            <ChevronUp size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="exams-icon-btn"
-                            disabled={index === fields.length - 1}
-                            onClick={() => moveField(field.id, 1)}
-                            aria-label="Move down"
-                            title="Move down"
-                          >
-                            <ChevronDown size={14} />
-                          </button>
                           <button
                             type="button"
                             className="exams-icon-btn"
@@ -453,13 +492,58 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
                   type="text"
                   value={form.label}
                   onChange={(e) => {
-                    setForm((p) => ({ ...p, label: e.target.value }));
+                    const nextLabel = e.target.value;
+                    setForm((p) => {
+                      const next = { ...p, label: nextLabel };
+                      // Auto-fill key from label until the user edits the key (create only)
+                      if (!isEditing && !p.keyTouched) {
+                        next.key = slugifyKey(nextLabel);
+                      }
+                      return next;
+                    });
                     if (error) setError('');
                   }}
                   placeholder="e.g. Exam Type"
                   required
                   autoFocus
                 />
+              </div>
+
+              <div className="exams-form-group">
+                <label htmlFor={`${formId}-key`}>
+                  Key{!isEditing ? ' *' : ''}
+                </label>
+                <input
+                  id={`${formId}-key`}
+                  type="text"
+                  value={form.key}
+                  onChange={(e) => {
+                    if (isEditing) return;
+                    // Allow typing underscores; full normalize runs on save
+                    const raw = e.target.value
+                      .toLowerCase()
+                      .replace(/[^a-z0-9_]/g, '_')
+                      .slice(0, 40);
+                    setForm((p) => ({
+                      ...p,
+                      key: raw,
+                      keyTouched: true,
+                    }));
+                    if (error) setError('');
+                  }}
+                  placeholder="e.g. exam_type"
+                  required={!isEditing}
+                  readOnly={isEditing}
+                  disabled={isEditing}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-describedby={`${formId}-key-hint`}
+                />
+                <p id={`${formId}-key-hint`} className="exams-field-key-hint">
+                  {isEditing
+                    ? 'Key is locked after create (used in SQL form values).'
+                    : 'Stable id for SQL — letters, numbers, underscore. Auto-filled from label.'}
+                </p>
               </div>
 
               <SearchableSelect

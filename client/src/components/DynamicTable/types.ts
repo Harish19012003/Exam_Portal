@@ -342,6 +342,10 @@ export interface RowActionsConfig {
   showOnHover?: boolean;
   showEdit?: boolean;
   showDelete?: boolean;
+  /** Explore / drill-into row (destination wired by page via onExploreRow) */
+  showExplore?: boolean;
+  /** Duplicate row (page creates a copy via onDuplicateRow) */
+  showDuplicate?: boolean;
   iconName?: string;
   customButtons?: CustomRowActionButton[];
   renderCustomActions?: (row: DataRow) => React.ReactNode;
@@ -365,6 +369,8 @@ export interface TableFeaturesConfig {
   enableRefresh?: boolean;
   enableDensity?: boolean;
   enableExport?: boolean;
+  /** CSV import control in the table toolbar */
+  enableImport?: boolean;
   enableSavedViews?: boolean;
   enableFullScreen?: boolean;
   enableTranspose?: boolean;
@@ -420,6 +426,8 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
     showOnHover: true,
     showEdit: true,
     showDelete: true,
+    showExplore: false,
+    showDuplicate: false,
     renderCustomActions: undefined,
   },
   enableSearch: false,
@@ -427,6 +435,7 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
   enableRefresh: false,
   enableDensity: false,
   enableExport: false,
+  enableImport: false,
   enableSavedViews: true,
   enableFullScreen: false,
   enableTranspose: true,
