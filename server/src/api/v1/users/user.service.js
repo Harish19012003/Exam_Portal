@@ -3,7 +3,9 @@ import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { pool } from '../../../database/connection.js';
+import { getOrm } from '../../../database/connection.js';
+import { User } from '../../../database/entities/index.js';
+import { deleteSetting } from '../settings/settings.repository.js';
 
 /**
  * Service to handle user-related business logic.
@@ -131,8 +133,7 @@ export const updateUser = async (targetId, updateData, currentActor) => {
     }
     payload.two_factor_enabled = isEnabling ? 1 : 0;
     if (!isEnabling) {
-      // Clear out user 2FA secret when disabled
-      await pool.query('DELETE FROM system_settings WHERE setting_key = ?', [`user_2fa:${targetId}`]);
+      await deleteSetting(`user_2fa:${targetId}`);
     }
   }
   if (updateData.last_active_at !== undefined) {
@@ -204,21 +205,17 @@ export const transferPrimarySuperAdmin = async (targetId, currentActor) => {
     );
   }
 
-  // 5. Transfer atomically using transaction
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-
-    await connection.query('UPDATE users SET is_primary = FALSE WHERE id = ?', [currentActor.id]);
-    await connection.query('UPDATE users SET is_primary = TRUE WHERE id = ?', [targetId]);
-
-    await connection.commit();
-  } catch (err) {
-    await connection.rollback();
-    throw err;
-  } finally {
-    connection.release();
-  }
+  // 5. Transfer atomically (Mongo multi-doc transaction when supported)
+  const orm = getOrm();
+  await orm.em.transactional(async (em) => {
+    const actorEntity = await em.findOne(User, { _id: String(currentActor.id) });
+    const targetEntity = await em.findOne(User, { _id: String(targetId) });
+    if (!actorEntity || !targetEntity) {
+      throw new AppError('User not found during transfer.', 404, ERROR_CODES.NOT_FOUND);
+    }
+    em.assign(actorEntity, { is_primary: false });
+    em.assign(targetEntity, { is_primary: true });
+  });
 
   const updatedTarget = await getUserById(targetId);
   const updatedActor = await getUserById(currentActor.id);

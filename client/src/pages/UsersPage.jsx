@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { UserGroupTabs, UserGroupModal } from './users/UserGroupTabs';
+import { PageHeading } from '../components/PageHeading';
 import { apiClient } from '../api/client';
 import { ROLES, AVAILABLE_RIGHTS, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
 import {
@@ -30,7 +32,6 @@ import {
   Upload,
   Eye,
   EyeOff,
-  Info,
   Zap,
   ShieldOff,
 } from 'lucide-react';
@@ -53,13 +54,18 @@ const TIMEZONES = [
 
 export const UsersPage = ({ embedded = false }) => {
   const [users, setUsers] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [groupModal, setGroupModal] = useState(null); // null | { group: object | null }
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [groupError, setGroupError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   // Search & Filter & Sort
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  // 'all' | 'role:<role>' | 'group:<id>'
+  const [activeTab, setActiveTab] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('activity_desc'); // activity_desc, activity_asc, name_asc, name_desc, role, created_desc
 
@@ -85,7 +91,6 @@ export const UsersPage = ({ embedded = false }) => {
     });
   };
 
-  const [showStandaloneInfo, setShowStandaloneInfo] = useState(false);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -223,6 +228,60 @@ export const UsersPage = ({ embedded = false }) => {
     fetchUsers();
   }, []);
 
+  // ── User groups (custom tabs) ──────────────────────────────────────────────
+  const fetchGroups = async () => {
+    try {
+      const response = await apiClient.get('/users/groups');
+      setGroups(response.data.data || []);
+    } catch {
+      setGroups([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchGroups();
+  }, []);
+
+  const closeGroupModal = () => {
+    setGroupModal(null);
+    setGroupError('');
+  };
+
+  const handleSaveGroup = async (payload) => {
+    setGroupSaving(true);
+    setGroupError('');
+    try {
+      const existing = groupModal?.group;
+      const response = existing
+        ? await apiClient.put(`/users/groups/${existing.id}`, payload)
+        : await apiClient.post('/users/groups', payload);
+      await fetchGroups();
+      const saved = response.data.data;
+      if (saved?.id) setActiveTab(`group:${saved.id}`);
+      closeGroupModal();
+    } catch (err) {
+      setGroupError(err.response?.data?.message || 'Could not save the group.');
+    } finally {
+      setGroupSaving(false);
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    const existing = groupModal?.group;
+    if (!existing || !window.confirm(`Delete the group "${existing.name}"? The users stay; only the group is removed.`)) return;
+    setGroupSaving(true);
+    try {
+      await apiClient.delete(`/users/groups/${existing.id}`);
+      await fetchGroups();
+      if (activeTab === `group:${existing.id}`) setActiveTab('all');
+      closeGroupModal();
+    } catch (err) {
+      setGroupError(err.response?.data?.message || 'Could not delete the group.');
+    } finally {
+      setGroupSaving(false);
+    }
+  };
+
   // Lock body scroll and listen for ESC key when any modal is open
   useEffect(() => {
     const isAnyOpen = isEditModalOpen || isCreateModalOpen || isBulkUploadModalOpen || isTransferModalOpen;
@@ -302,9 +361,14 @@ export const UsersPage = ({ embedded = false }) => {
       );
     }
 
-    // Filter by Role
-    if (roleFilter !== 'all') {
-      result = result.filter((u) => u.role === roleFilter);
+    // Filter by tab: a role, or a custom group's members
+    if (activeTab.startsWith('role:')) {
+      const role = activeTab.slice(5);
+      result = result.filter((u) => u.role === role);
+    } else if (activeTab.startsWith('group:')) {
+      const group = groups.find((g) => g.id === activeTab.slice(6));
+      const memberIds = new Set((group?.userIds || []).map(String));
+      result = result.filter((u) => memberIds.has(String(u.id)));
     }
 
     // Filter by Status
@@ -354,7 +418,7 @@ export const UsersPage = ({ embedded = false }) => {
     });
 
     return result;
-  }, [users, searchQuery, roleFilter, statusFilter, sortBy]);
+  }, [users, groups, searchQuery, activeTab, statusFilter, sortBy]);
 
   // Open Edit Modal
   const handleOpenEdit = (user) => {
@@ -716,42 +780,10 @@ export const UsersPage = ({ embedded = false }) => {
     <div className={`users-page ${embedded ? 'embedded' : ''}`}>
       {/* Top Header (Non-embedded only) */}
       {!embedded && (
-        <div className="users-header">
-          <div className="users-title-group">
-            <div className="settings-title-row">
-              <h1 className="users-title">
-                <span>User & Role Governance</span>
-              </h1>
-              <div
-                className="settings-info-tooltip-wrap"
-                onMouseEnter={() => setShowStandaloneInfo(true)}
-                onMouseLeave={() => setShowStandaloneInfo(false)}
-              >
-                <button
-                  type="button"
-                  className={`settings-info-btn ${showStandaloneInfo ? 'active' : ''}`}
-                  onClick={() => setShowStandaloneInfo((prev) => !prev)}
-                  title="Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity."
-                  aria-label="About User & Role Governance"
-                  aria-expanded={showStandaloneInfo}
-                >
-                  <Info size={15} />
-                </button>
-                {showStandaloneInfo && (
-                  <div className="settings-info-popover" role="tooltip">
-                    <div className="settings-info-popover-header">
-                      <Info size={13} className="popover-info-icon" />
-                      <span>About Users & Roles</span>
-                    </div>
-                    <p className="settings-info-popover-text">
-                      Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeading
+          title="User & Role Governance"
+          info="Manage portal accounts, assign role-based access control, configure granular permissions, and audit last activity."
+        />
       )}
 
       {/* Notifications */}
@@ -768,6 +800,26 @@ export const UsersPage = ({ embedded = false }) => {
         </div>
       )}
 
+      <UserGroupTabs
+        users={users}
+        groups={groups}
+        value={activeTab}
+        onChange={setActiveTab}
+        onCreate={() => setGroupModal({ group: null })}
+        onEdit={(group) => setGroupModal({ group })}
+      />
+      {groupModal && (
+        <UserGroupModal
+          group={groupModal.group}
+          users={users}
+          saving={groupSaving}
+          error={groupError}
+          onSave={handleSaveGroup}
+          onDelete={handleDeleteGroup}
+          onClose={closeGroupModal}
+        />
+      )}
+
       {/* Controls Bar: Search, Filters, Sort & Action Icons in One Row */}
       <div className="users-controls">
         <div className="search-box">
@@ -782,18 +834,6 @@ export const UsersPage = ({ embedded = false }) => {
         </div>
 
         <div className="filters-group">
-          {/* Role Filter */}
-          <select
-            className="filter-select"
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-          >
-            <option value="all">All Roles</option>
-            <option value="super_admin">Super Admin</option>
-            <option value="global_admin">Global Admin</option>
-            <option value="admin">Admin</option>
-            <option value="user">Standard User</option>
-          </select>
 
           {/* Status Filter */}
           <select

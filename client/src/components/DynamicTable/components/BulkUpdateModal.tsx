@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Layers, Search, Type, Hash, ToggleLeft, List, Check } from 'lucide-react';
 import type { ColumnConfig, FieldColumn } from '../types';
+import { DYNAMIC_DROPDOWN_PORTAL_CLASS, DynamicDropdown } from '../../DynamicData/fields';
 
 interface BulkUpdateModalProps {
   columns: ColumnConfig[];
@@ -28,7 +29,10 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement;
+      // Dropdown menus render in a portal outside the modal — clicks there are not "outside".
+      if (target.closest?.(`.${DYNAMIC_DROPDOWN_PORTAL_CLASS}`)) return;
+      if (modalRef.current && !modalRef.current.contains(target)) {
         onClose();
       }
     }
@@ -116,15 +120,14 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
       case 'dropdown':
       case 'status':
         return (
-          <select
+          <DynamicDropdown
+            variant="form"
             value={String(value)}
-            onChange={e => handleValueChange(col.key, e.target.value)}
-            className={inputCls}
-          >
-            {col.options?.map(opt => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+            options={col.options ?? []}
+            required
+            isDarkMode={isDarkMode}
+            onChange={v => handleValueChange(col.key, v)}
+          />
         );
 
       case 'number':

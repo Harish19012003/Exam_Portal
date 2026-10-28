@@ -146,6 +146,8 @@ export { RecordAvatar } from './RecordAvatar';
 export type { RecordAvatarProps, RecordAvatarShape } from './RecordAvatar';
 export { ViewFeatureBuilder } from './ViewFeatureBuilder';
 export type { ViewFeatureBuilderProps } from './ViewFeatureBuilder';
+export { FeatureBuilderPanel, SectionLabel, ScopeBadge, ToggleRow } from './FeatureBuilderParts';
+export type { FeatureBuilderPanelProps } from './FeatureBuilderParts';
 export { DesignCornerFab, DesignFooterButton, ViewCornerFabStack, cornerFabClass } from './ViewCornerFabs';
 export type { DesignCornerFabProps, DesignFooterButtonProps } from './ViewCornerFabs';
 export { useViewFeatures } from './useViewFeatures';

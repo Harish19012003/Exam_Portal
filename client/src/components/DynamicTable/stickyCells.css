@@ -108,3 +108,47 @@
   position: relative;
   z-index: 0;
 }
+
+/* Feature Builder "Grid lines": thickness and visibility come from CSS variables on the table. */
+.dt-grid > tbody > tr > td {
+  border-bottom-width: var(--dt-h-width, 1px) !important;
+  border-bottom-style: solid;
+}
+
+.dt-grid[data-h-custom] > tbody > tr > td {
+  border-bottom-color: var(--dt-h-color) !important;
+}
+
+.dt-grid > thead > tr > th:not(:last-child),
+.dt-grid > tbody > tr > td:not(:last-child) {
+  border-right: var(--dt-v-width, 0px) solid var(--dt-v-color, #e5e7eb);
+}
+
+/* Feature Builder "Table colors": header, alternate rows and footer. Variables come from utils/tableColors.ts. */
+.dt-themed[data-dt-head] .dt-grid > thead,
+.dt-themed[data-dt-head] .dt-grid > thead th {
+  background-color: var(--dt-head-bg) !important;
+}
+
+.dt-themed[data-dt-head] .dt-grid > thead th,
+.dt-themed[data-dt-head] .dt-grid > thead th * {
+  color: var(--dt-head-text) !important;
+}
+
+.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']),
+.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td {
+  background-color: var(--dt-stripe-bg) !important;
+}
+
+.dt-themed[data-dt-foot] [data-dt-footer-bar],
+.dt-themed[data-dt-foot] .dt-grid > tfoot,
+.dt-themed[data-dt-foot] .dt-grid > tfoot td {
+  background-color: var(--dt-foot-bg) !important;
+}
+
+.dt-themed[data-dt-foot] [data-dt-footer-bar],
+.dt-themed[data-dt-foot] [data-dt-footer-bar] *:not(select):not(option),
+.dt-themed[data-dt-foot] .dt-grid > tfoot,
+.dt-themed[data-dt-foot] .dt-grid > tfoot * {
+  color: var(--dt-foot-text) !important;
+}

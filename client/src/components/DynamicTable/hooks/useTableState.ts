@@ -78,12 +78,14 @@ export type UseTableStateOptions = {
   tableId?: string;
   /** When false, do not sync into the shared Dynamic* view store (e.g. Vendors). Default true. */
   shareState?: boolean;
-  /** Resolved layout from SQL (user override or org default). */
+  /** Resolved layout from API (user override or org default). */
   layoutPrefs?: TablePrefs | null;
-  /** Debounced personal layout save (SQL). */
+  /** Debounced personal layout save. */
   onLayoutPrefsChange?: (prefs: TablePrefs) => void;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
+  /** One call for a whole bulk update. When omitted, each row goes through onRowUpdate. */
+  onBulkUpdate?: (items: { rowId: string; values: Record<string, unknown>; row: DataRow }[]) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
 };
 
@@ -99,6 +101,7 @@ export function useTableState(
     onLayoutPrefsChange,
     onRowUpdate,
     onRowDelete,
+    onBulkUpdate,
   } = options;
 
   const [rows, setRows] = useState<DataRow[]>(() =>
@@ -195,7 +198,7 @@ export function useTableState(
     }, tableId);
   }, [columns, columnWidths, columnOrder, columnVisibility, density, conditionalFormats, recentFormatColors, tableId]);
 
-  // Debounced SQL persist of personal layout (skip first paint)
+  // Debounced persist of personal layout (skip first paint)
   const skipInitialLayoutSave = useRef(true);
   const onLayoutPrefsChangeRef = useRef(onLayoutPrefsChange);
   onLayoutPrefsChangeRef.current = onLayoutPrefsChange;
@@ -445,7 +448,17 @@ export function useTableState(
 
   const handleBulkUpdate = useCallback((updates: Record<string, unknown>) => {
     if (selectedRows.size === 0 || Object.keys(updates).length === 0) return;
-    
+
+    // Persist the selected rows: one bulk call if the page provides it, otherwise per row.
+    const targets = rows
+      .filter(r => selectedRows.has(r.rowId))
+      .map(r => ({ rowId: r.rowId, values: updates, row: { ...r, values: { ...r.values, ...updates } } }));
+    if (onBulkUpdate) {
+      void onBulkUpdate(targets);
+    } else if (onRowUpdate) {
+      targets.forEach(t => void onRowUpdate(t.rowId, t.values, t.row));
+    }
+
     setRows(prev => {
       const originalRows = prev.filter(r => selectedRows.has(r.rowId));
       
@@ -469,7 +482,7 @@ export function useTableState(
     
     setSelectedRows(new Set());
     setShowBulkUpdate(false);
-  }, [selectedRows]);
+  }, [selectedRows, rows, onRowUpdate, onBulkUpdate]);
 
   const handleAddRow = useCallback(() => {
     const newRow: DataRow = { rowId: genRowId(), version: 1, values: {} };

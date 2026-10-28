@@ -1,6 +1,6 @@
 /**
  * IndexedDB = unsaved create-form draft only.
- * Saved exams live in MySQL via examApi.js.
+ * Saved exams live in the API database via examApi.js.
  */
 
 const DB_NAME = 'exam_portal';

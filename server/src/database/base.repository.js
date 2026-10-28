@@ -1,84 +1,77 @@
-import { pool } from './connection.js';
+import { getEm } from './connection.js';
 import { AppError } from '../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 
 /**
- * Base repository providing standard CRUD operations.
- * Extend this class for specific entities.
+ * Thin ORM-backed base repository.
+ * Subclasses set `this.entity` to a MikroORM entity class.
  */
 export class BaseRepository {
   /**
-   * @param {string} tableName
+   * @param {Function} entityClass
+   * @param {{ idField?: string }} [options]
    */
-  constructor(tableName) {
-    this.tableName = tableName;
-    this.pool = pool;
+  constructor(entityClass, options = {}) {
+    this.entity = entityClass;
+    /** Primary key property on the entity (`_id` for string UUID entities, `id` for ObjectId+serialized). */
+    this.idField = options.idField || '_id';
   }
 
-  /**
-   * Finds a record by ID.
-   */
+  em() {
+    return getEm();
+  }
+
+  repo() {
+    return this.em().getRepository(this.entity);
+  }
+
   async findById(id) {
-    const [rows] = await this.pool.query(
-      `SELECT * FROM ${this.tableName} WHERE id = ? LIMIT 1`,
-      [id]
-    );
-    return rows[0] || null;
+    if (id == null) return null;
+    const where = this.idField === 'id' ? { id: String(id) } : { _id: String(id) };
+    const row = await this.repo().findOne(where);
+    return row ? this.toPlain(row) : null;
   }
 
-  /**
-   * Creates a new record.
-   */
   async create(data) {
-    const [result] = await this.pool.query(
-      `INSERT INTO ${this.tableName} SET ?`,
-      [data]
-    );
-    return result.insertId;
+    const em = this.em();
+    const entity = em.create(this.entity, data);
+    await em.persist(entity).flush();
+    return this.toPlain(entity);
   }
 
-  /**
-   * Updates a record with optimistic locking.
-   * Requires `version` column in the database and in the input `data`.
-   */
   async updateWithLock(id, version, data) {
-    // We increment version on successful update
-    const updateData = { ...data, version: version + 1 };
-    
-    // Build SET clause dynamically
-    const keys = Object.keys(updateData);
-    const values = Object.values(updateData);
-    const setClause = keys.map(k => `${k} = ?`).join(', ');
-
-    const [result] = await this.pool.query(
-      `UPDATE ${this.tableName} SET ${setClause} WHERE id = ? AND version = ?`,
-      [...values, id, version]
-    );
-
-    if (result.affectedRows === 0) {
-      // Could mean the record doesn't exist, OR the version mismatched
+    const em = this.em();
+    const where = this.idField === 'id' ? { id: String(id), version } : { _id: String(id), version };
+    const entity = await em.findOne(this.entity, where);
+    if (!entity) {
       const exists = await this.findById(id);
-      if (!exists) {
-        throw new AppError('Record not found', 404, ERROR_CODES.NOT_FOUND);
-      }
+      if (!exists) throw new AppError('Record not found', 404, ERROR_CODES.NOT_FOUND);
       throw new AppError(
         'The record was updated by another user. Please refresh and try again.',
         409,
-        ERROR_CODES.CONFLICT_VERSION_MISMATCH
+        ERROR_CODES.CONFLICT_VERSION_MISMATCH,
       );
     }
-    
+    em.assign(entity, { ...data, version: version + 1 });
+    await em.flush();
     return true;
   }
 
-  /**
-   * Deletes a record by ID.
-   */
   async delete(id) {
-    const [result] = await this.pool.query(
-      `DELETE FROM ${this.tableName} WHERE id = ?`,
-      [id]
-    );
-    return result.affectedRows > 0;
+    const em = this.em();
+    const where = this.idField === 'id' ? { id: String(id) } : { _id: String(id) };
+    const entity = await em.findOne(this.entity, where);
+    if (!entity) return false;
+    await em.remove(entity).flush();
+    return true;
+  }
+
+  /** Serialize entity for API (string id, strip internals). */
+  toPlain(entity) {
+    if (!entity) return null;
+    const plain = { ...entity };
+    if (plain._id != null && plain.id == null) plain.id = String(plain._id);
+    if (plain.id != null) plain.id = String(plain.id);
+    return plain;
   }
 }

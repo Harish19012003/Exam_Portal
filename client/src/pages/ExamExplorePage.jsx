@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { IconButton } from '../components/Button';
+import { PageHeading } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Table2, X } from 'lucide-react';
 import { DynamicTable } from '../components/DynamicTable';
@@ -26,7 +28,7 @@ import {
   normalizeFeaturesDraft,
   restoreFeatureStores,
   snapshotFeatureStores,
-  validateRequiredFields,
+  validateFormFields,
 } from './exams/examTableHelpers';
 import './ExamsPage.css';
 import './ExamExplorePage.css';
@@ -220,7 +222,7 @@ export const ExamExplorePage = () => {
     return () => clearTimeout(t);
   }, [message]);
 
-  /* ---------- Fields drawer: auto-saves, syncing real SQL columns ---------- */
+  /* ---------- Fields drawer: auto-saves field definitions ---------- */
 
   const saveFields = useCallback(async () => {
     const next = fieldsRef.current;
@@ -384,7 +386,7 @@ export const ExamExplorePage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationError = validateRequiredFields(fields, form);
+    const validationError = validateFormFields(fields, form);
     if (validationError) {
       setFormError(validationError);
       return;
@@ -452,10 +454,7 @@ export const ExamExplorePage = () => {
   if (status !== 'ready') {
     return (
       <div className="exam-explore-page">
-        <div className="exam-explore-header">
-          {backButton}
-          <h1 className="exam-explore-title">Exam</h1>
-        </div>
+        <PageHeading title="Exam" leading={backButton} />
         <div className="exam-explore-panel exam-explore-state" role="alert">
           {status === 'missing' ? 'This exam no longer exists.' : 'Could not load this exam. Please try again.'}
         </div>
@@ -468,37 +467,24 @@ export const ExamExplorePage = () => {
 
   return (
     <div className="exams-page exams-page--table exam-explore-page">
-      <div className="exams-header-bar">
-        <div className="exam-explore-header">
-          {backButton}
-          <h1 className="exam-explore-title">Exam : {label}</h1>
-        </div>
-        {hasTable && (
-          <div className="exams-header-actions">
-            {isAdmin && (
-              <button
-                type="button"
-                className="exams-settings-btn"
-                onClick={() => setIsBuilderOpen(true)}
-                title="Field builder (admin)"
-                aria-label="Field builder"
-              >
-                <SlidersHorizontal size={18} strokeWidth={2} />
-              </button>
-            )}
-            <button
-              type="button"
-              className="exams-create-btn"
-              onClick={openCreate}
-              disabled={fields.length === 0}
-              title="Add row"
-              aria-label="Add row"
-            >
-              <Plus size={20} strokeWidth={2.5} />
-            </button>
-          </div>
-        )}
-      </div>
+      <PageHeading
+        title={`Exam : ${label}`}
+        leading={backButton}
+        actions={
+          hasTable ? (
+            <>
+              {isAdmin && (
+                <IconButton label="Field builder (admin)" onClick={() => setIsBuilderOpen(true)}>
+                  <SlidersHorizontal size={16} strokeWidth={2} />
+                </IconButton>
+              )}
+              <IconButton variant="primary" label="Add row" onClick={openCreate} disabled={fields.length === 0}>
+                <Plus size={16} strokeWidth={2.5} />
+              </IconButton>
+            </>
+          ) : null
+        }
+      />
 
       {message && (
         <div className="exams-page-toast" role="status" aria-live="polite">

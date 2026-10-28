@@ -46,7 +46,7 @@ export function TableFooter({
   const arrowDisabled = isDarkMode ? 'text-gray-700 cursor-not-allowed' : 'text-gray-200 cursor-not-allowed';
 
   return (
-    <div className={`flex items-center justify-between px-4 py-3 border-t flex-shrink-0 flex-wrap gap-4
+    <div data-dt-footer-bar className={`flex items-center justify-between px-4 py-3 border-t flex-shrink-0 flex-wrap gap-4
       ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
       
       {/* Left: count + rows per page */}

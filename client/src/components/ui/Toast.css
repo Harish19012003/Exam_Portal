@@ -1,0 +1,110 @@
+/* Top-right notifications, below the app header. */
+.app-toast-stack {
+  position: fixed;
+  top: max(72px, env(safe-area-inset-top, 0px) + 56px);
+  right: max(16px, env(safe-area-inset-right, 0px) + 12px);
+  z-index: 10050;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.app-toast {
+  --toast-accent: var(--primary-color, #5c43fa);
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-left: 4px solid var(--toast-accent);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  animation: app-toast-in 0.2s ease-out;
+}
+
+.app-toast--success { --toast-accent: #13c296; }
+.app-toast--error { --toast-accent: #ef4444; }
+
+.app-toast-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--toast-accent);
+}
+
+.app-toast-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-toast-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+
+.app-toast-close:hover {
+  background: rgba(100, 116, 139, 0.15);
+}
+
+[data-theme='dark'] .app-toast {
+  background: #13241f;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes app-toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 480px) {
+  .app-toast-stack {
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+
+  .app-toast-close {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.app-toast-count {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--toast-accent) 16%, transparent);
+  color: var(--toast-accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.app-toast-more {
+  align-self: flex-end;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+}

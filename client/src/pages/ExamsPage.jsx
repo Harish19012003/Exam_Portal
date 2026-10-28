@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { IconButton } from '../components/Button';
+import { PageHeading } from '../components/PageHeading';
 import { useNavigate } from 'react-router-dom';
 import { Plus, X, FilePlus2, SlidersHorizontal, CalendarDays } from 'lucide-react';
 import { DynamicTable } from '../components/DynamicTable';
@@ -52,7 +54,7 @@ import {
   hydrateFeatureStores,
   buildEmptyForm,
   mergeDraftIntoForm,
-  validateRequiredFields,
+  validateFormFields,
 } from './exams/examTableHelpers';
 import './ExamsPage.css';
 
@@ -210,12 +212,12 @@ export const ExamsPage = () => {
 
       let rows = [];
       try {
-        const [config, sqlRows] = await Promise.all([
+        const [config, examRows] = await Promise.all([
           fetchExamTableConfig(),
           listExams(),
         ]);
         if (cancelled) return;
-        rows = sqlRows;
+        rows = examRows;
 
         const next = config || getDefaultExamTableConfig();
         let fields = Array.isArray(next.fields) ? next.fields : [];
@@ -430,7 +432,7 @@ export const ExamsPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationError = validateRequiredFields(formFields, form);
+    const validationError = validateFormFields(formFields, form);
     if (validationError) {
       setFormError(validationError);
       return;
@@ -624,32 +626,21 @@ export const ExamsPage = () => {
 
   return (
     <div className="exams-page exams-page--table">
-      <div className="exams-header-bar">
-        <h1 className="exams-title">Exam management</h1>
-
-        <div className="exams-header-actions">
+      <PageHeading
+        title="Exam management"
+        actions={
+          <>
           {canConfigure && (
-            <button
-              type="button"
-              className="exams-settings-btn"
-              onClick={() => setIsFieldBuilderOpen(true)}
-              title="Field builder (admin)"
-              aria-label="Field builder"
-            >
-              <SlidersHorizontal size={18} strokeWidth={2} />
-            </button>
+            <IconButton label="Field builder (admin)" onClick={() => setIsFieldBuilderOpen(true)}>
+              <SlidersHorizontal size={16} strokeWidth={2} />
+            </IconButton>
           )}
-          <button
-            type="button"
-            className="exams-create-btn"
-            onClick={openCreate}
-            title="Create exam"
-            aria-label="Create exam"
-          >
-            <Plus size={20} strokeWidth={2.5} />
-          </button>
-        </div>
-      </div>
+          <IconButton variant="primary" label="Create exam" onClick={openCreate}>
+            <Plus size={16} strokeWidth={2.5} />
+          </IconButton>
+          </>
+        }
+      />
 
       {pageMessage && (
         <div className="exams-page-toast" role="status" aria-live="polite">

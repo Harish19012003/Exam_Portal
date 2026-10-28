@@ -3,13 +3,27 @@ import qrcode from 'qrcode';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { pool } from '../../../database/connection.js';
 import env from '../../../config/env.js';
 import { logger } from '../../../core/logger.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 import { userRepository } from '../users/user.repository.js';
 import { generateAccessToken, generateRefreshToken } from '../../../core/jwt.js';
+import {
+  getSetting,
+  upsertSetting,
+  deleteSetting,
+} from '../settings/settings.repository.js';
+
+const twoFactorKey = (userId) => `user_2fa:${userId}`;
+
+const getTwoFactorPayload = async (userId) => {
+  const row = await getSetting(twoFactorKey(userId));
+  if (!row) return null;
+  return row.setting_value && typeof row.setting_value === 'object'
+    ? row.setting_value
+    : null;
+};
 
 /**
  * Derives a consistent 32-byte AES key from JWT_ACCESS_SECRET
@@ -74,12 +88,7 @@ const hashBackupCode = (code) => {
  */
 export const hasTwoFactorSecret = async (userId) => {
   try {
-    const [rows] = await pool.query(
-      'SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1',
-      [`user_2fa:${userId}`]
-    );
-    if (!rows || rows.length === 0) return false;
-    const data = typeof rows[0].setting_value === 'string' ? JSON.parse(rows[0].setting_value) : rows[0].setting_value;
+    const data = await getTwoFactorPayload(userId);
     return Boolean(data && data.secret);
   } catch (err) {
     logger.error('Error checking 2FA secret for user:', err);
@@ -178,12 +187,11 @@ export const finalizeSetup = async (user, setupToken, verificationCode) => {
     enabledAt: new Date().toISOString(),
   };
 
-  // Save into system_settings with ON DUPLICATE KEY UPDATE
-  await pool.query(
-    `INSERT INTO system_settings (setting_key, setting_value, description, updated_by)
-     VALUES (?, ?, 'User 2FA TOTP secret & backup codes', ?)
-     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by), updated_at = NOW()`,
-    [`user_2fa:${user.id}`, JSON.stringify(settingPayload), user.id]
+  await upsertSetting(
+    twoFactorKey(user.id),
+    settingPayload,
+    'User 2FA TOTP secret & backup codes',
+    user.id,
   );
 
   // Update users table
@@ -220,22 +228,16 @@ export const disable2FA = async (user, { password, code }) => {
 
   // Option B: verify current TOTP code
   if (!authorized && code) {
-    const [rows] = await pool.query(
-      'SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1',
-      [`user_2fa:${user.id}`]
-    );
-    if (rows && rows.length > 0) {
-      const data = typeof rows[0].setting_value === 'string' ? JSON.parse(rows[0].setting_value) : rows[0].setting_value;
-      if (data?.secret) {
-        const plainSecret = decrypt(data.secret);
-        if (plainSecret) {
-          authorized = speakeasy.totp.verify({
-            secret: plainSecret,
-            encoding: 'base32',
-            token: code.toString().trim().replace(/\s+/g, ''),
-            window: 2,
-          });
-        }
+    const data = await getTwoFactorPayload(user.id);
+    if (data?.secret) {
+      const plainSecret = decrypt(data.secret);
+      if (plainSecret) {
+        authorized = speakeasy.totp.verify({
+          secret: plainSecret,
+          encoding: 'base32',
+          token: code.toString().trim().replace(/\s+/g, ''),
+          window: 2,
+        });
       }
     }
   }
@@ -244,8 +246,7 @@ export const disable2FA = async (user, { password, code }) => {
     throw new AppError('Incorrect password or 6-digit code. Verification is required to disable 2FA.', 400, ERROR_CODES.UNAUTHORIZED);
   }
 
-  // Remove secret record
-  await pool.query('DELETE FROM system_settings WHERE setting_key = ?', [`user_2fa:${user.id}`]);
+  await deleteSetting(twoFactorKey(user.id));
   // Set two_factor_enabled to 0
   await userRepository.update(user.id, { two_factor_enabled: 0 });
 
@@ -285,19 +286,9 @@ export const verifyLogin2FA = async (tempToken, code) => {
     throw new AppError('Account not found or inactive', 401, ERROR_CODES.UNAUTHORIZED);
   }
 
-  // Fetch 2FA secret from system_settings
-  const [rows] = await pool.query(
-    'SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1',
-    [`user_2fa:${user.id}`]
-  );
-
-  if (!rows || rows.length === 0) {
-    throw new AppError('Two-factor authentication secret not found. Please contact support.', 400, ERROR_CODES.BAD_REQUEST);
-  }
-
-  const data = typeof rows[0].setting_value === 'string' ? JSON.parse(rows[0].setting_value) : rows[0].setting_value;
+  const data = await getTwoFactorPayload(user.id);
   if (!data || !data.secret) {
-    throw new AppError('Two-factor configuration corrupted.', 400, ERROR_CODES.BAD_REQUEST);
+    throw new AppError('Two-factor authentication secret not found. Please contact support.', 400, ERROR_CODES.BAD_REQUEST);
   }
 
   const plainSecret = decrypt(data.secret);
@@ -330,10 +321,7 @@ export const verifyLogin2FA = async (tempToken, code) => {
       usedBackupCode = true;
       // Consume the backup code so it cannot be reused
       data.backupCodes.splice(codeIndex, 1);
-      await pool.query(
-        'UPDATE system_settings SET setting_value = ?, updated_at = NOW() WHERE setting_key = ?',
-        [JSON.stringify(data), `user_2fa:${user.id}`]
-      );
+      await upsertSetting(twoFactorKey(user.id), data, 'User 2FA TOTP secret & backup codes', user.id);
       logger.warn(`⚠️ [2FA] User ${user.email} used a backup recovery code to log in. Remaining backup codes: ${data.backupCodes.length}`);
     }
   }
