@@ -28,7 +28,8 @@ Whenever building, modifying, or styling any component, page, layout, modal, tab
 
 ## 2. Core Repository Constraints
 
-- **SQL is the real database**: MySQL is the source of truth for all persisted portal data (exams, users, settings, vendors, etc.). Do **not** treat IndexedDB, localStorage, or other browser storage as the primary database.
-- **IndexedDB / localStorage = drafts & cache only**: Use browser storage only for unsaved form drafts, optimistic UI, or offline cache. On Save / submit, write to SQL via the API and clear the draft.
-- **Zero-Migration Database Policy**: **NEVER** run migration scripts (`migrate.js`, `pnpm run db:migrate`) autonomously. Always use existing database schema and non-destructive operations. You may add migration files when a new table is required; ask the user to run migrate.
+- **MongoDB is the real database**: MongoDB via **MikroORM** is the source of truth for all persisted portal data (exams, users, settings, vendors, etc.). Do **not** treat IndexedDB, localStorage, or other browser storage as the primary database.
+- **DB-agnostic layer**: Services use repositories / EntityManager only — never import the Mongo driver in domain code — so a later engine switch (e.g. Postgres) can be done via MikroORM driver/config.
+- **IndexedDB / localStorage = drafts & cache only**: Use browser storage only for unsaved form drafts, optimistic UI, or offline cache. On Save / submit, write via the API and clear the draft.
+- **Do not run migrate/seed autonomously**: **NEVER** run `migrate.js` / `pnpm run db:migrate` / `db:seed` without asking the user.
 - **Design Excellence**: Adhere to clean typography, dark/light theme support, smooth micro-interactions, and accessible contrast ratios.

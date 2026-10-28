@@ -1,0 +1,96 @@
+/* One button design for the whole app: height, radius, font and colours live here. */
+.ui-btn,
+.ui-icon-btn {
+  --ui-btn-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--ui-btn-height);
+  min-height: var(--ui-btn-height);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    opacity 0.15s ease, transform 0.12s ease;
+}
+
+.ui-btn {
+  padding: 0 12px;
+}
+
+.ui-icon-btn {
+  width: var(--ui-btn-height);
+  min-width: var(--ui-btn-height);
+  padding: 0;
+}
+
+.ui-btn:active:not(:disabled),
+.ui-icon-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-btn:disabled,
+.ui-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-btn:focus-visible,
+.ui-icon-btn:focus-visible {
+  outline: 2px solid var(--primary-color, #5c43fa);
+  outline-offset: 2px;
+}
+
+/* Primary */
+.ui-btn--primary {
+  background: var(--primary-color, #5c43fa);
+  color: #ffffff;
+}
+
+.ui-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+/* Secondary */
+.ui-btn--secondary {
+  background: var(--bg-card, #ffffff);
+  border-color: var(--border-color, #e2e8f0);
+  color: var(--text-primary, #0f172a);
+}
+
+.ui-btn--secondary:hover:not(:disabled) {
+  border-color: var(--primary-color, #5c43fa);
+  color: var(--primary-color, #5c43fa);
+}
+
+[data-theme='dark'] .ui-btn--secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #334155);
+}
+
+/* Ghost */
+.ui-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+}
+
+.ui-btn--ghost:hover:not(:disabled) {
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--text-primary, #0f172a);
+}
+
+@media (max-width: 768px) {
+  .ui-btn,
+  .ui-icon-btn {
+    --ui-btn-height: 44px;
+  }
+}

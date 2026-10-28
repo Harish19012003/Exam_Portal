@@ -40,6 +40,90 @@ export const AUTO_FILL_OPTIONS = [
   { value: 'dash', label: 'Dash — (auto)' },
 ];
 
+/** Phone field validation presets (pattern applied on create / edit forms). */
+export const PHONE_VALIDATION_PRESETS = [
+  { value: 'none', label: 'No extra validation', pattern: '', message: '' },
+  {
+    value: 'india_mobile',
+    label: 'India mobile (10 digits)',
+    pattern: '^[6-9]\\d{9}$',
+    message: 'Enter a 10-digit Indian mobile number',
+  },
+  {
+    value: 'india_e164',
+    label: 'India (+91 optional)',
+    pattern: '^(?:\\+91[\\s-]?)?[6-9]\\d{9}$',
+    message: 'Enter a valid Indian mobile number',
+  },
+  {
+    value: 'e164',
+    label: 'International (E.164)',
+    pattern: '^\\+[1-9]\\d{7,14}$',
+    message: 'Use + and country code, e.g. +919876543210',
+  },
+  {
+    value: 'digits_10_15',
+    label: 'Digits only (10–15)',
+    pattern: '^\\d{10,15}$',
+    message: 'Enter 10–15 digits',
+  },
+  { value: 'custom', label: 'Custom regex', pattern: '', message: '' },
+];
+
+export const emptyPhoneValidation = () => ({
+  mode: 'none',
+  pattern: '',
+  message: '',
+});
+
+/** Resolve effective pattern + message from a field’s phoneValidation config. */
+export const resolvePhoneValidation = (fieldOrValidation) => {
+  const v =
+    fieldOrValidation && typeof fieldOrValidation === 'object'
+      ? fieldOrValidation.phoneValidation || fieldOrValidation
+      : null;
+  if (!v || typeof v !== 'object') return { pattern: '', message: '' };
+  const mode = v.mode || 'none';
+  if (mode === 'none') return { pattern: '', message: '' };
+  if (mode === 'custom') {
+    return {
+      pattern: String(v.pattern || '').trim(),
+      message: String(v.message || '').trim() || 'Enter a valid phone number',
+    };
+  }
+  const preset = PHONE_VALIDATION_PRESETS.find((p) => p.value === mode);
+  return {
+    pattern: preset?.pattern || '',
+    message: String(v.message || '').trim() || preset?.message || 'Enter a valid phone number',
+  };
+};
+
+export const isValidRegexPattern = (pattern) => {
+  if (!pattern) return false;
+  try {
+    // eslint-disable-next-line no-new
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Returns error string if phone value fails the field’s validation; otherwise ''. */
+export const validatePhoneFieldValue = (field, value) => {
+  if (!field || field.dataType !== 'phone') return '';
+  const raw = value == null ? '' : String(value).trim();
+  if (!raw) return '';
+  const { pattern, message } = resolvePhoneValidation(field);
+  if (!pattern) return '';
+  try {
+    if (!new RegExp(pattern).test(raw)) return message || `${field.label} is invalid.`;
+  } catch {
+    return '';
+  }
+  return '';
+};
+
 export const OPTIONS_FIELD_TYPES = new Set(['dropdown', 'multiselect', 'status', 'tags']);
 export const CHOICE_FIELD_TYPES = new Set(['dropdown', 'multiselect', 'status']);
 export const BOOLEAN_FIELD_TYPES = new Set(['boolean', 'checkbox', 'dot']);
@@ -199,6 +283,7 @@ export const emptyFieldForm = () => ({
   allowMultiple: false,
   sameAsFieldKey: '',
   sameAsDefaultOn: true,
+  phoneValidation: emptyPhoneValidation(),
 });
 
 /** Date fields that can be used as a “same as” source (excludes current field) */

@@ -2,6 +2,7 @@ import {
   defaultValueForType,
   buildSameAsFlags,
   DATE_LINK_TYPES,
+  validatePhoneFieldValue,
 } from './examFieldTypes';
 import {
   getSharedViewFeatures,
@@ -140,6 +141,18 @@ export const validateRequiredFields = (fields, values) => {
     if (isEmptyValue(values[field.key])) {
       return `${field.label} is required.`;
     }
+  }
+  return '';
+};
+
+/** Required + phone pattern checks for create/edit forms. */
+export const validateFormFields = (fields, values) => {
+  const requiredError = validateRequiredFields(fields, values);
+  if (requiredError) return requiredError;
+  for (const field of fields || []) {
+    if (field.autoFill && field.autoFill !== 'none') continue;
+    const phoneError = validatePhoneFieldValue(field, values?.[field.key]);
+    if (phoneError) return phoneError;
   }
   return '';
 };

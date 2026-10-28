@@ -18,6 +18,8 @@ import {
   Info,
   FileSpreadsheet,
   Loader2,
+  Eraser,
+  Check,
 } from 'lucide-react';
 import { isFieldColumn, type ColumnConfig } from '../types';
 import { parseCsv } from '../export/parseCsv';
@@ -39,7 +41,46 @@ interface ImportDataModalProps {
   subtitle?: string;
   onClose: () => void;
   onImport: (rows: Record<string, string>[]) => Promise<void> | void;
+  /** Stable id (the table id). When set, pasted rows survive closing the dialog as a local draft. */
+  draftKey?: string;
 }
+
+// Browser storage holds only the unsaved paste draft; the import itself goes through the API.
+const draftStorageKey = (draftKey: string) => `table_import_draft_v1:${draftKey}`;
+
+const readDraft = (draftKey: string | undefined, cols: ImportColumn[]): Record<string, string>[] | null => {
+  if (!draftKey) return null;
+  try {
+    const raw = localStorage.getItem(draftStorageKey(draftKey));
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed) || !parsed.length) return null;
+    // Re-key onto the current columns so a changed field list can't break the grid.
+    const rows = parsed
+      .filter((r) => r && typeof r === 'object')
+      .map((r) => {
+        const row = emptyRow(cols);
+        cols.forEach((c) => {
+          row[c.key] = String(r[c.key] ?? '');
+        });
+        return row;
+      })
+      .filter(rowHasData);
+    return rows.length ? rows : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeDraft = (draftKey: string | undefined, rows: Record<string, string>[]) => {
+  if (!draftKey) return;
+  try {
+    const filled = rows.filter(rowHasData);
+    if (filled.length) localStorage.setItem(draftStorageKey(draftKey), JSON.stringify(filled));
+    else localStorage.removeItem(draftStorageKey(draftKey));
+  } catch {
+    /* storage unavailable — the draft just won't persist */
+  }
+};
 
 const SKIP_KEYS = new Set([
   'id',
@@ -169,31 +210,47 @@ export function ImportDataModal({
   subtitle = 'Upload CSV, Excel, or JSON — or paste table data to add multiple rows.',
   onClose,
   onImport,
+  draftKey,
 }: ImportDataModalProps) {
   const importCols = useMemo(() => getImportableColumns(columns), [columns]);
-  const [tab, setTab] = useState<TabId>('upload');
+  const [tab, setTab] = useState<TabId>('paste');
+  const [draftRestored, setDraftRestored] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState('');
   const [fileKind, setFileKind] = useState<ImportFileKind | null>(null);
   const [parsing, setParsing] = useState(false);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
-  const [pasteRows, setPasteRows] = useState<Record<string, string>[]>(() => [
-    emptyRow(importCols),
-    emptyRow(importCols),
-    emptyRow(importCols),
-  ]);
+  const [pasteRows, setPasteRows] = useState<Record<string, string>[]>(
+    () =>
+      readDraft(draftKey, importCols) ?? [emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)],
+  );
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteTableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setPasteRows([emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
+    const draft = readDraft(draftKey, importCols);
+    setDraftRestored(Boolean(draft));
+    setPasteRows(draft ?? [emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
     setPreviewRows([]);
     setFileName('');
     setFileKind(null);
     setError('');
-  }, [importCols]);
+  }, [importCols, draftKey]);
+
+  // Keep the paste grid as a draft so closing the dialog doesn't lose it.
+  useEffect(() => {
+    const t = window.setTimeout(() => writeDraft(draftKey, pasteRows), 300);
+    return () => window.clearTimeout(t);
+  }, [draftKey, pasteRows]);
+
+  const clearPasteRows = () => {
+    setPasteRows([emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
+    setDraftRestored(false);
+    setError('');
+    writeDraft(draftKey, []);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -299,7 +356,11 @@ export function ImportDataModal({
       setError('Nothing to paste — copy cells from Excel/Sheets and try again.');
       return;
     }
-    setPasteRows(next.length ? next : [emptyRow(importCols)]);
+    // Keep rows already typed or pasted; drop only the blank placeholder rows.
+    setPasteRows((prev) => {
+      const kept = prev.filter(rowHasData);
+      return [...kept, ...next];
+    });
   };
 
   const updatePasteCell = (rowIndex: number, key: string, value: string) => {
@@ -362,6 +423,7 @@ export function ImportDataModal({
     setSubmitting(true);
     try {
       await onImport(payload);
+      if (tab === 'paste') writeDraft(draftKey, []);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
@@ -410,8 +472,8 @@ export function ImportDataModal({
         aria-label={title}
       >
         {/* Header */}
-        <div className={`flex items-start justify-between gap-3 px-5 py-4 border-b ${border}`}>
-          <div className="flex items-start gap-3 min-w-0">
+        <div className={`flex flex-wrap items-start gap-x-3 gap-y-3 px-5 py-4 border-b sm:flex-nowrap sm:items-center ${border}`}>
+          <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
             <div className="w-10 h-10 rounded-xl bg-[#13C296]/15 text-[#13C296] flex items-center justify-center flex-shrink-0">
               <UploadCloud className="w-5 h-5" />
             </div>
@@ -419,6 +481,33 @@ export function ImportDataModal({
               <h2 className="text-[16px] font-bold tracking-tight">{title}</h2>
               <p className={`text-[12px] mt-0.5 ${muted}`}>{subtitle}</p>
             </div>
+          </div>
+          {/* Tabs live in the header: wrap under the title on narrow screens */}
+          <div
+            role="tablist"
+            aria-label="Import method"
+            className={`order-last flex w-full gap-0.5 rounded-xl p-1 sm:order-none sm:w-auto sm:flex-shrink-0 ${surface}`}
+          >
+            {([
+              { id: 'upload', label: 'Upload File', Icon: UploadCloud },
+              { id: 'paste', label: 'Paste Table Data', Icon: ClipboardPaste },
+            ] as const).map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={`inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-semibold transition-colors sm:min-h-[36px] sm:flex-none
+                  ${tab === id
+                    ? 'bg-[#13C296] text-white shadow-[0_1px_3px_rgba(19,194,150,0.35)]'
+                    : `${muted} ${isDarkMode ? 'hover:bg-white/5 hover:text-gray-100' : 'hover:bg-black/[0.04] hover:text-gray-800'}`
+                  }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
           </div>
           <button
             type="button"
@@ -428,40 +517,6 @@ export function ImportDataModal({
           >
             <X className="w-5 h-5" />
           </button>
-        </div>
-
-        {/* Tabs */}
-        <div className={`px-5 pt-4`}>
-          <div className={`flex gap-1 p-1 rounded-xl ${surface}`}>
-            <button
-              type="button"
-              onClick={() => setTab('upload')}
-              className={`flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors
-                ${tab === 'upload'
-                  ? isDarkMode
-                    ? 'bg-[#1a2e28] text-[#13C296] shadow-sm border border-[#13C296]/30'
-                    : 'bg-white text-[#0f766e] shadow-sm border border-[#13C296]/30'
-                  : `${muted} hover:text-inherit`
-                }`}
-            >
-              <UploadCloud className="w-4 h-4" />
-              Upload File
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('paste')}
-              className={`flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors
-                ${tab === 'paste'
-                  ? isDarkMode
-                    ? 'bg-[#1a2e28] text-[#13C296] shadow-sm border border-[#13C296]/30'
-                    : 'bg-white text-[#0f766e] shadow-sm border border-[#13C296]/30'
-                  : `${muted} hover:text-inherit`
-                }`}
-            >
-              <ClipboardPaste className="w-4 h-4" />
-              Paste Table Data
-            </button>
-          </div>
         </div>
 
         {/* Body */}
@@ -552,20 +607,49 @@ export function ImportDataModal({
 
           {tab === 'paste' && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className={`text-[12px] inline-flex items-start gap-1.5 ${muted}`}>
-                  <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#13C296]" />
-                  Paste cells copied from Excel/Sheets (Ctrl+V / ⌘V) directly on this table.
-                </p>
-                <button
-                  type="button"
-                  onClick={addPasteRow}
-                  className={`inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full border text-xs font-bold
-                    ${isDarkMode ? 'border-gray-600 text-gray-200 hover:bg-white/5' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Row
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <div className="flex min-w-0 flex-1 basis-[240px] flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <p className={`flex items-center gap-1.5 text-[12.5px] ${muted}`}>
+                    <ClipboardPaste className="h-4 w-4 flex-shrink-0 text-[#13C296]" />
+                    <span>
+                      Copy cells from Excel / Sheets, click the table, then press{' '}
+                      <kbd className={`rounded border px-1 py-px font-sans text-[10.5px] font-semibold ${border}`}>⌘/Ctrl</kbd>
+                      {' + '}
+                      <kbd className={`rounded border px-1 py-px font-sans text-[10.5px] font-semibold ${border}`}>V</kbd>
+                    </span>
+                  </p>
+                  {draftRestored && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#13C296]/15 px-2 py-0.5 text-[11px] font-semibold text-[#0f9f7a]">
+                      <Check className="h-3 w-3" />
+                      Draft restored
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                  <span className={`px-1.5 text-[12px] font-semibold tabular-nums ${muted}`} aria-live="polite">
+                    {pasteRows.filter(rowHasData).length} row{pasteRows.filter(rowHasData).length === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearPasteRows}
+                    disabled={!pasteRows.some(rowHasData)}
+                    title="Clear all pasted rows"
+                    className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors sm:min-h-[34px] disabled:cursor-not-allowed disabled:opacity-40
+                      ${isDarkMode ? 'text-gray-300 hover:bg-rose-500/15 hover:text-rose-300' : 'text-gray-600 hover:bg-rose-50 hover:text-rose-600'}`}
+                  >
+                    <Eraser className="h-3.5 w-3.5" />
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addPasteRow}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-[#13C296]/15 px-3 text-xs font-bold text-[#0f9f7a] transition-colors hover:bg-[#13C296]/25 sm:min-h-[34px]"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add row
+                  </button>
+                </div>
               </div>
 
               <div

@@ -10,11 +10,11 @@ const envSchema = z.object({
   PORT: z.string().transform(Number).default('7002'),
   CLIENT_URL: z.string().url().default('http://localhost:7001'),
 
-  DB_HOST: z.string().min(1),
-  DB_PORT: z.string().transform(Number).default('3306'),
-  DB_NAME: z.string().min(1),
-  DB_USER: z.string().min(1),
-  DB_PASSWORD: z.string().default(''),
+  /** MongoDB connection URI (local or Atlas). */
+  MONGODB_URI: z.string().min(1).default('mongodb://127.0.0.1:27017'),
+  MONGODB_DB_NAME: z.string().min(1).default('exam_view'),
+  /** Future engine switch: mongo | postgres (postgres adapter not shipped yet). */
+  DB_DRIVER: z.enum(['mongo', 'postgres']).default('mongo'),
 
   JWT_ACCESS_SECRET: z.string().min(1),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),

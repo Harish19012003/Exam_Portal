@@ -1,8 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { ArrowLeft, CheckCircle2, KeyRound, Mail, AlertCircle, Eye, EyeOff, RotateCcw, Shield, Smartphone, Key } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, Building2, ClipboardList, CheckCircle2, Mail, AlertCircle, Eye, EyeOff, RotateCcw, Shield, Smartphone, Key, XCircle } from 'lucide-react';
+import { RocketIllustration } from '../components/RocketIllustration';
 import './LoginPage.css';
+
+const RECENT_KEY = 'recentLogins';
+
+const readRecent = () => {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    return Array.isArray(list) ? list.slice(0, 4) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeRecent = (list) => {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    /* cache only */
+  }
+};
+
+const activeLabel = (at) => {
+  const days = Math.floor((Date.now() - at) / 86400000);
+  if (days <= 0) return 'Active today';
+  return `Active ${days} day${days === 1 ? '' : 's'} ago`;
+};
+
+const GoogleIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z" />
+    <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z" />
+    <path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.9-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.9-6.1z" />
+    <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z" />
+  </svg>
+);
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -34,6 +69,8 @@ export const LoginPage = () => {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [useBackupCode, setUseBackupCode] = useState(false);
 
+  const [recent, setRecent] = useState(readRecent);
+
   // Resend countdown timer
   useEffect(() => {
     let timer;
@@ -43,13 +80,21 @@ export const LoginPage = () => {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  const handleLoginSuccess = (token, user) => {
+  const handleLoginSuccess = (token, user, refreshToken) => {
     if (token) {
       localStorage.setItem('accessToken', token);
+    }
+    if (refreshToken) {
+      localStorage.setItem('refreshToken', refreshToken);
     }
     localStorage.setItem('sessionActive', 'true');
     if (user) {
       localStorage.setItem('user', JSON.stringify(user));
+      const addr = user.email || email;
+      if (addr) {
+        const entry = { email: addr, name: user.name || user.fullName || addr.split('@')[0], at: Date.now() };
+        writeRecent([entry, ...readRecent().filter((r) => r.email !== addr)].slice(0, 4));
+      }
     }
     navigate('/dashboard');
   };
@@ -73,7 +118,7 @@ export const LoginPage = () => {
         return;
       }
 
-      handleLoginSuccess(data.accessToken, data.user);
+      handleLoginSuccess(data.accessToken, data.user, data.refreshToken);
     } catch (err) {
       const msg = err.response?.data?.message || 'Invalid email or password';
       setError(msg);
@@ -132,7 +177,7 @@ export const LoginPage = () => {
         return;
       }
 
-      handleLoginSuccess(data.accessToken, data.user);
+      handleLoginSuccess(data.accessToken, data.user, data.refreshToken);
     } catch (err) {
       const msg = err.response?.data?.message || 'Incorrect verification code. Please try again.';
       setError(msg);
@@ -157,8 +202,8 @@ export const LoginPage = () => {
         tempToken: twoFactorToken,
         code: cleanCode,
       });
-      const { accessToken, user } = response.data?.data || {};
-      handleLoginSuccess(accessToken, user);
+      const { accessToken, refreshToken, user } = response.data?.data || {};
+      handleLoginSuccess(accessToken, user, refreshToken);
     } catch (err) {
       const msg = err.response?.data?.message || 'Invalid verification code. Please check your authenticator app and try again.';
       setError(msg);
@@ -184,20 +229,99 @@ export const LoginPage = () => {
     }
   };
 
+  const pickRecent = (account) => {
+    setEmail(account.email);
+    setPassword('');
+    switchMode('password');
+  };
+
+  const removeRecent = (addr) => {
+    const next = recent.filter((r) => r.email !== addr);
+    setRecent(next);
+    writeRecent(next);
+  };
+
+  const handleSocial = (provider) => {
+    setError(`${provider} sign-in is not configured yet. Please use your email and password.`);
+  };
+
   return (
     <div className="login-page">
-      <div className="login-bg-glow glow-1"></div>
-      <div className="login-bg-glow glow-2"></div>
-
-      <button
-        type="button"
-        className="login-top-back-btn"
-        onClick={() => navigate('/')}
-        title="Back"
-      >
-        <ArrowLeft size={18} />
+      <button type="button" className="login-top-back-btn" onClick={() => navigate('/')} title="Back">
+        <ArrowLeft size={16} />
         <span>Back</span>
       </button>
+      <div className="login-frame">
+        <div className="login-blue">
+          <div className="login-topbar">
+            <span className="login-brand-name">Exam View</span>
+          </div>
+          <div className="login-hero">
+            <div className="login-hero-text">
+              <h2 className="login-hero-title">Sign in to</h2>
+              <p className="login-hero-sub">Exam View is simply smarter</p>
+              <p className="login-hero-copy">
+                Manage exams, vendors and schedules in one place. Sign in to pick up right where you left off.
+              </p>
+            </div>
+            <RocketIllustration />
+          </div>
+        </div>
+
+        <div className="login-white">
+          {recent.length === 0 ? (
+            <div className="login-features">
+              <div className="login-feature">
+                <span className="login-feature-icon"><ClipboardList size={20} /></span>
+                <h3>Exams</h3>
+                <p>Create, organise and track every exam with custom fields and tables.</p>
+              </div>
+              <div className="login-feature">
+                <span className="login-feature-icon"><Building2 size={20} /></span>
+                <h3>Vendors</h3>
+                <p>Keep all your exam vendors and their details in one searchable place.</p>
+              </div>
+              <div className="login-feature">
+                <span className="login-feature-icon"><CalendarCheck size={20} /></span>
+                <h3>Schedules</h3>
+                <p>Stay on top of upcoming dates, announcements and notifications.</p>
+              </div>
+            </div>
+          ) : (
+          <div className="login-recent">
+            <p className="login-recent-title">Login as</p>
+            {(
+              <div className="login-recent-list">
+                {recent.map((r) => (
+                  <div
+                    key={r.email}
+                    className="login-recent-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => pickRecent(r)}
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && pickRecent(r)}
+                  >
+                    <button
+                      type="button"
+                      className="login-recent-remove"
+                      aria-label={`Remove ${r.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeRecent(r.email);
+                      }}
+                    >
+                      <XCircle size={14} />
+                    </button>
+                    <span className="login-recent-avatar">{(r.name || r.email).charAt(0).toUpperCase()}</span>
+                    <span className="login-recent-name">{r.name}</span>
+                    <span className="login-recent-active">{activeLabel(r.at)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          )}
+        </div>
 
       <div className="login-card">
         {isTwoFactorStep ? (
@@ -293,32 +417,29 @@ export const LoginPage = () => {
           </div>
         ) : (
           <>
-            <div className="login-header">
-              <div className="login-brand">
-                <div className="login-logo">E</div>
-                <div className="login-brand-title">Exam View</div>
+            <div className="login-card-head">
+              <div>
+                <p className="login-welcome">
+                  Welcome to <span>Exam View</span>
+                </p>
+                <h1 className="login-title login-title-xl">Sign in</h1>
               </div>
-              <h1 className="login-title">Welcome back</h1>
-              <p className="login-subtitle">Sign in to your Exam View portal account</p>
+              <p className="login-noaccount">
+                No account?<br />
+                <span>Contact admin</span>
+              </p>
             </div>
 
-            {/* Mode Selector Tabs */}
-            <div className="login-mode-tabs">
-              <button
-                type="button"
-                className={`login-mode-tab ${mode === 'password' ? 'active' : ''}`}
-                onClick={() => switchMode('password')}
-              >
-                <KeyRound size={16} />
-                <span>Password</span>
+            <div className="login-social-row">
+              <button type="button" className="login-google-btn" onClick={() => handleSocial('Google')}>
+                <GoogleIcon />
+                <span>Google</span>
               </button>
-              <button
-                type="button"
-                className={`login-mode-tab ${mode === 'otp' ? 'active' : ''}`}
-                onClick={() => switchMode('otp')}
-              >
-                <Mail size={16} />
-                <span>Email OTP</span>
+              <button type="button" className="login-social-btn" aria-label="Sign in with Facebook" onClick={() => handleSocial('Facebook')}>
+                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877f2" /><path fill="#fff" d="M13.3 19v-6.2h2.1l.3-2.5h-2.4V8.7c0-.7.2-1.2 1.2-1.2h1.3V5.3c-.2 0-1-.1-1.9-.1-1.9 0-3.2 1.2-3.2 3.3v1.8H8.6v2.5h2.1V19h2.6z" /></svg>
+              </button>
+              <button type="button" className="login-social-btn" aria-label="Sign in with Apple" onClick={() => handleSocial('Apple')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.7c0-2.4 2-3.5 2.1-3.6-1.2-1.7-3-1.9-3.6-1.9-1.5-.2-3 .9-3.800.9s-2-.9-3.300-.9c-1.700 0-3.300 1-4.200 2.500-1.800 3.100-.5 7.700 1.300 10.200.9 1.200 1.900 2.600 3.200 2.500 1.300-.1 1.800-.8 3.300-.8s2 .8 3.400.8 2.300-1.200 3.100-2.500c1-1.400 1.400-2.800 1.400-2.900-.1 0-2.900-1.100-2.900-4.300zM13.900 5.500c.7-.9 1.200-2.100 1-3.300-1 0-2.300.7-3 1.600-.7.800-1.200 2-1.100 3.200 1.200.1 2.400-.6 3.100-1.500z" /></svg>
               </button>
             </div>
 
@@ -340,7 +461,7 @@ export const LoginPage = () => {
             {mode === 'password' && (
               <form className="login-form" onSubmit={handlePasswordSubmit}>
                 <div className="login-form-group">
-                  <label className="login-label">Email address</label>
+                  <label className="login-label">Email or username</label>
                   <input
                     type="email"
                     className="login-input"
@@ -352,17 +473,12 @@ export const LoginPage = () => {
                 </div>
 
                 <div className="login-form-group">
-                  <div className="login-label-row">
-                    <label className="login-label">Password</label>
-                    <Link to="/forgot-password" className="login-forgot-link">
-                      Forgot password?
-                    </Link>
-                  </div>
+                  <label className="login-label">Password</label>
                   <div className="login-password-input-wrap">
                     <input
                       type={showPassword ? 'text' : 'password'}
                       className="login-input password-input"
-                      placeholder="••••••••"
+                      placeholder="Password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
@@ -376,10 +492,17 @@ export const LoginPage = () => {
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
+                  <Link to="/forgot-password" className="login-forgot-link">
+                    Forgot?
+                  </Link>
                 </div>
 
                 <button type="submit" className="login-btn" disabled={loading}>
                   {loading ? 'Signing in...' : 'Sign in'}
+                </button>
+                <button type="button" className="login-alt-link" onClick={() => switchMode('otp')}>
+                  <Mail size={14} />
+                  <span>Use email code</span>
                 </button>
               </form>
             )}
@@ -405,6 +528,10 @@ export const LoginPage = () => {
 
                 <button type="submit" className="login-btn" disabled={loading}>
                   {loading ? 'Sending code...' : 'Send Login Code'}
+                </button>
+                <button type="button" className="login-alt-link" onClick={() => switchMode('password')}>
+                  <ArrowLeft size={14} />
+                  <span>Use password instead</span>
                 </button>
               </form>
             )}
@@ -474,6 +601,7 @@ export const LoginPage = () => {
             )}
           </>
         )}
+      </div>
       </div>
     </div>
   );

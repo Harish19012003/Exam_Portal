@@ -34,7 +34,10 @@ import {
   OPTIONS_FIELD_TYPES,
   CHOICE_FIELD_TYPES,
   DATE_LINK_TYPES,
+  PHONE_VALIDATION_PRESETS,
   emptyFieldForm,
+  emptyPhoneValidation,
+  isValidRegexPattern,
   slugifyKey,
   normalizeFieldKey,
   isValidFieldKey,
@@ -43,14 +46,7 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { SearchableSelect } from './SearchableSelect';
-import { parseBulkFields, toFieldDefinition } from './examBulkFields';
-
-const BULK_PLACEHOLDER = `Roll No*
-Candidate Name*
-Marks | number
-Exam Date | date
-Center | dropdown | Lucknow, Delhi, Noida
-Present | yes/no`;
+import { BulkFieldsModal } from './BulkFieldsModal';
 
 const TYPE_ICONS = {
   text: Type,
@@ -80,7 +76,17 @@ const TYPE_ICONS = {
   composite: Layers,
 };
 
-export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
+export const ExamFieldBuilder = ({
+  open,
+  fields,
+  onClose,
+  onChange,
+  title = 'Fields',
+  reservedKeys = [],
+  deleteConfirm,
+  bulkModalProps = {},
+  startWithNewField = false,
+}) => {
   const formId = useId();
   const [editorOpen, setEditorOpen] = useState(false);
   const [form, setForm] = useState(emptyFieldForm);
@@ -89,12 +95,6 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
   const [dragFieldId, setDragFieldId] = useState(null);
   const [dragOverFieldId, setDragOverFieldId] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkText, setBulkText] = useState('');
-  const [bulkType, setBulkType] = useState('text');
-  const bulkTypes = EXAM_FIELD_TYPES.filter((t) => t.value !== 'formula' && t.value !== 'composite');
-  const bulkResult = bulkOpen
-    ? parseBulkFields(bulkText, fields, { defaultType: bulkType, types: EXAM_FIELD_TYPES })
-    : { items: [], valid: [] };
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -125,10 +125,19 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       setError('');
       setTypesOpen(false);
       setBulkOpen(false);
-      setBulkText('');
-      setBulkType('text');
     }
   }, [open]);
+
+  // Opened from an "Add field" button: jump straight into the new-field form.
+  useEffect(() => {
+    if (open && startWithNewField) {
+      setForm({ ...emptyFieldForm(), dataType: 'text' });
+      setError('');
+      setTypesOpen(false);
+      setEditorOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, startWithNewField]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -183,6 +192,7 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
   };
 
   const openEdit = (field) => {
+    const phoneVal = field.phoneValidation || emptyPhoneValidation();
     setForm({
       id: field.id,
       label: field.label,
@@ -199,6 +209,11 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       allowMultiple: Boolean(field.allowMultiple) || field.dataType === 'multiselect',
       sameAsFieldKey: field.sameAsFieldKey || '',
       sameAsDefaultOn: field.sameAsDefaultOn !== false,
+      phoneValidation: {
+        mode: phoneVal.mode || 'none',
+        pattern: phoneVal.pattern || '',
+        message: phoneVal.message || '',
+      },
     });
     setError('');
     setEditorOpen(true);
@@ -209,18 +224,11 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
     setBulkOpen(true);
   };
 
-  const closeBulk = () => {
-    setBulkOpen(false);
-    setBulkText('');
-  };
+  const closeBulk = () => setBulkOpen(false);
 
-  const handleBulkAdd = (e) => {
-    e.preventDefault();
-    if (!bulkResult.valid.length) return;
-    onChange([
-      ...fields,
-      ...bulkResult.valid.map((item, i) => toFieldDefinition(item, fields.length + i + 1)),
-    ]);
+  const handleBulkAdd = (newFields, updatedFields = []) => {
+    const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
+    onChange([...fields.map((f) => updatedById.get(f.id) || f), ...newFields]);
     closeBulk();
   };
 
@@ -274,6 +282,18 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       return;
     }
 
+    if (form.dataType === 'phone' && form.phoneValidation?.mode === 'custom') {
+      const pattern = String(form.phoneValidation.pattern || '').trim();
+      if (!pattern) {
+        setError('Enter a custom regex pattern for phone validation.');
+        return;
+      }
+      if (!isValidRegexPattern(pattern)) {
+        setError('Custom phone regex is invalid.');
+        return;
+      }
+    }
+
     // Key is locked after create — editing keeps the existing key forever
     const existing = isEditing ? fields.find((f) => f.id === form.id) : null;
     const key = isEditing
@@ -282,6 +302,11 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
 
     if (!isValidFieldKey(key)) {
       setError('Key must start with a letter and use only a–z, 0–9, underscore.');
+      return;
+    }
+
+    if (key === 'id' || key.startsWith('sys_') || reservedKeys.includes(key)) {
+      setError('This key is reserved. Please choose another.');
       return;
     }
 
@@ -301,6 +326,18 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
     const allowMultiple = isChoiceField ? Boolean(form.allowMultiple) : false;
     const canLinkDate = DATE_LINK_TYPES.has(form.dataType);
 
+    const phoneValidation =
+      form.dataType === 'phone'
+        ? {
+            mode: form.phoneValidation?.mode || 'none',
+            pattern:
+              form.phoneValidation?.mode === 'custom'
+                ? String(form.phoneValidation.pattern || '').trim()
+                : '',
+            message: String(form.phoneValidation?.message || '').trim(),
+          }
+        : undefined;
+
     const payload = {
       label,
       key,
@@ -315,6 +352,7 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
       layout: form.layout || 'full',
       sameAsFieldKey: canLinkDate ? form.sameAsFieldKey || '' : '',
       sameAsDefaultOn: canLinkDate ? form.sameAsDefaultOn !== false : true,
+      ...(phoneValidation ? { phoneValidation } : { phoneValidation: undefined }),
     };
 
     if (isEditing) {
@@ -335,7 +373,8 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
   const handleDelete = (id) => {
     const target = fields.find((f) => f.id === id);
     if (!target) return;
-    if (!window.confirm(`Delete field "${target.label}"?`)) return;
+    const message = deleteConfirm ? deleteConfirm(target) : `Delete field "${target.label}"?`;
+    if (!window.confirm(message)) return;
     onChange(
       fields
         .filter((f) => f.id !== id)
@@ -359,6 +398,7 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
   };
 
   return (
+    <>
     <div className="exams-drawer-overlay" onClick={onClose}>
       <aside
         className="exams-drawer exams-field-builder"
@@ -371,9 +411,9 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
           <div className="exams-field-header-text">
             <h2 className="exams-drawer-title">
               <Settings2 size={16} className="exams-drawer-title-icon" />
-              <span>{editorOpen ? (isEditing ? 'Edit field' : 'New field') : bulkOpen ? 'Bulk add fields' : 'Fields'}</span>
+              <span>{editorOpen ? (isEditing ? 'Edit field' : 'New field') : title}</span>
             </h2>
-            {!editorOpen && !bulkOpen && (
+            {!editorOpen && (
               <p className="exams-field-header-sub">
                 {fields.length === 0
                   ? 'Pick a type to add to the create form'
@@ -384,74 +424,15 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
           <button
             type="button"
             className="exams-drawer-close compact"
-            onClick={editorOpen ? closeEditor : bulkOpen ? closeBulk : onClose}
-            title={editorOpen || bulkOpen ? 'Back' : 'Close'}
-            aria-label={editorOpen || bulkOpen ? 'Back' : 'Close'}
+            onClick={editorOpen ? closeEditor : onClose}
+            title={editorOpen ? 'Back' : 'Close'}
+            aria-label={editorOpen ? 'Back' : 'Close'}
           >
             <X size={16} />
           </button>
         </div>
 
-        {bulkOpen ? (
-          <form className="exams-drawer-form" onSubmit={handleBulkAdd}>
-            <div className="exams-drawer-body">
-              <div className="exams-form-group">
-                <label htmlFor={`${formId}-bulk`}>Fields (one per line)</label>
-                <textarea
-                  id={`${formId}-bulk`}
-                  rows={9}
-                  value={bulkText}
-                  onChange={(e) => setBulkText(e.target.value)}
-                  placeholder={BULK_PLACEHOLDER}
-                  spellCheck={false}
-                  autoFocus
-                />
-                <p className="exams-config-empty-hint">
-                  Format: <code>Name | type | options</code>. Add <code>*</code> after a name to make it
-                  required. Type is optional (uses the default below). You can paste a column from Excel.
-                </p>
-              </div>
-
-              <div className="exams-form-group">
-                <label htmlFor={`${formId}-bulk-type`}>Default type</label>
-                <select id={`${formId}-bulk-type`} value={bulkType} onChange={(e) => setBulkType(e.target.value)}>
-                  {bulkTypes.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {bulkResult.items.length > 0 && (
-                <ul className="exams-field-list exams-bulk-preview" aria-label="Preview">
-                  {bulkResult.items.map((item) => (
-                    <li key={`${item.line}-${item.label}`} className={`exams-bulk-item${item.error ? ' has-error' : ''}`}>
-                      <span className="exams-field-row-label">{item.label || '(empty)'}</span>
-                      <span className="exams-field-row-meta">
-                        {item.error
-                          ? `Line ${item.line}: ${item.error} — skipped`
-                          : [item.key, typeLabel(item.dataType), item.required ? 'Required' : ''].filter(Boolean).join(' · ')}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="exams-drawer-footer exams-drawer-footer-compact">
-              <button type="button" className="exams-btn secondary compact" onClick={closeBulk}>
-                Cancel
-              </button>
-              <button type="submit" className="exams-btn primary compact" disabled={bulkResult.valid.length === 0}>
-                <ListPlus size={14} />
-                <span>
-                  {bulkResult.valid.length === 0
-                    ? 'Add fields'
-                    : `Add ${bulkResult.valid.length} field${bulkResult.valid.length === 1 ? '' : 's'}`}
-                </span>
-              </button>
-            </div>
-          </form>
-        ) : !editorOpen ? (
+        {!editorOpen ? (
           <div className="exams-drawer-body exams-field-list-body">
             {fields.length > 0 && (
               <div className="exams-fields-panel">
@@ -670,10 +651,90 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
                     dataType: next,
                     allowMultiple: next === 'multiselect' ? true : p.allowMultiple,
                     sameAsFieldKey: DATE_LINK_TYPES.has(next) ? p.sameAsFieldKey : '',
+                    phoneValidation:
+                      next === 'phone'
+                        ? p.phoneValidation || emptyPhoneValidation()
+                        : emptyPhoneValidation(),
                   }));
                   if (error) setError('');
                 }}
               />
+
+              {form.dataType === 'phone' && (
+                <div className="exams-options-block">
+                  <SearchableSelect
+                    id={`${formId}-phone-validation`}
+                    label="Phone validation"
+                    value={form.phoneValidation?.mode || 'none'}
+                    options={PHONE_VALIDATION_PRESETS}
+                    searchPlaceholder="Search rules…"
+                    onChange={(next) =>
+                      setForm((p) => ({
+                        ...p,
+                        phoneValidation: {
+                          mode: next,
+                          pattern: next === 'custom' ? p.phoneValidation?.pattern || '' : '',
+                          message: p.phoneValidation?.message || '',
+                        },
+                      }))
+                    }
+                  />
+                  {(form.phoneValidation?.mode || 'none') !== 'none' &&
+                    form.phoneValidation?.mode !== 'custom' && (
+                      <p className="exams-config-empty-hint">
+                        {
+                          PHONE_VALIDATION_PRESETS.find(
+                            (p) => p.value === form.phoneValidation?.mode,
+                          )?.message
+                        }
+                      </p>
+                    )}
+                  {form.phoneValidation?.mode === 'custom' && (
+                    <>
+                      <div className="exams-form-group">
+                        <label htmlFor={`${formId}-phone-regex`}>Custom regex *</label>
+                        <input
+                          id={`${formId}-phone-regex`}
+                          type="text"
+                          value={form.phoneValidation?.pattern || ''}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              phoneValidation: {
+                                ...p.phoneValidation,
+                                mode: 'custom',
+                                pattern: e.target.value,
+                              },
+                            }))
+                          }
+                          placeholder="e.g. ^[6-9]\d{9}$"
+                          spellCheck={false}
+                          required
+                        />
+                      </div>
+                      <div className="exams-form-group">
+                        <label htmlFor={`${formId}-phone-msg`}>Error message</label>
+                        <input
+                          id={`${formId}-phone-msg`}
+                          type="text"
+                          value={form.phoneValidation?.message || ''}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              phoneValidation: {
+                                ...p.phoneValidation,
+                                mode: 'custom',
+                                message: e.target.value,
+                              },
+                            }))
+                          }
+                          placeholder="Shown when the number does not match"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div className="exams-form-row">
                 <SearchableSelect
@@ -874,5 +935,15 @@ export const ExamFieldBuilder = ({ open, fields, onClose, onChange }) => {
         )}
       </aside>
     </div>
+    {bulkOpen && (
+      <BulkFieldsModal
+        fields={fields}
+        reservedKeys={reservedKeys}
+        {...bulkModalProps}
+        onClose={closeBulk}
+        onAdd={handleBulkAdd}
+      />
+    )}
+    </>
   );
 };

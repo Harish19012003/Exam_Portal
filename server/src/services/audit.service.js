@@ -1,49 +1,61 @@
-import { db } from '../database/index.js';
-import { logger } from '../utils/logger.js';
+import { getEm } from '../database/connection.js';
+import { AuditLog, User } from '../database/entities/index.js';
+import { logger } from '../core/logger.js';
 
 export const auditService = {
-  /**
-   * Log an action to the audit trail
-   */
-  async logAction({ userId, action, resourceType, resourceId = null, oldData = null, newData = null, ipAddress = null, userAgent = null }) {
+  async logAction({
+    userId,
+    action,
+    resourceType,
+    resourceId = null,
+    oldData = null,
+    newData = null,
+    ipAddress = null,
+    userAgent = null,
+  }) {
     try {
-      const query = `
-        INSERT INTO audit_logs (user_id, action, resource_type, resource_id, old_data, new_data, ip_address, user_agent)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id
-      `;
-      const values = [
-        userId,
+      const em = getEm();
+      const entity = em.create(AuditLog, {
+        user_id: userId || null,
         action,
-        resourceType,
-        resourceId,
-        oldData ? JSON.stringify(oldData) : null,
-        newData ? JSON.stringify(newData) : null,
-        ipAddress,
-        userAgent
-      ];
-
-      const result = await db.query(query, values);
-      return result.rows[0];
+        resource_type: resourceType,
+        resource_id: resourceId != null ? String(resourceId) : null,
+        old_data: oldData ?? null,
+        new_data: newData ?? null,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      });
+      await em.persist(entity).flush();
+      return { id: String(entity.id ?? entity._id) };
     } catch (error) {
-      // We don't want audit logging failures to break the main application flow, so we just log the error.
       logger.error('Failed to write to audit log', { error: error.message, action, userId });
     }
   },
 
-  /**
-   * Fetch audit logs for a specific resource
-   */
   async getResourceHistory(resourceType, resourceId) {
-    const query = `
-      SELECT a.*, u.first_name, u.last_name 
-      FROM audit_logs a
-      LEFT JOIN users u ON a.user_id = u.id
-      WHERE a.resource_type = $1 AND a.resource_id = $2
-      ORDER BY a.created_at DESC
-    `;
-    const result = await db.query(query, [resourceType, resourceId]);
-    return result.rows;
-  }
+    const em = getEm();
+    const rows = await em.find(
+      AuditLog,
+      { resource_type: resourceType, resource_id: String(resourceId) },
+      { orderBy: { created_at: 'DESC' } },
+    );
+    const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+    const users = userIds.length ? await em.find(User, { _id: { $in: userIds } }) : [];
+    const byId = new Map(users.map((u) => [String(u._id), u]));
+    return rows.map((r) => {
+      const u = byId.get(String(r.user_id || ''));
+      return {
+        id: String(r.id ?? r._id),
+        user_id: r.user_id,
+        action: r.action,
+        resource_type: r.resource_type,
+        resource_id: r.resource_id,
+        old_data: r.old_data,
+        new_data: r.new_data,
+        created_at: r.created_at,
+        first_name: u?.first_name || null,
+        last_name: u?.last_name || null,
+      };
+    });
+  },
 };
-

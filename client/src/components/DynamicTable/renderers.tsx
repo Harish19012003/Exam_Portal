@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { isCompositeColumn, isFieldColumn } from './types';
 import type { CellRendererProps, ColumnConfig, CompositeColumnDef, AttachmentItem } from './types';
 import { STATUS_COLORS, avatarColor, countryToFlag, formatCurrency, formatDate, formatDatetime, formatTime, formatNumber, getInitials } from './utils';
@@ -194,6 +195,78 @@ function AvatarCell({ src, name, isDarkMode }: { src: string; name: string; isDa
 }
 
 // ─── Cell Renderer (main dispatcher) ─────────────────────────────────────────
+
+const PHONE_ACTIONS_WIDTH = 44;
+
+/**
+ * Phone cell. On hover the WhatsApp / copy buttons appear to the right of the number when the
+ * column has room for them; in a narrow column they overlay the end of the number instead.
+ */
+function PhoneCell({ str, isDarkMode }: { str: string; isDarkMode: boolean }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [actionsLeft, setActionsLeft] = useState<number | null>(null);
+
+  const placeActions = () => {
+    const root = rootRef.current;
+    const text = textRef.current;
+    if (!root || !text) return;
+    const textEnd = text.offsetLeft + text.scrollWidth;
+    const fits = textEnd + 6 + PHONE_ACTIONS_WIDTH <= root.clientWidth;
+    setActionsLeft(fits ? textEnd + 6 : null);
+  };
+
+  const inline = actionsLeft !== null;
+
+  return (
+    <div
+      ref={rootRef}
+      onMouseEnter={placeActions}
+      className="group relative flex items-center gap-1.5 min-w-0"
+    >
+      <a
+        href={`tel:${str.replace(/[^\d+]/g, '')}`}
+        onClick={e => e.stopPropagation()}
+        className={`inline-flex size-4 flex-shrink-0 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'text-blue-400 hover:bg-gray-700 hover:text-blue-300' : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'}`}
+        title="Call"
+      >
+        <Icon icon="hugeicons:call" className="size-3.5" aria-hidden="true" />
+      </a>
+      <span
+        ref={textRef}
+        className={`min-w-0 truncate text-[13px] font-medium tabular-nums leading-none ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}
+      >
+        {str}
+      </span>
+      <div
+        style={inline ? { left: actionsLeft ?? undefined } : undefined}
+        className={`absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto flex items-center gap-0.5 transition-opacity ${inline ? '' : `right-0 ${isDarkMode ? 'bg-[#122420]/95' : 'bg-white/95'}`}`}
+      >
+        <a
+          href={`https://wa.me/${str.replace(/[^\d]/g, '')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          className={`inline-flex size-5 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-green-400 hover:text-green-300' : 'hover:bg-green-50 text-green-600 hover:text-green-700'}`}
+          title="Message on WhatsApp"
+        >
+          <Icon icon="mdi:whatsapp" className="size-3.5" aria-hidden="true" />
+        </a>
+        <button
+          type="button"
+          onClick={e => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(str);
+          }}
+          className={`inline-flex size-5 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
+          title="Copy Phone"
+        >
+          <Icon icon="hugeicons:copy-01" className="size-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function CellRenderer({ value, row, column, allColumns: _allColumns, isDarkMode, onDirectEdit }: CellRendererProps) {
   if (isCompositeColumn(column)) {
@@ -429,46 +502,7 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
 
     case 'phone':
       return str ? (
-        <div className="group relative flex items-center gap-1.5 min-w-0">
-          <a
-            href={`tel:${str.replace(/[^\d+]/g, '')}`}
-            onClick={e => e.stopPropagation()}
-            className={`inline-flex size-4 flex-shrink-0 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'text-blue-400 hover:bg-gray-700 hover:text-blue-300' : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'}`}
-            title="Call"
-          >
-            <Icon icon="hugeicons:call" className="size-3.5" aria-hidden="true" />
-          </a>
-          <span
-            className={`min-w-0 flex-1 truncate text-[13px] font-medium tabular-nums leading-none ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}
-          >
-            {str}
-          </span>
-          <div
-            className={`absolute right-0 top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto flex items-center transition-opacity ${isDarkMode ? 'bg-[#122420]/95' : 'bg-white/95'}`}
-          >
-            <a
-              href={`https://wa.me/${str.replace(/[^\d]/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              className={`inline-flex size-4 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-green-400 hover:text-green-300' : 'hover:bg-green-50 text-green-600 hover:text-green-700'}`}
-              title="Message on WhatsApp"
-            >
-              <Icon icon="mdi:whatsapp" className="size-3.5" aria-hidden="true" />
-            </a>
-            <button
-              type="button"
-              onClick={e => {
-                e.stopPropagation();
-                navigator.clipboard.writeText(str);
-              }}
-              className={`inline-flex size-4 items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
-              title="Copy Phone"
-            >
-              <Icon icon="hugeicons:copy-01" className="size-3.5" aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+        <PhoneCell str={str} isDarkMode={isDarkMode} />
       ) : (
         <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>
       );

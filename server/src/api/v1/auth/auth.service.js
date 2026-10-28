@@ -87,16 +87,24 @@ export const login = async (email, password) => {
 
 export const refresh = async (refreshToken) => {
   if (!refreshToken) {
+    logger.warn('[AUTH REFRESH] rejected: no refresh token received (cookie missing or not sent)');
     throw new AppError('Refresh token required', 401, ERROR_CODES.UNAUTHORIZED);
   }
 
-  const decoded = verifyRefreshToken(refreshToken);
+  let decoded;
+  try {
+    decoded = verifyRefreshToken(refreshToken);
+  } catch (err) {
+    logger.warn(`[AUTH REFRESH] rejected: ${err.message}`);
+    throw err;
+  }
   if (!decoded || !decoded.id) {
     throw new AppError('Invalid refresh token', 401, ERROR_CODES.UNAUTHORIZED);
   }
 
   const user = await userRepository.findById(decoded.id);
   if (!user || user.status !== 'active') {
+    logger.warn(`[AUTH REFRESH] rejected: user ${decoded.id} not found or inactive`);
     throw new AppError('User account not found or deactivated', 401, ERROR_CODES.UNAUTHORIZED);
   }
 

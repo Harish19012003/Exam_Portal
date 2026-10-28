@@ -6,7 +6,7 @@ import { createServer } from 'http';
 import app from './app.js';
 import env from './config/env.js';
 import { logger } from './core/logger.js';
-import { testConnection } from './database/connection.js';
+import { testConnection, closeOrm } from './database/connection.js';
 import { initializeSocket } from './core/socket.js';
 
 const PORT = env.PORT;
@@ -44,8 +44,13 @@ const shutdown = (signal) => {
     httpServer.closeAllConnections();
   }
 
-  httpServer.close(() => {
+  httpServer.close(async () => {
     logger.info('[server] HTTP server closed');
+    try {
+      await closeOrm();
+    } catch {
+      // ignore
+    }
     process.exit(0);
   });
 

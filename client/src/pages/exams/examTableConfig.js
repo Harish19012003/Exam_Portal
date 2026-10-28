@@ -27,6 +27,10 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
   enableOpenDetail: true,
   summaryChips: [],
   quickFilterFieldKeys: [],
+  gridLines: {
+    horizontal: { show: true, width: 1, color: '', opacity: 100 },
+    vertical: { show: false, width: 1, color: '', opacity: 100 },
+  },
   rowActions: {
     showOnHover: false,
     showEdit: true,

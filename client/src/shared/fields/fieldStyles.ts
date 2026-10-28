@@ -13,8 +13,8 @@ export function fieldInputClass(
   const { compact = false, variant = 'form' } = options;
 
   if (variant === 'editor') {
-    const base = `w-full h-full px-2 py-1 text-[13px] font-medium outline-none rounded border-2
-    border-[#13C296] focus:ring-2 focus:ring-[#13C296]/20
+    const base = `w-full h-full px-2 py-1 text-[13px] font-medium outline-none rounded border
+    border-[#13C296] focus:ring-1 focus:ring-[#13C296]/30
     ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'}`;
     return state === 'error' ? `${base} border-red-500` : base;
   }

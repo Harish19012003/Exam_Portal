@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# Local MongoDB binary / data (dev helper)
+.tools/
+
 # Build outputs
 dist/
 build/

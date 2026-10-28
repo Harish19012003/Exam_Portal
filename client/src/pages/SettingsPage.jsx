@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { PageTitle } from '../components/PageHeading';
 import { useSearchParams } from 'react-router-dom';
 import { UsersPage } from './UsersPage';
 import { MessageTemplatesTab } from './settings/MessageTemplatesTab';
@@ -12,7 +13,6 @@ import {
   Search,
   Check,
   ChevronDown,
-  Info,
 } from 'lucide-react';
 import './SettingsPage.css';
 
@@ -168,39 +168,7 @@ export const SettingsPage = () => {
       <div className="settings-top-toolbar">
         {/* Left Side: Section Title with Info Tooltip Icon */}
         <div className="settings-toolbar-left">
-          <div className="settings-header-title-group">
-            <div className="settings-title-row">
-              <h1 className="settings-main-title">{currentTabConfig.title}</h1>
-              {currentTabConfig.description && (
-                <div
-                  className="settings-info-tooltip-wrap"
-                  ref={infoTooltipRef}
-                  onMouseEnter={() => setShowInfoTooltip(true)}
-                  onMouseLeave={() => setShowInfoTooltip(false)}
-                >
-                  <button
-                    type="button"
-                    className={`settings-info-btn ${showInfoTooltip ? 'active' : ''}`}
-                    onClick={() => setShowInfoTooltip((prev) => !prev)}
-                    title={currentTabConfig.description}
-                    aria-label={`About ${currentTabConfig.title}`}
-                    aria-expanded={showInfoTooltip}
-                  >
-                    <Info size={15} />
-                  </button>
-                  {showInfoTooltip && (
-                    <div className="settings-info-popover" role="tooltip">
-                      <div className="settings-info-popover-header">
-                        <Info size={13} className="popover-info-icon" />
-                        <span>About {currentTabConfig.title}</span>
-                      </div>
-                      <p className="settings-info-popover-text">{currentTabConfig.description}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          <PageTitle title={currentTabConfig.title} info={currentTabConfig.description} />
         </div>
 
         {/* Right Side: Dropdown Tab Selector */}

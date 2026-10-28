@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useMemo, useState } from 'react';
-import type { CustomIconElement, CustomRowActionButton, DataRow, DetailViewMode, RowActionType, RowActionsConfig, SelectionColumnConfig, SummaryChipConfig, TableFeaturesConfig } from '../types';
+import type { CustomIconElement, CustomRowActionButton, DataRow, DetailViewMode, RowActionType, RowActionsConfig, SelectionColumnConfig, GridLinesConfig, SummaryChipConfig, TableColorsConfig, TableFeaturesConfig } from '../types';
+import { resolveGridLines } from '../types';
 
 export type FirstColumnElementKey = 'expander' | 'checkbox' | 'icon';
 
@@ -194,6 +195,10 @@ export function useTableFeatureConfig({
       if (key === 'enableRowSelection' && !nextValue) {
         next.enableBulkActions = false;
       }
+      // Bulk Edit works on selected rows, so turning it on also turns on the row checkbox.
+      if (key === 'enableBulkActions' && nextValue) {
+        next.enableRowSelection = true;
+      }
       return next;
     });
   }, []);
@@ -206,6 +211,38 @@ export function useTableFeatureConfig({
         ...patch,
       },
     }));
+  }, []);
+
+  const patchTableColors = useCallback((patch: TableColorsConfig) => {
+    setCustomFeatures((prev) => {
+      const cur = prev.tableColors ?? {};
+      return {
+        ...prev,
+        tableColors: {
+          ...cur,
+          ...patch,
+          light: { ...cur.light, ...patch.light },
+          dark: { ...cur.dark, ...patch.dark },
+        },
+      };
+    });
+  }, []);
+
+  const setRowHeight = useCallback((px: number) => {
+    setCustomFeatures((prev) => ({ ...prev, rowHeight: px }));
+  }, []);
+
+  const patchGridLines = useCallback((patch: GridLinesConfig) => {
+    setCustomFeatures((prev) => {
+      const cur = resolveGridLines(prev.gridLines);
+      return {
+        ...prev,
+        gridLines: {
+          horizontal: { ...cur.horizontal, ...patch.horizontal },
+          vertical: { ...cur.vertical, ...patch.vertical },
+        },
+      };
+    });
   }, []);
 
   const updateSummaryChips = useCallback((chips: SummaryChipConfig[]) => {
@@ -349,6 +386,9 @@ export function useTableFeatureConfig({
     customFeatures,
     toggleFeature,
     patchRowActions,
+    patchGridLines,
+    setRowHeight,
+    patchTableColors,
     updateSummaryChips,
     resolvedFeatures,
   };

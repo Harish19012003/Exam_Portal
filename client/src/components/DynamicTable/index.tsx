@@ -57,7 +57,8 @@ import { useTableFeatureConfig } from './hooks/useTableFeatureConfig';
 
 
 import type { ColumnConfig, RowData, TableFeaturesConfig, DataRow, FilterValue } from './types';
-import { DEFAULT_FEATURES } from './types';
+import { resolveTableColors, tableColorStyle } from './utils/tableColors';
+import { DEFAULT_FEATURES, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, lineColorValue, resolveGridLines } from './types';
 
 interface DynamicTableProps {
   isDarkMode: boolean;
@@ -95,6 +96,8 @@ interface DynamicTableProps {
   hasUserLayoutOverride?: boolean;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
+  /** Called once for a bulk update (all selected rows). Falls back to onRowUpdate per row. */
+  onBulkUpdate?: (items: { rowId: string; values: Record<string, unknown>; row: DataRow }[]) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
   /**
    * CSV import: receives parsed objects keyed by column label/key.
@@ -130,6 +133,7 @@ export function DynamicTable({
   hasUserLayoutOverride = false,
   onRowUpdate,
   onRowDelete,
+  onBulkUpdate,
   onRefresh,
   onImportRows,
   onExploreRow,
@@ -147,7 +151,7 @@ export function DynamicTable({
   const state = useTableState(
     initialColumns ?? COLUMN_CONFIG,
     (initialRows as DataRow[]) ?? MOCK_ROWS,
-    { tableId, shareState, layoutPrefs, onLayoutPrefsChange, onRowUpdate, onRowDelete, onRefresh },
+    { tableId, shareState, layoutPrefs, onLayoutPrefsChange, onRowUpdate, onRowDelete, onBulkUpdate, onRefresh },
   );
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
@@ -244,6 +248,7 @@ export function DynamicTable({
             ...DEFAULT_FEATURES.rowActions,
             ...source?.rowActions,
           },
+          gridLines: resolveGridLines(source?.gridLines),
         };
       }
       return {
@@ -262,6 +267,7 @@ export function DynamicTable({
           ...DEFAULT_FEATURES.rowActions,
           ...source?.rowActions,
         },
+        gridLines: resolveGridLines(source?.gridLines),
       };
     },
     [
@@ -297,6 +303,8 @@ export function DynamicTable({
   ]);
 
   const theme = getTableTheme(isDarkMode);
+  const gridLines = resolveGridLines(activeFeatures.gridLines);
+  const tableColors = resolveTableColors(activeFeatures.tableColors, isDarkMode);
   const { showSuccess, showNotice } = useDynamicTableFeedback(state);
 
   // When a field joins/leaves the quick-filter bar, migrate its value so both UIs stay in sync.
@@ -378,8 +386,10 @@ export function DynamicTable({
       state.columnVisibility,
     );
 
-  const rowHeight =
-    state.density === 'extra-compact' ? 32 : state.density === 'compact' ? 48 : state.density === 'comfortable' ? 80 : state.density === 'spacious' ? 96 : state.density === 'extra-spacious' ? 120 : 64;
+  const customRowHeight = Number(activeFeatures.rowHeight) || 0;
+  const rowHeight = customRowHeight > 0
+    ? Math.min(ROW_HEIGHT_MAX_PX, Math.max(ROW_HEIGHT_MIN_PX, Math.round(customRowHeight)))
+    : state.density === 'extra-compact' ? 32 : state.density === 'compact' ? 48 : state.density === 'comfortable' ? 80 : state.density === 'spacious' ? 96 : state.density === 'extra-spacious' ? 120 : 64;
 
   const [isFooterExpanded, setIsFooterExpanded] = useState(true);
   const [activeFooterDropdown, setActiveFooterDropdown] = useState<string | null>(null);
@@ -573,7 +583,11 @@ export function DynamicTable({
       className={isFullScreen ? `fixed inset-0 z-[9999] flex flex-col ${isDarkMode ? 'bg-gray-950' : 'bg-transparent'}` : `flex-1 flex flex-col overflow-hidden print:overflow-visible print:h-auto print:block bg-transparent gap-2 sm:gap-3`}
     >
       <div
-        className={`flex flex-col ${isFullScreen ? 'm-0 rounded-none border-none' : 'm-0 rounded-2xl border shadow-sm'} overflow-hidden print:overflow-visible print:border-none print:shadow-none print:m-0 flex-1 min-h-0 print:min-h-auto relative print:block ${theme.bgCard}`}
+        className={`flex flex-col ${isFullScreen ? 'm-0 rounded-none border-none' : 'm-0 rounded-2xl border shadow-sm'} overflow-hidden print:overflow-visible print:border-none print:shadow-none print:m-0 flex-1 min-h-0 print:min-h-auto relative print:block dt-themed ${theme.bgCard}`}
+        data-dt-head={tableColors.set.headerBg ? '' : undefined}
+        data-dt-foot={tableColors.set.footerBg ? '' : undefined}
+        data-dt-stripe={tableColors.stripe ? '' : undefined}
+        style={tableColorStyle(tableColors.set)}
       >
         <TableToolbar
           search={state.search}
@@ -664,7 +678,13 @@ export function DynamicTable({
           onKeyDown={handleKeyDown}
         >
           <table
+            className="dt-grid"
+            data-h-custom={gridLines.horizontal.color || gridLines.horizontal.opacity < 100 ? '' : undefined}
             style={{
+              ['--dt-h-width' as string]: `${gridLines.horizontal.show ? gridLines.horizontal.width : 0}px`,
+              ['--dt-v-width' as string]: `${gridLines.vertical.show ? gridLines.vertical.width : 0}px`,
+              ['--dt-h-color' as string]: lineColorValue(gridLines.horizontal, isDarkMode),
+              ['--dt-v-color' as string]: lineColorValue(gridLines.vertical, isDarkMode),
               minWidth: totalWidth,
               width: '100%',
               height: '100%',
@@ -719,7 +739,7 @@ export function DynamicTable({
                 </tr>
               )}
 
-              {displayRows.map(row => {
+              {displayRows.map((row, rowIdx) => {
                 const rowHasSubRows = usesNestedSubRowPanel(row, activeFeatures.subRowsConfig);
 
                 const isExpanded = state.expandedRowIds.has(row.rowId);
@@ -728,6 +748,7 @@ export function DynamicTable({
                   <Fragment key={row.rowId}>
                     <TableDataRow
                       row={row}
+                      stripe={(rowIdx + (rowHeight > 0 ? Math.round(paddingTop / rowHeight) : 0)) % 2 === 1}
                       rowHeight={rowHeight}
                       visibleColumns={displayColumns}
                       allColumns={state.columns}
@@ -917,6 +938,7 @@ export function DynamicTable({
 
             {activeFeatures.enableFooter && isFooterExpanded && !featureConfig.isTransposed && (
               <tfoot
+                data-dt-agg-footer
                 className={`sticky bottom-0 z-20 ${isDarkMode ? 'bg-gray-900 border-t border-gray-800' : 'bg-gray-50 border-t border-gray-200'} shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]`}
               >
                 <tr className="group">
@@ -1129,6 +1151,9 @@ export function DynamicTable({
           isSavingFeatures={isSavingFeatures}
           featuresDirty={featuresDirty}
           onPatchRowActions={featureConfig.patchRowActions}
+          onPatchGridLines={featureConfig.patchGridLines}
+          onSetRowHeight={featureConfig.setRowHeight}
+          onPatchTableColors={featureConfig.patchTableColors}
         />
       )}
 
@@ -1275,6 +1300,7 @@ export function DynamicTable({
           columns={state.columns}
           isDarkMode={isDarkMode}
           title="Bulk Import"
+          draftKey={tableId}
           subtitle="Upload CSV, Excel, or JSON — or paste table data to add multiple rows."
           onClose={() => setImportModalOpen(false)}
           onImport={async (rows) => {
@@ -1302,5 +1328,3 @@ export function DynamicTable({
     </div>
   );
 }
-
-export { VENDOR_COLUMN_CONFIG, VENDOR_ROWS } from './vendorData';

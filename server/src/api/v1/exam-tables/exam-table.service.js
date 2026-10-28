@@ -44,7 +44,7 @@ export const createTable = (examId, userId, { presetId } = {}) =>
     let preset = null;
     if (presetId != null) {
       await presetRepo.ensurePresetTable();
-      preset = await presetRepo.findById(Number(presetId));
+      preset = await presetRepo.findById(String(presetId));
       if (!preset) throw notFound('Preset not found');
     }
     if (!(await repo.findTableByExamId(examId))) {
@@ -123,7 +123,7 @@ export const saveConfig = (examId, body = {}) =>
       try {
         await repo.applyFields(table.id, fields);
       } catch (error) {
-        throw validationError(`Could not update the table columns: ${error?.sqlMessage || error.message}`);
+        throw validationError(`Could not update the table fields: ${error.message}`);
       }
     }
 
@@ -145,7 +145,7 @@ const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
 
 const isEmpty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
-/** Light validation so bad input is a 400 instead of a SQL error. Returns the value to store. */
+/** Light validation so bad input is a 400. Returns the value to store. */
 const cleanCell = (field, raw) => {
   const type = repo.effectiveType(field);
   const fail = (msg) => validationError(`${field.label}: ${msg}`);
@@ -195,7 +195,7 @@ const cleanCell = (field, raw) => {
 };
 
 /** Only configured field keys are kept; unknown or system keys are ignored. */
-const cleanRowValues = (fields, input) => {
+export const cleanRowValues = (fields, input) => {
   const source = input && typeof input === 'object' ? input : {};
   const out = {};
   fields.forEach((f) => {
@@ -240,12 +240,7 @@ export const deleteRows = (examId, rowIds) =>
     return { success: true, deleted: await repo.deleteRows(table.id, ids) };
   });
 
-/** Called when an exam is deleted so its physical table is not left behind. */
+/** Called when an exam is deleted so explore metadata/rows are not left behind. */
 export const dropTableForExam = async (examId) => {
-  try {
-    const table = await repo.findTableByExamId(examId);
-    if (table) await repo.dropTable(table.id);
-  } catch (error) {
-    if (error?.code !== 'ER_NO_SUCH_TABLE') throw error;
-  }
+  await repo.dropTableForExam(examId);
 };

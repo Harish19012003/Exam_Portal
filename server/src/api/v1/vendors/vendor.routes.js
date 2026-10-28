@@ -9,23 +9,19 @@ const router = Router();
 router.use(authenticate);
 router.use(authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]));
 
-// List all vendors / search & filter
+// Vendor table config: custom fields (stored in the vendors collection's `values`) + Feature Builder settings.
+// Static paths are declared before '/:id'.
+router.get('/config', vendorController.getConfig);
+router.put('/config', vendorController.saveConfig);
+
+router.post('/import', vendorController.importVendors);
+router.post('/delete', vendorController.deleteVendors);
+
 router.get('/', vendorController.listVendors);
-
-// Seed / bulk import vendors into MySQL
-router.post('/seed', vendorController.seedVendors);
-
-// Get single vendor by vendor_code
-router.get('/:vendorCode', vendorController.getVendor);
-
-// Create vendor
 router.post('/', vendorController.createVendor);
-
-// Update vendor by vendor_code
-router.put('/:vendorCode', vendorController.updateVendor);
-router.patch('/:vendorCode', vendorController.updateVendor);
-
-// Delete vendor by vendor_code
-router.delete('/:vendorCode', vendorController.deleteVendor);
+router.get('/:id', vendorController.getVendor);
+router.patch('/:id', vendorController.updateVendor);
+router.put('/:id', vendorController.updateVendor);
+router.delete('/:id', vendorController.deleteVendors);
 
 export default router;

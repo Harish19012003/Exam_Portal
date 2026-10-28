@@ -28,6 +28,8 @@ import {
 interface TableDataRowProps {
   row: DataRow;
   rowHeight: number;
+  /** Odd rows get the alternate colour when Table Colors → Alternate rows is on. */
+  stripe?: boolean;
   visibleColumns: ColumnConfig[];
   allColumns: ColumnConfig[];
   columnWidths: Record<string, number>;
@@ -83,6 +85,7 @@ interface TableDataRowProps {
 function TableDataRowComponent({
   row,
   rowHeight,
+  stripe = false,
   visibleColumns,
   allColumns,
   columnWidths,
@@ -153,6 +156,7 @@ function TableDataRowComponent({
   return (
     <tr
       data-row-id={row.rowId}
+      data-stripe={stripe ? '1' : '0'}
       style={{ height: rowHeight, ...stickyRowStyle, ...(!isSelected && rowFormatCss ? rowFormatCss : {}) }}
       className={`group cursor-pointer transition-colors duration-150 ${
         isTransposedGridRow ? '' : 'animate-in fade-in slide-in-from-bottom-1'

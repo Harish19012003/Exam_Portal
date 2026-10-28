@@ -359,7 +359,76 @@ export interface SummaryChipConfig {
 
 export const MAX_AGGREGATIONS_PER_CHIP = 3;
 
+/** One set of grid lines: horizontal (between rows) or vertical (between columns). */
+export interface GridLineConfig {
+  show?: boolean;
+  /** Thickness in px (1–6). */
+  width?: number;
+  /** Hex colour like #13C296. Empty = the theme's default line colour. */
+  color?: string;
+  /** 0–100. */
+  opacity?: number;
+}
+
+export interface GridLinesConfig {
+  horizontal?: GridLineConfig;
+  vertical?: GridLineConfig;
+}
+
+export const GRID_LINE_MIN_PX = 1;
+export const GRID_LINE_MAX_PX = 6;
+
+const clampLinePx = (n: unknown, fallback: number) => {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return fallback;
+  return Math.min(GRID_LINE_MAX_PX, Math.max(GRID_LINE_MIN_PX, v));
+};
+
+/** Defaults: row lines on (1px), column lines off. */
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+const resolveLine = (l: GridLineConfig | undefined, show: boolean): Required<GridLineConfig> => {
+  const opacity = Math.round(Number(l?.opacity ?? 100));
+  return {
+    show: l?.show ?? show,
+    width: clampLinePx(l?.width, 1),
+    color: l?.color && HEX_COLOR.test(l.color) ? l.color : '',
+    opacity: Number.isFinite(opacity) ? Math.min(100, Math.max(0, opacity)) : 100,
+  };
+};
+
+export const resolveGridLines = (g?: GridLinesConfig): { horizontal: Required<GridLineConfig>; vertical: Required<GridLineConfig> } => ({
+  horizontal: resolveLine(g?.horizontal, true),
+  vertical: resolveLine(g?.vertical, false),
+});
+
+/** Colours for one theme mode. Empty = keep the built-in look. */
+export interface TableColorSet {
+  headerBg?: string;
+  headerText?: string;
+  /** Alternate (zebra) row colour. */
+  stripeBg?: string;
+  footerBg?: string;
+  footerText?: string;
+}
+
+export interface TableColorsConfig {
+  /** 'default' | a preset id | 'custom' (uses `light` / `dark` below). */
+  preset?: string;
+  /** Alternate row colours on/off. */
+  stripe?: boolean;
+  light?: TableColorSet;
+  dark?: TableColorSet;
+}
+
+export const ROW_HEIGHT_MIN_PX = 28;
+export const ROW_HEIGHT_MAX_PX = 200;
+
 export interface TableFeaturesConfig {
+  gridLines?: GridLinesConfig;
+  tableColors?: TableColorsConfig;
+  /** Fixed row height in px. 0 / unset = follow the Density setting. */
+  rowHeight?: number;
   enableRowSelection?: boolean;
   enableActionsColumn?: boolean;
   selectionColumn?: SelectionColumnConfig;
@@ -408,12 +477,20 @@ export interface SubRowsConfig {
   getRenderSubRows?: (parentRow: DataRow) => ((props: SubRowRenderProps) => React.ReactNode) | undefined;
 }
 
-export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' | 'selectionColumn' | 'subRowsConfig' | 'summaryChips'>> & {
+export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' | 'selectionColumn' | 'subRowsConfig' | 'summaryChips' | 'gridLines' | 'tableColors'>> & {
+  gridLines: GridLinesConfig;
+  tableColors: TableColorsConfig;
   selectionColumn: SelectionColumnConfig;
   rowActions: RowActionsConfig;
   subRowsConfig?: SubRowsConfig;
   summaryChips?: SummaryChipConfig[];
 } = {
+  gridLines: {
+    horizontal: { show: true, width: 1, color: '', opacity: 100 },
+    vertical: { show: false, width: 1, color: '', opacity: 100 },
+  },
+  rowHeight: 0,
+  tableColors: { preset: 'default', stripe: false, light: {}, dark: {} },
   enableRowSelection: true,
   enableActionsColumn: true,
   selectionColumn: {
@@ -459,3 +536,9 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
 };
 
 
+
+/** CSS colour for a grid line: its hex (or the theme default) at the chosen opacity. */
+export const lineColorValue = (line: Required<GridLineConfig>, isDarkMode: boolean): string => {
+  const base = line.color || (isDarkMode ? '#374151' : '#e5e7eb');
+  return line.opacity >= 100 ? base : `color-mix(in srgb, ${base} ${line.opacity}%, transparent)`;
+};
