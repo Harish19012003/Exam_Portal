@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
+import { FeatureBuilderPanel, SectionLabel, ToggleRow } from '../../DynamicData/FeatureBuilderParts';
 import { Check, Palette, X, Table, SlidersHorizontal, Layers, Columns, GripVertical, Settings, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import {
   type FirstColumnElementKey,
 } from '../hooks/useTableFeatureConfig';
-import type { ColumnConfig, CustomIconElement, CustomRowActionButton, DetailViewMode, RowActionType, SummaryChipConfig, TableFeaturesConfig } from '../types';
+import type { ColumnConfig, CustomIconElement, CustomRowActionButton, DetailViewMode, GridLinesConfig, RowActionType, SummaryChipConfig, TableColorSet, TableColorsConfig, TableFeaturesConfig } from '../types';
+import { TABLE_COLOR_PRESETS } from '../utils/tableColors';
+import { GRID_LINE_MAX_PX, GRID_LINE_MIN_PX, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, resolveGridLines } from '../types';
 import { getTableFeatureItemsForSection, FEATURE_SECTION_FIND, FEATURE_SECTION_SUMMARIZE, FEATURE_SECTION_CHROME, FEATURE_SECTION_INTERACT, FEATURE_SECTION_STRUCTURE } from '../../DynamicData/viewFeatures';
 import type { FeatureScope } from '../../DynamicData/viewFeatures';
 import { SummaryChipsEditor } from '../../DynamicData/SummaryChipsEditor';
@@ -335,97 +338,19 @@ interface ConstructionSidebarProps {
   onOpenColorPickerForActionButton?: (id: string) => void;
   isTransposed?: boolean;
   onToggleTranspose?: () => void;
-  /** Portal admin: persist Feature Builder to SQL for all members */
+  /** Portal admin: persist Feature Builder for all members */
   onSaveFeatures?: () => void | Promise<void>;
   isSavingFeatures?: boolean;
   featuresDirty?: boolean;
+  onPatchGridLines?: (patch: GridLinesConfig) => void;
+  onSetRowHeight?: (px: number) => void;
+  onPatchTableColors?: (patch: TableColorsConfig) => void;
   onPatchRowActions?: (patch: {
     showExplore?: boolean;
     showDuplicate?: boolean;
     showEdit?: boolean;
     showDelete?: boolean;
   }) => void;
-}
-
-function SectionLabel({ icon: Icon, children, isDarkMode }: { icon?: React.ElementType; children: ReactNode; isDarkMode: boolean }) {
-  return (
-    <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-      {Icon && <Icon className="h-3.5 w-3.5 text-[#13C296]" />}
-      <span>{children}</span>
-    </div>
-  );
-}
-
-function ToggleRow({
-  label,
-  isActive,
-  onClick,
-  isDarkMode,
-  subtitle,
-  scope,
-}: {
-  label: string;
-  isActive: boolean;
-  onClick: () => void;
-  isDarkMode: boolean;
-  subtitle?: string;
-  scope?: FeatureScope;
-}) {
-  return (
-    <div
-      className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3.5 py-2.5 transition-all ${isActive
-          ? isDarkMode
-            ? 'border-[#13C296]/50 bg-[#13C296]/15 text-white shadow-2xs'
-            : 'border-[#13C296]/40 bg-[#13C296]/10 text-gray-900 shadow-2xs'
-          : isDarkMode
-            ? 'border-gray-800 bg-gray-800/40 text-gray-400 hover:border-gray-700 hover:text-gray-300'
-            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900'
-        }`}
-    >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
-        <div
-          className={`flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-full transition-colors ${isActive ? 'bg-[#13C296] text-[#111c18]' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
-            }`}
-        >
-          {isActive && <Check className="h-3 w-3 stroke-[3]" />}
-        </div>
-        <span className="min-w-0 truncate text-[12.5px] font-medium leading-snug">{label}</span>
-      </button>
-      {scope ? (
-        <span
-          className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-            scope === 'shared'
-              ? isDarkMode
-                ? 'bg-[#13C296]/20 text-[#5eead4]'
-                : 'bg-emerald-50 text-emerald-800 border border-emerald-200/80'
-              : isDarkMode
-                ? 'bg-gray-700 text-gray-200'
-                : 'bg-slate-200 text-slate-700 border border-slate-300/80'
-          }`}
-          title={scope === 'shared' ? 'Applies on every view that supports it' : 'Only for this view'}
-        >
-          {scope === 'shared' ? 'Shared' : 'This view'}
-        </span>
-      ) : null}
-      {subtitle ? <InfoTip text={subtitle} isDarkMode={isDarkMode} /> : null}
-      <button
-        type="button"
-        onClick={onClick}
-        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0 ${isActive
-            ? 'bg-[#13C296]/20 text-[#0f9f7a]'
-            : isDarkMode
-              ? 'bg-gray-700 text-gray-200'
-              : 'bg-slate-200 text-slate-700 border border-slate-300/70'
-          }`}
-      >
-        {isActive ? 'ON' : 'OFF'}
-      </button>
-    </div>
-  );
 }
 
 function ConfigurableToggleRow({
@@ -443,82 +368,15 @@ function ConfigurableToggleRow({
   isDarkMode: boolean;
   children?: ReactNode;
 }) {
-  const [showConfig, setShowConfig] = useState(false);
-
-  useEffect(() => {
-    if (!isActive) {
-      setShowConfig(false);
-    }
-  }, [isActive]);
-
   return (
-    <div
-      className={`flex flex-col gap-2 rounded-xl border p-3 transition-all ${isActive
-          ? isDarkMode
-            ? 'border-[#13C296]/50 bg-[#13C296]/15 text-white shadow-2xs'
-            : 'border-[#13C296]/40 bg-[#13C296]/10 text-gray-900 shadow-2xs'
-          : isDarkMode
-            ? 'border-gray-800 bg-gray-800/40 text-gray-400 hover:border-gray-700 hover:text-gray-300'
-            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900'
-        }`}
-    >
-      <div className="flex items-center justify-between gap-2.5">
-        <div
-          className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
-          onClick={onToggle}
-        >
-          <div
-            className={`flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-full transition-colors ${isActive ? 'bg-[#13C296] text-[#111c18]' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
-              }`}
-          >
-            {isActive && <Check className="h-3 w-3 stroke-[3]" />}
-          </div>
-          <span className="min-w-0 truncate text-[12.5px] font-semibold tracking-tight">{label}</span>
-        </div>
-
-        {subtitle ? <InfoTip text={subtitle} isDarkMode={isDarkMode} /> : null}
-
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {isActive && children && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowConfig(prev => !prev);
-              }}
-              className={`p-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${showConfig
-                  ? 'bg-[#13C296]/20 text-[#0f9f7a]'
-                  : isDarkMode
-                    ? 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-                }`}
-              title={showConfig ? 'Hide options' : 'Configure options'}
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onToggle}
-            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${isActive
-                ? 'bg-[#13C296]/20 text-[#0f9f7a]'
-                : isDarkMode
-                  ? 'bg-gray-700 text-gray-200'
-                  : 'bg-slate-200 text-slate-700 border border-slate-300/70'
-              }`}
-          >
-            {isActive ? 'ON' : 'OFF'}
-          </button>
-        </div>
-      </div>
-
-      {isActive && showConfig && children && (
-        <div className="pt-2 border-t border-dashed border-gray-700/30">
-          {children}
-        </div>
-      )}
-    </div>
+    <ToggleRow
+      label={label}
+      subtitle={subtitle}
+      isActive={isActive}
+      onClick={onToggle}
+      isDarkMode={isDarkMode}
+      config={children}
+    />
   );
 }
 
@@ -657,6 +515,284 @@ function DraggableToggleCard({
   );
 }
 
+const COLOR_FIELDS: { key: keyof TableColorSet; label: string }[] = [
+  { key: 'headerBg', label: 'Header color' },
+  { key: 'headerText', label: 'Header text' },
+  { key: 'stripeBg', label: 'Alternate rows' },
+  { key: 'footerBg', label: 'Footer color' },
+  { key: 'footerText', label: 'Footer text' },
+];
+
+function TableColorsEditor({
+  config,
+  onPatch,
+  isDarkMode,
+}: {
+  config: TableColorsConfig | undefined;
+  onPatch: (patch: TableColorsConfig) => void;
+  isDarkMode: boolean;
+}) {
+  const [mode, setMode] = useState<'light' | 'dark'>(isDarkMode ? 'dark' : 'light');
+  const preset = config?.preset || 'default';
+  const stripe = Boolean(config?.stripe);
+  const panel = isDarkMode ? 'border-gray-800 bg-gray-800/40' : 'border-gray-200 bg-white';
+  const chip = (active: boolean) =>
+    `rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors ${
+      active
+        ? 'bg-[#13C296]/20 text-[#0f9f7a]'
+        : isDarkMode
+          ? 'text-gray-400 hover:bg-white/5'
+          : 'text-gray-500 hover:bg-black/5'
+    }`;
+
+  /** Color shown for a field: the custom value, else what the active preset gives for that mode. */
+  const currentSet = (m: 'light' | 'dark'): TableColorSet =>
+    preset === 'custom'
+      ? config?.[m] ?? {}
+      : TABLE_COLOR_PRESETS.find(p => p.id === preset)?.[m] ?? {};
+
+  // Editing from a preset starts a custom theme seeded with that preset's colors for both modes.
+  const edit = (key: keyof TableColorSet, value: string) => {
+    onPatch({
+      preset: 'custom',
+      light: { ...currentSet('light'), ...(mode === 'light' ? { [key]: value } : {}) },
+      dark: { ...currentSet('dark'), ...(mode === 'dark' ? { [key]: value } : {}) },
+    });
+  };
+
+  const set = currentSet(mode);
+  const fallback: Record<keyof TableColorSet, string> = mode === 'dark'
+    ? { headerBg: '#2e1065', headerText: '#e9d5ff', stripeBg: '#161e2c', footerBg: '#111827', footerText: '#9ca3af' }
+    : { headerBg: '#ede9fe', headerText: '#4c1d95', stripeBg: '#f7f8fb', footerBg: '#f9fafb', footerText: '#6b7280' };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {TABLE_COLOR_PRESETS.map(p => {
+          const sw = p[isDarkMode ? 'dark' : 'light'];
+          const active = preset === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onPatch({ preset: p.id })}
+              aria-pressed={active}
+              className={`flex flex-col gap-1.5 rounded-xl border p-2 text-left transition-colors ${
+                active ? 'border-[#13C296] ring-1 ring-[#13C296]/40' : isDarkMode ? 'border-gray-700 hover:border-gray-500' : 'border-gray-200 hover:border-gray-400'
+              }`}
+            >
+              <span className="flex h-9 flex-col overflow-hidden rounded-md border border-black/5">
+                <span className="h-3" style={{ background: sw.headerBg || (isDarkMode ? '#2e1065' : '#ede9fe') }} />
+                <span className="h-3" style={{ background: isDarkMode ? '#111827' : '#ffffff' }} />
+                <span className="h-3" style={{ background: sw.stripeBg || (isDarkMode ? '#161e2c' : '#f7f8fb') }} />
+              </span>
+              <span className="text-[11px] font-semibold">{p.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${panel}`}>
+        <span className="text-[12.5px] font-medium">Alternate row colors</span>
+        <button
+          type="button"
+          onClick={() => onPatch({ stripe: !stripe })}
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+            stripe ? 'bg-[#13C296]/20 text-[#0f9f7a]' : isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-slate-200 text-slate-700'
+          }`}
+        >
+          {stripe ? 'ON' : 'OFF'}
+        </button>
+      </div>
+
+      <div className={`flex flex-col gap-2.5 rounded-xl border px-3 py-3 ${panel}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12.5px] font-semibold">Custom colors</span>
+          <div className="flex items-center rounded-lg border p-0.5" role="tablist" aria-label="Color mode">
+            <button type="button" role="tab" aria-selected={mode === 'light'} onClick={() => setMode('light')} className={chip(mode === 'light')}>Light</button>
+            <button type="button" role="tab" aria-selected={mode === 'dark'} onClick={() => setMode('dark')} className={chip(mode === 'dark')}>Dark</button>
+          </div>
+        </div>
+
+        {COLOR_FIELDS.map(({ key, label }) => {
+          const value = set[key] || '';
+          return (
+            <div key={key} className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-medium text-gray-400">{label}</span>
+              <div className="flex items-center gap-2">
+                <label
+                  className={`relative h-7 w-7 cursor-pointer overflow-hidden rounded-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}
+                  style={{ backgroundColor: value || fallback[key] }}
+                  title={label}
+                >
+                  <input
+                    type="color"
+                    value={value || fallback[key]}
+                    onChange={e => edit(key, e.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    aria-label={`${label} (${mode} mode)`}
+                  />
+                </label>
+                <input
+                  type="text"
+                  value={value}
+                  placeholder="Default"
+                  maxLength={7}
+                  spellCheck={false}
+                  onChange={e => {
+                    const v = e.target.value.trim();
+                    if (v === '' || /^#[0-9a-fA-F]{6}$/.test(v)) edit(key, v);
+                  }}
+                  className={`w-[76px] rounded-lg border bg-transparent px-2 py-1 font-mono text-xs uppercase outline-none placeholder:normal-case ${
+                    isDarkMode ? 'border-gray-700 text-gray-100' : 'border-gray-300 text-gray-800'
+                  }`}
+                  aria-label={`${label} hex (${mode} mode)`}
+                />
+              </div>
+            </div>
+          );
+        })}
+        <p className="text-[11px] leading-snug text-gray-400">
+          Light and dark are saved separately. Pick a preset first, then adjust any color.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LineStyleFields({
+  line,
+  onChange,
+  isDarkMode,
+}: {
+  line: { width: number; color: string; opacity: number };
+  onChange: (patch: { width?: number; color?: string; opacity?: number }) => void;
+  isDarkMode: boolean;
+}) {
+  const fieldBox = `flex items-center overflow-hidden rounded-lg border text-xs font-semibold ${
+    isDarkMode ? 'border-gray-700 bg-gray-800/80 text-gray-100' : 'border-gray-300 bg-white text-gray-800'
+  }`;
+  const rowCls = 'flex items-center justify-between gap-3';
+  const labelCls = 'text-[11px] font-medium text-gray-400';
+  const themeDefault = isDarkMode ? '#374151' : '#e5e7eb';
+  const clampInt = (v: string, min: number, max: number) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : null;
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className={rowCls}>
+        <span className={labelCls}>Thickness</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={GRID_LINE_MIN_PX}
+            max={GRID_LINE_MAX_PX}
+            step={1}
+            value={line.width}
+            onChange={e => onChange({ width: Number(e.target.value) })}
+            className="h-1.5 w-24 cursor-pointer accent-[#13C296]"
+            aria-label="Line thickness in pixels"
+          />
+          <div className={fieldBox}>
+            <input
+              type="number"
+              min={GRID_LINE_MIN_PX}
+              max={GRID_LINE_MAX_PX}
+              value={line.width}
+              onChange={e => {
+                const n = clampInt(e.target.value, GRID_LINE_MIN_PX, GRID_LINE_MAX_PX);
+                if (n !== null) onChange({ width: n });
+              }}
+              className="w-9 bg-transparent py-1 pl-2 text-right outline-none"
+              aria-label="Line thickness (px)"
+            />
+            <span className="px-1.5 text-gray-400">px</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={rowCls}>
+        <span className={labelCls}>Color</span>
+        <div className="flex items-center gap-2">
+          <label
+            className={`relative h-7 w-7 flex-shrink-0 cursor-pointer overflow-hidden rounded-lg border ${
+              isDarkMode ? 'border-gray-600' : 'border-gray-300'
+            }`}
+            style={{ backgroundColor: line.color || themeDefault }}
+            title="Pick a line color"
+          >
+            <input
+              type="color"
+              value={line.color || themeDefault}
+              onChange={e => onChange({ color: e.target.value })}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              aria-label="Line color"
+            />
+          </label>
+          <div className={fieldBox}>
+            <input
+              type="text"
+              value={line.color || ''}
+              placeholder="Theme"
+              maxLength={7}
+              onChange={e => {
+                const v = e.target.value.trim();
+                if (v === '') onChange({ color: '' });
+                else if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange({ color: v });
+              }}
+              className="w-[72px] bg-transparent px-2 py-1 font-mono uppercase outline-none placeholder:normal-case"
+              aria-label="Line color hex"
+              spellCheck={false}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange({ color: '' })}
+            disabled={!line.color}
+            className="text-[10px] font-bold uppercase tracking-wide text-[#0f9f7a] disabled:opacity-40"
+            title="Use the theme's default color"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <div className={rowCls}>
+        <span className={labelCls}>Opacity</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={line.opacity}
+            onChange={e => onChange({ opacity: Number(e.target.value) })}
+            className="h-1.5 w-24 cursor-pointer accent-[#13C296]"
+            aria-label="Line opacity in percent"
+          />
+          <div className={fieldBox}>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={line.opacity}
+              onChange={e => {
+                const n = clampInt(e.target.value, 0, 100);
+                if (n !== null) onChange({ opacity: n });
+              }}
+              className="w-9 bg-transparent py-1 pl-2 text-right outline-none"
+              aria-label="Line opacity (%)"
+            />
+            <span className="px-1.5 text-gray-400">%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ConstructionSidebar({
   onClose,
   isDarkMode,
@@ -699,21 +835,11 @@ export function ConstructionSidebar({
   isSavingFeatures = false,
   featuresDirty = false,
   onPatchRowActions,
+  onPatchGridLines,
+  onSetRowHeight,
+  onPatchTableColors,
 }: ConstructionSidebarProps) {
-  const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   const [draggedKey, setDraggedKey] = useState<FirstColumnElementKey | null>(null);
-
-  useEffect(() => {
-    requestAnimationFrame(() => setIsAnimatingIn(true));
-  }, []);
-
-  const handleClose = () => {
-    setIsAnimatingIn(false);
-    setTimeout(onClose, 250);
-  };
-
-  const bgClass = isDarkMode ? 'bg-[#111c18] text-gray-100' : 'bg-gray-50 text-gray-800';
-  const borderClass = isDarkMode ? 'border-gray-800' : 'border-gray-200';
 
   const hasCheckbox = Boolean(customFeatures.enableRowSelection);
   const hasSubRows = Boolean(customFeatures.enableSubRows);
@@ -781,45 +907,47 @@ export function ConstructionSidebar({
 
   const interactExtras: { key: keyof TableFeaturesConfig; label: string; subtitle?: string; scope: FeatureScope }[] = [
     { key: 'enableCellEditing', label: 'Inline Cell Editing', subtitle: 'Click a cell to edit its value', scope: 'view' },
+    { key: 'enableBulkActions', label: 'Bulk Edit', subtitle: 'Select rows with the checkbox, then edit one field for all of them at once (also shows bulk delete)', scope: 'view' },
   ];
   const summarizeExtras: { key: keyof TableFeaturesConfig; label: string; subtitle?: string; scope: FeatureScope }[] = [
     { key: 'enableFooter', label: 'Aggregation Footer', subtitle: 'Sum, average, count at the bottom of the grid', scope: 'view' },
   ];
 
   return (
-    <>
-      <div
-        className={`fixed inset-0 z-40 bg-black/15 transition-opacity duration-250 ${isAnimatingIn ? 'opacity-100' : 'opacity-0'
-          }`}
-        onClick={handleClose}
-      />
-
-      <div
-        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col shadow-2xl transition-transform duration-250 ease-out ${bgClass} ${isAnimatingIn ? 'translate-x-0' : 'translate-x-full'
-          }`}
-      >
-        <div className={`flex items-center justify-between border-b px-5 py-4 ${borderClass}`}>
-          <div>
-            <h2 className="text-sm font-bold tracking-tight">Feature Builder</h2>
-            <p className="text-[11px] text-gray-400">
-              {onSaveFeatures
-                ? featuresDirty
-                  ? 'Unsaved changes · Save to publish for everyone'
-                  : 'Saved for all portal members'
-                : 'Grouped by intent · Shared = every supporting view'}
+    <FeatureBuilderPanel
+      isDarkMode={isDarkMode}
+      onClose={onClose}
+      subtitle={
+        onSaveFeatures
+          ? featuresDirty
+            ? 'Unsaved changes · Save to publish for everyone'
+            : 'Saved for all portal members'
+          : 'Grouped by intent · Shared = every supporting view'
+      }
+      footer={
+        onSaveFeatures ? (
+          <>
+            <button
+              type="button"
+              disabled={isSavingFeatures || !featuresDirty}
+              onClick={() => onSaveFeatures()}
+              className={`w-full min-h-[44px] rounded-xl px-4 py-2.5 text-sm font-bold transition-colors
+                ${featuresDirty && !isSavingFeatures
+                  ? 'bg-[#13C296] text-white hover:bg-[#10a87f]'
+                  : isDarkMode
+                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+            >
+              {isSavingFeatures ? 'Saving…' : featuresDirty ? 'Save for everyone' : 'All changes saved'}
+            </button>
+            <p className={`mt-2 text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              Toggles preview live. Click Save to store them for all users.
             </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className={`rounded-lg p-1.5 transition-colors ${isDarkMode ? 'text-gray-400 hover:bg-gray-800 hover:text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-              }`}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto space-y-6 p-5 custom-scrollbar">
+          </>
+        ) : undefined
+      }
+    >
           {/* Find & Filter */}
           <section className="space-y-2">
             <SectionLabel icon={SlidersHorizontal} isDarkMode={isDarkMode}>Find & Filter</SectionLabel>
@@ -1260,38 +1388,107 @@ export function ConstructionSidebar({
               ))}
             </div>
           </section>
-        </div>
 
-        {onSaveFeatures && (
-          <div className={`flex-shrink-0 border-t px-5 py-4 ${borderClass}`}>
-            <button
-              type="button"
-              disabled={isSavingFeatures || !featuresDirty}
-              onClick={() => onSaveFeatures()}
-              className={`w-full min-h-[44px] rounded-xl px-4 py-2.5 text-sm font-bold transition-colors
-                ${featuresDirty && !isSavingFeatures
-                  ? 'bg-[#13C296] text-white hover:bg-[#10a87f]'
-                  : isDarkMode
-                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
+          {/* Grid lines — row / column separators */}
+          <section className="space-y-2">
+            <SectionLabel icon={Table} isDarkMode={isDarkMode}>Grid Lines</SectionLabel>
+            <div className="space-y-2">
+              {([
+                { axis: 'horizontal', label: 'Horizontal Lines', info: 'Lines between rows' },
+                { axis: 'vertical', label: 'Vertical Lines', info: 'Lines between columns' },
+              ] as const).map(({ axis, label, info }) => {
+                const line = resolveGridLines(customFeatures.gridLines)[axis];
+                return (
+                  <ToggleRow
+                    key={axis}
+                    label={label}
+                    subtitle={info}
+                    scope="view"
+                    isActive={line.show}
+                    onClick={() => onPatchGridLines?.({ [axis]: { show: !line.show } })}
+                    isDarkMode={isDarkMode}
+                    config={
+                      <LineStyleFields
+                        line={line}
+                        isDarkMode={isDarkMode}
+                        onChange={patch => onPatchGridLines?.({ [axis]: patch })}
+                      />
+                    }
+                  />
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Row height — overrides the Density presets */}
+          <section className="space-y-2">
+            <SectionLabel icon={Table} isDarkMode={isDarkMode}>Row Height</SectionLabel>
+            <div
+              className={`flex flex-col gap-2.5 rounded-xl border px-3.5 py-3 ${
+                isDarkMode ? 'border-gray-800 bg-gray-800/40 text-gray-300' : 'border-gray-200 bg-white text-gray-700'
+              }`}
             >
-              {isSavingFeatures
-                ? 'Saving…'
-                : featuresDirty
-                  ? 'Save for everyone'
-                  : 'All changes saved'}
-            </button>
-            <p className={`mt-2 text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-              Toggles preview live. Click Save to store them in MySQL for all users.
-            </p>
-          </div>
-        )}
-      </div>
-    </>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[12.5px] font-medium">
+                  Height of every row
+                  <span className="block text-[11px] font-normal text-gray-400">
+                    Applies to the Actions column too. Leave on Auto to follow Density.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onSetRowHeight?.(0)}
+                  disabled={!(Number(customFeatures.rowHeight) > 0)}
+                  className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wide text-[#0f9f7a] disabled:opacity-40"
+                >
+                  Auto
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={ROW_HEIGHT_MIN_PX}
+                  max={ROW_HEIGHT_MAX_PX}
+                  step={2}
+                  value={Number(customFeatures.rowHeight) > 0 ? Number(customFeatures.rowHeight) : 64}
+                  onChange={e => onSetRowHeight?.(Number(e.target.value))}
+                  className="h-1.5 flex-1 cursor-pointer accent-[#13C296]"
+                  aria-label="Row height in pixels"
+                />
+                <div
+                  className={`flex items-center overflow-hidden rounded-lg border text-xs font-semibold ${
+                    isDarkMode ? 'border-gray-700 bg-gray-800/80 text-gray-100' : 'border-gray-300 bg-white text-gray-800'
+                  }`}
+                >
+                  <input
+                    type="number"
+                    min={ROW_HEIGHT_MIN_PX}
+                    max={ROW_HEIGHT_MAX_PX}
+                    value={Number(customFeatures.rowHeight) > 0 ? Number(customFeatures.rowHeight) : ''}
+                    placeholder="Auto"
+                    onChange={e => {
+                      if (e.target.value === '') return onSetRowHeight?.(0);
+                      const n = Math.round(Number(e.target.value));
+                      if (Number.isFinite(n)) onSetRowHeight?.(Math.min(ROW_HEIGHT_MAX_PX, Math.max(ROW_HEIGHT_MIN_PX, n)));
+                    }}
+                    className="w-12 bg-transparent py-1 pl-2 text-right outline-none"
+                    aria-label="Row height (px)"
+                  />
+                  <span className="px-1.5 text-gray-400">px</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Table colors — header, alternate rows, footer (light + dark) */}
+          <section className="space-y-2">
+            <SectionLabel icon={Palette} isDarkMode={isDarkMode}>Table Colors</SectionLabel>
+            <TableColorsEditor
+              config={customFeatures.tableColors}
+              onPatch={patch => onPatchTableColors?.(patch)}
+              isDarkMode={isDarkMode}
+            />
+          </section>
+    </FeatureBuilderPanel>
   );
 }
-
-
-
-

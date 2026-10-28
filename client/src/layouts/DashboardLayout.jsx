@@ -14,8 +14,8 @@ import {
   TableProperties,
   Table2,
   Users,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Menu,
+  ChevronLeft,
   Crown,
   LogOut,
   ChevronRight,
@@ -29,6 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 import './DashboardLayout.css';
+import './ExamSidebar.css';
 
 const NAV_ITEMS = [
   {
@@ -65,7 +66,25 @@ export const DashboardLayout = () => {
   const location = useLocation();
   const avatarRef = useRef(null);
 
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(() => {
+    try {
+      return localStorage.getItem('sidebarExpanded') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleSidebar = () => {
+    setIsExpanded((prev) => {
+      try {
+        localStorage.setItem('sidebarExpanded', String(!prev));
+      } catch {
+        // ignore storage errors
+      }
+      return !prev;
+    });
+  };
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const closeMobile = () => setMobileOpen(false);
   // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
   const [breadcrumbTail, setBreadcrumbTail] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -159,128 +178,106 @@ export const DashboardLayout = () => {
 
   return (
     <div className="layout">
-      {/* SIDEBAR */}
-      <aside className={`sidebar ${isExpanded ? '' : 'collapsed'}`}>
-        <div className="sidebar-header">
-          <div className="brand-container">
-            <div className="logo-icon">E</div>
-            {isExpanded && <div className="brand-name">Exam View</div>}
+      {/* SIDEBAR (LogicPanda design: dark green, hover-expand on desktop, drawer on mobile) */}
+      <div className="xs-shell">
+      {mobileOpen && <div className="xs-backdrop" onClick={closeMobile} aria-hidden="true" />}
+      <aside className={`xs-sidebar ${isExpanded ? 'expanded' : ''} ${mobileOpen ? 'open' : ''}`}>
+
+        <div className="xs-logo">
+          <div className="xs-logo-icon">
+            <LayoutGrid size={20} strokeWidth={2.5} />
           </div>
-          <button className="toggle-btn" onClick={() => setIsExpanded(!isExpanded)} title="Toggle Sidebar">
-            {isExpanded ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-          </button>
+          <span className="xs-logo-text">Exam View</span>
         </div>
 
-        <div className="sidebar-content">
-          <div className="sidebar-section">
-            <nav className="nav-list" aria-label="Main Navigation">
-              {NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const ActiveIcon = item.activeIcon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                    title={item.label}
-                  >
-                    {({ isActive }) => (
-                      <>
-                        {isActive && <span className="nav-active-pill" aria-hidden="true" />}
-                        <span className={`nav-icon-wrap ${isActive ? 'active' : ''}`}>
-                          {isActive ? (
-                            <ActiveIcon className="nav-icon active-icon" size={18} strokeWidth={2.2} />
-                          ) : (
-                            <Icon className="nav-icon" size={18} strokeWidth={1.8} />
-                          )}
-                        </span>
-                        {isExpanded && <span className="nav-label">{item.label}</span>}
-                      </>
-                    )}
-                  </NavLink>
-                );
-              })}
-            </nav>
-          </div>
-        </div>
+        <nav className="xs-nav" aria-label="Main Navigation">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={closeMobile}
+                className={({ isActive }) => `xs-nav-item ${isActive ? 'active' : ''}`}
+                title={item.label}
+              >
+                <Icon className="xs-nav-icon" size={18} strokeWidth={2} />
+                <span className="xs-label">{item.label}</span>
+              </NavLink>
+            );
+          })}
+        </nav>
 
-        {/* SIDEBAR FOOTER (SETTINGS & USER PROFILE) */}
-        <div className="sidebar-footer">
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => `sidebar-settings-link ${isActive ? 'active' : ''}`}
-            title="Settings"
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && <span className="nav-active-pill" aria-hidden="true" />}
-                <span className={`nav-icon-wrap ${isActive ? 'active' : ''}`}>
-                  {isActive ? (
-                    <Settings2 size={18} className="sidebar-settings-icon active-icon" strokeWidth={2.2} />
-                  ) : (
-                    <Settings size={18} className="sidebar-settings-icon" strokeWidth={1.8} />
-                  )}
-                </span>
-                {isExpanded && <span className="nav-label">Settings</span>}
-              </>
-            )}
-          </NavLink>
+        <div className="xs-footer">
+          <div className="xs-footer-actions">
+            <button
+              type="button"
+              className="xs-icon-btn"
+              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              onClick={() => setIsDarkMode(!isDarkMode)}
+            >
+              {isDarkMode ? <Sun size={18} strokeWidth={2} /> : <Moon size={18} strokeWidth={2} />}
+            </button>
+            <NavLink
+              to="/settings"
+              onClick={closeMobile}
+              className={({ isActive }) => `xs-icon-btn ${isActive ? 'active' : ''}`}
+              title="Settings"
+            >
+              <Settings size={18} strokeWidth={2} />
+            </NavLink>
+          </div>
 
           <div
-            className={`sidebar-profile-card ${location.pathname === '/profile' || location.pathname === '/dashboard/profile' ? 'active' : ''}`}
-            title={!isExpanded ? `${displayName} (Click for Profile)` : "View & Edit Profile"}
-            onClick={() => navigate('/profile')}
+            className="xs-profile"
+            role="button"
+            tabIndex={0}
+            title="View & Edit Profile"
+            onClick={() => { navigate('/profile'); closeMobile(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { navigate('/profile'); closeMobile(); } }}
           >
-            <div className="sidebar-avatar-wrap">
-              <div className="sidebar-avatar">
+            <div className="xs-profile-main">
+              <div className="xs-avatar">
                 {avatarLetter}
+                <span className="xs-online" title="Active" />
               </div>
-              <span className="sidebar-online-status" title="Active"></span>
+              <div className="xs-user xs-label">
+                <span className="xs-user-name" title={displayName}>{displayName}</span>
+                <span className="xs-user-role">{isPrimaryAdmin ? 'Primary Admin' : roleDisplay.toLowerCase()}</span>
+              </div>
             </div>
-
-            {isExpanded && (
-              <div className="sidebar-user-details">
-                <span className="sidebar-user-name" title={displayName}>
-                  {displayName}
-                </span>
-                <div className="sidebar-role-line">
-                  {isPrimaryAdmin ? (
-                    <span className="sidebar-primary-badge">
-                      <Zap size={11} strokeWidth={2.4} fill="currentColor" />
-                      <span>Primary Admin</span>
-                    </span>
-                  ) : (
-                    <span className="sidebar-role-badge">
-                      {roleDisplay}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {isExpanded && (
-              <button
-                type="button"
-                className="sidebar-logout-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleLogout(e);
-                }}
-                title="Logout"
-              >
-                <LogOut size={16} />
-              </button>
-            )}
+            <button
+              type="button"
+              className="xs-logout"
+              title="Log Out"
+              onClick={(e) => { e.stopPropagation(); handleLogout(e); }}
+            >
+              <LogOut size={15} strokeWidth={2} />
+            </button>
           </div>
         </div>
       </aside>
+      <button
+        type="button"
+        className="xs-toggle"
+        onClick={toggleSidebar}
+        title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        aria-expanded={isExpanded}
+      >
+        {isExpanded ? <ChevronLeft size={14} strokeWidth={2.5} /> : <ChevronRight size={14} strokeWidth={2.5} />}
+      </button>
+      </div>
 
       {/* MAIN CONTENT AREA */}
       <div className="main-container">
         {/* TOP BAR */}
         <header className="topbar">
           <div className="topbar-left">
+            <button type="button" className="xs-menu-btn" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+              <Menu size={20} />
+            </button>
             <nav className="topbar-breadcrumbs" aria-label="Breadcrumb">
               <Link to="/dashboard" className="topbar-breadcrumb-link" title="Go to Dashboard">
                 <LayoutDashboard size={15} />

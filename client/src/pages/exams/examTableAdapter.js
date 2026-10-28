@@ -47,9 +47,9 @@ const MODIFY_BY_KEYS = new Set([
   'modifiedby',
 ]);
 
-/** Build DynamicTable columns from field-builder defs (fully dynamic) */
-export const buildExamTableColumns = (fields = []) => {
-  const dynamic = (fields || []).map((field, index) => {
+/** DynamicTable columns for field-builder defs only (no audit columns); shared by exams and vendors */
+export const buildFieldColumns = (fields = []) =>
+  (fields || []).map((field, index) => {
     const dataType = toTableDataType(field);
     const isAuto = field.autoFill && field.autoFill !== 'none';
     const options = resolveFieldOptions(field);
@@ -70,6 +70,10 @@ export const buildExamTableColumns = (fields = []) => {
       resultType: dataType === 'formula' ? 'text' : undefined,
     };
   });
+
+/** Build exam DynamicTable columns: builder fields plus the audit columns */
+export const buildExamTableColumns = (fields = []) => {
+  const dynamic = buildFieldColumns(fields);
 
   // Avoid duplicating if builder already defined these keys
   const keys = new Set(dynamic.map((c) => c.key));

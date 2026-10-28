@@ -1,46 +1,38 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import mysql from 'mysql2/promise';
-import env from '../config/env.js';
+import { initOrm, closeOrm, getOrm } from './connection.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/**
+ * Ensure Mongo database + indexes exist (idempotent).
+ * Replaces the old SQL migration runner.
+ */
+async function migrate() {
+  console.log('🔄 Connecting to MongoDB via MikroORM...');
+  await initOrm();
+  const orm = getOrm();
 
-async function runMigrations() {
-  console.log('🔄 Connecting to MySQL server at ' + env.DB_HOST + ':' + env.DB_PORT + '...');
-
-  const connection = await mysql.createConnection({
-    host: env.DB_HOST,
-    port: env.DB_PORT,
-    user: env.DB_USER,
-    password: env.DB_PASSWORD,
-    multipleStatements: true,
-  });
-
-  console.log(`📦 Ensuring database "${env.DB_NAME}" exists...`);
-  await connection.query(`CREATE DATABASE IF NOT EXISTS \`${env.DB_NAME}\`;`);
-  await connection.query(`USE \`${env.DB_NAME}\`;`);
-
-  const migrationsDir = path.join(__dirname, 'migrations');
-  const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
-
-  for (const file of files) {
-    console.log(`▶ Executing schema script: ${file}...`);
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    try {
-      await connection.query(sql);
-      console.log(`✅ Applied: ${file}`);
-    } catch (err) {
-      console.warn(`⚠️ Skipped or already applied (${file}): ${err.message}`);
+  console.log('📇 Ensuring database + indexes...');
+  await orm.schema.ensureDatabase();
+  try {
+    await orm.schema.ensureIndexes();
+  } catch (error) {
+    // Index already exists with different options (common on re-run) — treat as OK.
+    const msg = String(error?.message || error);
+    if (!/same name as the requested index|IndexKeySpecsConflict|already exists/i.test(msg)) {
+      throw error;
     }
+    console.warn('⚠️ Some indexes already exist; continuing.');
   }
 
-  await connection.end();
-  console.log('🎉 Database schema ready!');
+  console.log('✅ MongoDB schema/indexes ready.');
+  await closeOrm();
 }
 
-runMigrations().catch((err) => {
+migrate().catch(async (err) => {
   console.error('❌ Migration failed:', err.message);
+  console.error(err);
+  try {
+    await closeOrm();
+  } catch {
+    // ignore
+  }
   process.exit(1);
 });

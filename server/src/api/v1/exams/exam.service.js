@@ -101,7 +101,7 @@ export const deleteExam = async (id) => {
 };
 
 /**
- * Bulk import exams into SQL.
+ * Bulk import exams into the database.
  * - Rows with `id` → upsert
  * - Rows without `id` → create (CSV import)
  */

@@ -5,6 +5,7 @@ import {
   DATE_LINK_TYPES,
   getEffectiveDataType,
   resolveFieldOptions,
+  resolvePhoneValidation,
 } from './examFieldTypes';
 import { SearchableSelect } from './SearchableSelect';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
@@ -225,6 +226,9 @@ export const ExamCustomFieldInput = ({
           ? 'url'
           : 'text';
 
+  const phoneRule =
+    dataType === 'phone' ? resolvePhoneValidation(field) : { pattern: '', message: '' };
+
   return (
     <div className="exams-form-group">
       {label}
@@ -235,7 +239,12 @@ export const ExamCustomFieldInput = ({
         onChange={(e) => onChange(e.target.value)}
         required={field.required}
         placeholder={field.label}
+        pattern={phoneRule.pattern || undefined}
+        title={phoneRule.message || undefined}
       />
+      {phoneRule.pattern ? (
+        <p className="exams-field-key-hint">{phoneRule.message}</p>
+      ) : null}
     </div>
   );
 };

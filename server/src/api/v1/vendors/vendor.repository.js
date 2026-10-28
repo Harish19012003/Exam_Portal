@@ -1,159 +1,97 @@
-import { pool } from '../../../database/connection.js';
+import { ObjectId } from '@mikro-orm/mongodb';
+import { getEm } from '../../../database/connection.js';
+import { Vendor } from '../../../database/entities/index.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 
+/**
+ * Vendor documents are flat: system fields plus one top-level key per custom field.
+ * Documents written before this change keep their values under `values`; they are still
+ * read (flattened) and are rewritten flat the next time they are edited.
+ */
+const toApi = (doc) => {
+  if (!doc) return null;
+  const { _id, version, created_at, updated_at, values, ...flat } = doc;
+  return {
+    id: String(_id),
+    version: version ?? 1,
+    created_at,
+    updated_at,
+    ...(values && typeof values === 'object' ? values : {}),
+    ...flat,
+  };
+};
+
+const affected = (res) => {
+  if (typeof res === 'number') return res;
+  return res?.affectedRows ?? res?.modifiedCount ?? res?.matchedCount ?? null;
+};
+
 export class VendorRepository {
-  constructor() {
-    this.tableName = 'vendors';
-    this.pool = pool;
+  async #findRaw(id) {
+    const em = getEm();
+    const [doc] = await em.aggregate(Vendor, [{ $match: { _id: new ObjectId(String(id)) } }]);
+    return doc || null;
   }
 
-  /**
-   * Find a vendor by their primary key (vendor_code)
-   * @param {string} vendorCode
-   */
-  async findByCode(vendorCode) {
-    const [rows] = await this.pool.query(
-      `SELECT * FROM ${this.tableName} WHERE vendor_code = ? LIMIT 1`,
-      [vendorCode]
-    );
-    return rows[0] || null;
+  async findById(id) {
+    return toApi(await this.#findRaw(id));
   }
 
-  /**
-   * List all vendors with optional search, filtering, and ordering
-   * @param {object} queryOptions
-   */
-  async findAll({ search, status } = {}) {
-    let sql = `SELECT * FROM ${this.tableName} WHERE 1=1`;
-    const params = [];
-
-    if (search) {
-      sql += ` AND (vendor_code LIKE ? OR vendor_name LIKE ? OR email LIKE ? OR phone_number LIKE ?)`;
-      const term = `%${search}%`;
-      params.push(term, term, term, term);
-    }
-
-    if (status) {
-      sql += ` AND status = ?`;
-      params.push(status);
-    }
-
-    sql += ` ORDER BY vendor_code ASC`;
-
-    const [rows] = await this.pool.query(sql, params);
-    return rows;
+  async findAll() {
+    const em = getEm();
+    const docs = await em.aggregate(Vendor, [{ $sort: { created_at: -1 } }]);
+    return docs.map(toApi);
   }
 
-  /**
-   * Insert a new vendor
-   * @param {object} data
-   */
+  /** @param {object} data flat custom field values (already validated/encoded) */
   async create(data) {
-    const [result] = await this.pool.query(
-      `INSERT INTO ${this.tableName} SET ?`,
-      [data]
-    );
-    return result.affectedRows > 0;
+    const em = getEm();
+    const now = new Date();
+    const insertedId = await em.insert(Vendor, { ...(data || {}), version: 1, created_at: now, updated_at: now });
+    return String(insertedId);
   }
 
-  /**
-   * Update a vendor with optimistic concurrency control
-   * @param {string} vendorCode
-   * @param {object} data
-   * @param {number} [version]
-   */
-  async update(vendorCode, data, version) {
-    const updateData = { ...data };
-    delete updateData.vendor_code; // Primary key cannot be changed
+  async createMany(list) {
+    const em = getEm();
+    const now = new Date();
+    await em.insertMany(
+      Vendor,
+      list.map((data) => ({ ...(data || {}), version: 1, created_at: now, updated_at: now })),
+    );
+    return list.length;
+  }
 
-    // Normalize empty strings to null for nullable fields
-    for (const [key, val] of Object.entries(updateData)) {
-      if (val === '') {
-        updateData[key] = null;
-      }
-    }
+  async update(id, data, version) {
+    const em = getEm();
+    const doc = await this.#findRaw(id);
+    if (!doc) throw new AppError('Vendor not found', 404, ERROR_CODES.NOT_FOUND);
 
-    if (version !== undefined && version !== null) {
-      updateData.version = Number(version) + 1;
-    }
-
-    const keys = Object.keys(updateData);
-    if (keys.length === 0) return true;
-
-    const values = keys.map((k) => updateData[k]);
-    const setClause = keys.map((k) => `${k} = ?`).join(', ');
-
-    if (version !== undefined && version !== null) {
-      const [result] = await this.pool.query(
-        `UPDATE ${this.tableName} SET ${setClause} WHERE vendor_code = ? AND version = ?`,
-        [...values, vendorCode, version]
+    const current = doc.version ?? 1;
+    const conflict = () =>
+      new AppError(
+        'Vendor was modified by another user. Please refresh and try again.',
+        409,
+        ERROR_CODES.CONFLICT_VERSION_MISMATCH,
       );
+    if (version !== undefined && version !== null && version !== current) throw conflict();
 
-      if (result.affectedRows === 0) {
-        const existing = await this.findByCode(vendorCode);
-        if (!existing) {
-          throw new AppError('Vendor not found', 404, ERROR_CODES.NOT_FOUND);
-        }
-        throw new AppError(
-          'Vendor was modified by another user. Please refresh and try again.',
-          409,
-          ERROR_CODES.CONFLICT_VERSION_MISMATCH
-        );
-      }
-      return true;
-    }
+    const legacy = doc.values && typeof doc.values === 'object' ? doc.values : null;
+    const update = {
+      $set: { ...(legacy || {}), ...(data || {}), version: current + 1, updated_at: new Date() },
+    };
+    if (doc.values !== undefined) update.$unset = { values: '' };
 
-    const [result] = await this.pool.query(
-      `UPDATE ${this.tableName} SET ${setClause} WHERE vendor_code = ?`,
-      [...values, vendorCode]
-    );
-    return result.affectedRows > 0;
+    const where = { _id: doc._id, ...(doc.version !== undefined ? { version: doc.version } : {}) };
+    const n = affected(await em.nativeUpdate(Vendor, where, update));
+    if (n === 0) throw conflict();
+    return true;
   }
 
-  /**
-   * Delete a vendor by vendor_code
-   * @param {string} vendorCode
-   */
-  async delete(vendorCode) {
-    const [result] = await this.pool.query(
-      `DELETE FROM ${this.tableName} WHERE vendor_code = ?`,
-      [vendorCode]
-    );
-    return result.affectedRows > 0;
-  }
-
-  /**
-   * Bulk insert or update vendor records (for seeding and data migration)
-   * @param {Array<object>} vendors
-   */
-  async bulkUpsert(vendors) {
-    if (!vendors || vendors.length === 0) return 0;
-    
-    let inserted = 0;
-    for (const v of vendors) {
-      const sql = `
-        INSERT INTO ${this.tableName} (
-          vendor_code, vendor_name, phone_number, email, status, version
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          vendor_name = VALUES(vendor_name),
-          phone_number = VALUES(phone_number),
-          email = VALUES(email),
-          status = VALUES(status),
-          version = version + 1
-      `;
-      await this.pool.execute(sql, [
-        v.vendor_code,
-        v.vendor_name,
-        v.phone_number || null,
-        v.email || null,
-        v.status || 'Active',
-        v.version || 1,
-      ]);
-      inserted++;
-    }
-    return inserted;
+  async deleteMany(ids) {
+    const em = getEm();
+    const list = (ids || []).map((v) => new ObjectId(String(v)));
+    return em.nativeDelete(Vendor, { _id: { $in: list } });
   }
 }
 

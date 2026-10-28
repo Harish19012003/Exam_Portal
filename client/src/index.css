@@ -274,3 +274,10 @@
     page-break-inside: avoid !important;
   }
 }
+
+/* Iconify renders an empty inline <span> until an icon has loaded, which ignores
+   its w-*/h-* classes and makes menus jump. Keep the box reserved meanwhile. */
+span:empty[class*="w-"][class*="h-"] {
+  display: inline-block;
+  flex-shrink: 0;
+}

@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import type { Density, TableFeaturesConfig } from '../types';
 import {
-  X, RefreshCw, PanelRight, Filter, Layers, Plus, Trash2, Settings, RotateCcw, FilterX, Edit2, PinOff, EyeOff, Maximize, Minimize, ArrowLeftRight, AlignJustify, Bookmark, Check, Loader2
+  X, RefreshCw, PanelRight, Filter, Layers, Plus, Trash2, Settings, RotateCcw, FilterX, Edit2, PinOff, EyeOff, Maximize, Minimize, ArrowLeftRight, AlignJustify, Bookmark, Check, Loader2, FileText, FileSpreadsheet, FileDown, Code2, Copy, Printer
 } from 'lucide-react';
 
 import { Icon } from '@iconify/react';
@@ -414,7 +414,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onExportCSV)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:file-02" className="w-4 h-4 opacity-70" />
+                          <FileText className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Export CSV
                         </button>
                       )}
@@ -423,7 +423,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onExportExcel)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:file-01" className="w-4 h-4 opacity-70" />
+                          <FileSpreadsheet className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Export Excel
                         </button>
                       )}
@@ -432,7 +432,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onExportPDF)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:file-download" className="w-4 h-4 opacity-70" />
+                          <FileDown className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Export PDF
                         </button>
                       )}
@@ -441,7 +441,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onExportJSON)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 border-t ${isDarkMode ? 'border-gray-800 hover:bg-gray-800 text-gray-300' : 'border-gray-100 hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:code" className="w-4 h-4 opacity-70" />
+                          <Code2 className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Export JSON
                         </button>
                       )}
@@ -450,7 +450,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onCopyTSV)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 border-t ${isDarkMode ? 'border-gray-800 hover:bg-gray-800 text-gray-300' : 'border-gray-100 hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:copy-01" className="w-4 h-4 opacity-70" />
+                          <Copy className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Copy as TSV
                         </button>
                       )}
@@ -459,7 +459,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onPrint)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:printer" className="w-4 h-4 opacity-70" />
+                          <Printer className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Print Current View
                         </button>
                       )}
@@ -468,7 +468,7 @@ export function TableToolbar({
                           onClick={() => handleExport(onPrintAll)}
                           className={`w-full text-left px-3 py-2 text-[12px] font-medium flex items-center gap-2.5 ${isDarkMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-100 text-gray-700'}`}
                         >
-                          <Icon icon="hugeicons:printer" className="w-4 h-4 opacity-70" />
+                          <Printer className="w-4 h-4 opacity-70 flex-shrink-0" />
                           Print All Rows
                         </button>
                       )}

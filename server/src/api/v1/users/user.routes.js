@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as userController from './user.controller.js';
+import * as groupController from './user-group.controller.js';
 import { authenticate, authorize } from '../../../core/auth.middleware.js';
 import { ROLES } from '@exam-view/shared';
 
@@ -17,6 +18,14 @@ router.get(
   authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
   userController.listUsers
 );
+
+// User groups (tabs on User Management). Declared before '/:id' routes.
+const adminOnly = [authenticate, authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN])];
+router.get('/groups', ...adminOnly, groupController.listGroups);
+router.post('/groups', ...adminOnly, groupController.createGroup);
+router.put('/groups/:id', ...adminOnly, groupController.updateGroup);
+router.patch('/groups/:id', ...adminOnly, groupController.updateGroup);
+router.delete('/groups/:id', ...adminOnly, groupController.deleteGroup);
 
 // Admin only: create a new user directly
 router.post(

@@ -1,0 +1,13 @@
+---
+description: MongoDB via MikroORM is the real database; browser storage is drafts/cache only
+alwaysApply: true
+---
+
+# MongoDB is the source of truth
+
+- **MongoDB** (accessed through **MikroORM**) is the real database for all persisted portal data (exams, users, settings, vendors, config, etc.).
+- **IndexedDB / localStorage** are only for unsaved form drafts, temporary UI state, or cache — never the primary store for saved records.
+- On Save / submit: write through the API (MikroORM → MongoDB), then clear the local draft.
+- When adding new persisted features, design entities + repository methods first; do not ship “IndexedDB-only” as the final storage.
+- Keep domain code **DB-agnostic**: services use repositories / EntityManager, not the Mongo driver directly, so a later engine switch (e.g. Postgres) is possible via MikroORM config/driver.
+- Do not run `db:migrate` / `db:seed` autonomously; ask the user to run them.

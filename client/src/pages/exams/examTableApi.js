@@ -11,7 +11,7 @@ export const createExamTable = async (examId, { presetId } = {}) =>
 
 /**
  * Save the Fields drawer and/or Feature Builder for one exam table.
- * The server adds / changes / drops the real SQL columns to match `fields`.
+ * The server persists field definitions to match `fields`.
  * Removing fields needs `confirmDrops: true`.
  */
 export const saveExamTableConfig = async (examId, { fields, features, confirmDrops } = {}) =>

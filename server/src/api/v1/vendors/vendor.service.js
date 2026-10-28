@@ -1,74 +1,81 @@
 import { vendorRepository } from './vendor.repository.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
+import { decodeVendor, getCustomFields, pickCustomValues } from './vendor-fields.service.js';
 
-/**
- * Get all vendors
- * @param {object} queryOptions
- */
-export async function getAllVendors(queryOptions) {
-  return vendorRepository.findAll(queryOptions);
-}
+const MAX_IMPORT_ROWS = 1000;
 
-/**
- * Get a vendor by vendor_code
- * @param {string} vendorCode
- */
-export async function getVendorByCode(vendorCode) {
-  const vendor = await vendorRepository.findByCode(vendorCode);
-  if (!vendor) {
-    throw new AppError(`Vendor '${vendorCode}' not found`, 404, ERROR_CODES.NOT_FOUND);
+const validationError = (message) => new AppError(message, 400, ERROR_CODES.VALIDATION_ERROR);
+
+// Vendor ids are MongoDB ObjectIds (24 hex characters), kept as strings end to end.
+const OBJECT_ID = /^[a-f0-9]{24}$/i;
+
+const toId = (value) => {
+  const id = String(value ?? '').trim();
+  if (!OBJECT_ID.test(id)) throw validationError('Invalid vendor id');
+  return id;
+};
+
+const isBlank = (v) => v === undefined || v === null || v === '';
+
+/** Validate + encode one vendor's custom values; `partial` skips the required check (updates). */
+const prepare = (fields, input, { partial = false, prefix = '' } = {}) => {
+  let values;
+  try {
+    values = pickCustomValues(fields, input);
+  } catch (error) {
+    throw error instanceof AppError ? validationError(`${prefix}${error.message}`) : error;
   }
-  return vendor;
-}
-
-/**
- * Create a new vendor
- * @param {object} vendorData
- */
-export async function createVendor(vendorData) {
-  const existing = await vendorRepository.findByCode(vendorData.vendor_code);
-  if (existing) {
-    throw new AppError(
-      `Vendor with code '${vendorData.vendor_code}' already exists`,
-      409,
-      ERROR_CODES.CONFLICT
-    );
+  if (!partial) {
+    const missing = fields.find((f) => f.required && isBlank(values[f.key]));
+    if (missing) throw validationError(`${prefix}${missing.label} is required`);
   }
+  return values;
+};
 
-  await vendorRepository.create(vendorData);
-  return vendorRepository.findByCode(vendorData.vendor_code);
+const requireFields = (fields) => {
+  if (!fields.length) throw validationError('Add at least one vendor field before adding vendors');
+};
+
+export async function getAllVendors() {
+  const [rows, fields] = await Promise.all([vendorRepository.findAll(), getCustomFields()]);
+  return rows.map((row) => decodeVendor(row, fields));
 }
 
-/**
- * Update an existing vendor
- * @param {string} vendorCode
- * @param {object} updateData
- */
-export async function updateVendor(vendorCode, updateData) {
-  const existing = await getVendorByCode(vendorCode);
-  const version = updateData.version !== undefined ? updateData.version : existing.version;
-  delete updateData.version;
-
-  await vendorRepository.update(vendorCode, updateData, version);
-  return vendorRepository.findByCode(vendorCode);
+export async function getVendorById(id) {
+  const vendor = await vendorRepository.findById(toId(id));
+  if (!vendor) throw new AppError('Vendor not found', 404, ERROR_CODES.NOT_FOUND);
+  return decodeVendor(vendor, await getCustomFields());
 }
 
-/**
- * Delete a vendor
- * @param {string} vendorCode
- */
-export async function deleteVendor(vendorCode) {
-  await getVendorByCode(vendorCode);
-  await vendorRepository.delete(vendorCode);
-  return { success: true, message: `Vendor '${vendorCode}' deleted successfully` };
+export async function createVendor(input) {
+  const fields = await getCustomFields();
+  requireFields(fields);
+  const id = await vendorRepository.create(prepare(fields, input));
+  return getVendorById(id);
 }
 
-/**
- * Bulk seed or import vendors into MySQL
- * @param {Array<object>} vendors
- */
-export async function seedVendors(vendors) {
-  const count = await vendorRepository.bulkUpsert(vendors);
-  return { success: true, count, message: `${count} vendors stored in MySQL database` };
+export async function updateVendor(id, input, version) {
+  const fields = await getCustomFields();
+  const vendorId = toId(id);
+  await vendorRepository.update(vendorId, prepare(fields, input, { partial: true }), version);
+  return getVendorById(vendorId);
+}
+
+export async function deleteVendors(ids) {
+  const list = [...new Set((Array.isArray(ids) ? ids : [ids]).map((v) => String(v ?? '').trim()).filter((v) => OBJECT_ID.test(v)))];
+  if (!list.length) throw validationError('No vendors to delete');
+  return { success: true, deleted: await vendorRepository.deleteMany(list) };
+}
+
+/** Rows are objects keyed by field key. All-or-nothing; errors name the offending row. */
+export async function importVendors(rows) {
+  const fields = await getCustomFields();
+  requireFields(fields);
+  if (!Array.isArray(rows) || !rows.length) throw validationError('No rows to import');
+  if (rows.length > MAX_IMPORT_ROWS) throw validationError(`Import at most ${MAX_IMPORT_ROWS} rows at a time`);
+
+  const prepared = rows.map((row, i) => prepare(fields, row, { prefix: `Row ${i + 1}: ` }));
+  const count = await vendorRepository.createMany(prepared);
+  return { success: true, count };
 }

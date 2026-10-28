@@ -8,7 +8,7 @@
  * - Types needing extra setup (formula, composite) are not available in bulk.
  */
 
-const TYPE_ALIASES = {
+export const TYPE_ALIASES = {
   string: 'text',
   integer: 'number',
   int: 'number',
@@ -57,7 +57,7 @@ const uniqueKey = (base, taken) => {
   return key;
 };
 
-const resolveType = (raw, types) => {
+export const resolveType = (raw, types) => {
   const wanted = String(raw).trim().toLowerCase();
   if (!wanted) return null;
   const direct = types.find((t) => t.value === wanted || t.label.toLowerCase() === wanted);
@@ -122,19 +122,25 @@ export const parseBulkFields = (text, existingFields = [], { defaultType = 'text
 };
 
 /** Same shape the single-field editor produces. */
-export const toFieldDefinition = (item, order) => ({
-  id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  label: item.label,
-  key: item.key,
-  dataType: item.dataType,
-  required: item.required,
-  options: item.options,
-  optionsSource: 'manual',
-  configListId: '',
-  allowMultiple: item.dataType === 'multiselect',
-  autoFill: 'none',
-  layout: 'full',
-  sameAsFieldKey: '',
-  sameAsDefaultOn: true,
-  order,
-});
+export const toFieldDefinition = (item, order) => {
+  const def = {
+    id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    label: item.label,
+    key: item.key,
+    dataType: item.dataType,
+    required: item.required,
+    options: item.options,
+    optionsSource: 'manual',
+    configListId: '',
+    allowMultiple: item.dataType === 'multiselect',
+    autoFill: item.autoFill || 'none',
+    layout: item.layout || 'full',
+    sameAsFieldKey: '',
+    sameAsDefaultOn: true,
+    order,
+  };
+  if (item.dataType === 'phone' && item.phoneValidation) {
+    def.phoneValidation = item.phoneValidation;
+  }
+  return def;
+};
