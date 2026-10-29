@@ -1,0 +1,830 @@
+/* ── Permission editor: areas → tables → one access level, details on demand ─────── */
+
+.perm-editor {
+  --perm-accent: var(--primary-color, #5c43fa);
+  --perm-border: var(--border-color, #e2e8f0);
+  --perm-muted: var(--text-secondary, #64748b);
+  --perm-soft: rgba(100, 116, 139, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.perm-editor[aria-disabled='true'] {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.perm-area {
+  border: 1px solid var(--perm-border);
+  border-radius: 14px;
+  background: var(--bg-card, #ffffff);
+  overflow: hidden;
+}
+
+.perm-area-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px;
+}
+
+.perm-area-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--perm-accent);
+}
+
+.perm-area-text {
+  min-width: 0;
+}
+
+.perm-area-text h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.perm-area-text p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--perm-muted);
+}
+
+/* One table inside an area */
+.perm-table {
+  border-top: 1px solid var(--perm-border);
+  padding: 12px 16px;
+}
+
+.perm-table-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.perm-table-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.perm-table-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.perm-table-hint {
+  font-size: 11.5px;
+  color: var(--perm-muted);
+}
+
+/* Access level picker (segmented) */
+.perm-levels {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--perm-soft);
+  max-width: 100%;
+}
+
+.perm-level {
+  min-height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--perm-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.perm-level:hover:not(.on) {
+  color: var(--text-primary, #0f172a);
+}
+
+.perm-level.on {
+  background: var(--bg-card, #ffffff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14);
+}
+
+.perm-level.on.tone-muted { color: var(--text-primary, #0f172a); }
+.perm-level.on.tone-info { color: #0369a1; }
+.perm-level.on.tone-good { color: #047857; }
+.perm-level.on.tone-strong { color: var(--perm-accent); }
+.perm-level.on.tone-warn { color: #b45309; }
+.perm-level.on.tone-danger { color: #dc2626; }
+
+.perm-level.tone-custom {
+  display: inline-flex;
+  align-items: center;
+  color: #7c3aed;
+  cursor: default;
+}
+
+/* Fine-tune toggle */
+.perm-fine-tune {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border: 1px dashed var(--perm-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--perm-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.perm-fine-tune:hover {
+  border-color: var(--perm-accent);
+}
+
+.perm-fine-tune-meta {
+  color: var(--perm-muted);
+  font-weight: 500;
+}
+
+.perm-caret {
+  transition: transform 0.15s ease;
+}
+
+.perm-fine-tune[aria-expanded='true'] .perm-caret {
+  transform: rotate(180deg);
+}
+
+.perm-details {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--perm-soft);
+}
+
+.perm-block h4 {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.perm-hint {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--perm-muted);
+}
+
+/* Actions with descriptions */
+.perm-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 6px;
+}
+
+.perm-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--perm-border);
+  border-radius: 10px;
+  background: var(--bg-card, #ffffff);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.perm-action input {
+  margin: 2px 0 0;
+  accent-color: var(--perm-accent);
+}
+
+.perm-action span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.perm-action strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.perm-action small {
+  font-size: 11px;
+  color: var(--perm-muted);
+}
+
+.perm-action.on {
+  border-color: var(--perm-accent);
+  background: rgba(92, 67, 250, 0.05);
+}
+
+.perm-editor--deny .perm-action.on {
+  border-color: #dc2626;
+  background: rgba(220, 38, 38, 0.05);
+}
+
+.perm-editor--deny .perm-action input {
+  accent-color: #dc2626;
+}
+
+/* Columns: name + segmented level */
+.perm-search {
+  margin-bottom: 8px;
+}
+
+.perm-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.perm-column {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg-card, #ffffff);
+}
+
+.perm-column-name {
+  flex: 1 1 140px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.perm-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--perm-soft);
+}
+
+.perm-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--perm-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.perm-seg-btn.on {
+  background: var(--bg-card, #ffffff);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+  color: var(--text-primary, #0f172a);
+}
+
+.perm-seg-btn.on.level-hidden { color: #dc2626; }
+.perm-seg-btn.on.level-view { color: #0369a1; }
+.perm-seg-btn.on.level-edit { color: #047857; }
+
+/* Row rules read as a sentence */
+.perm-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.perm-rule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--bg-card, #ffffff);
+}
+
+.perm-rule-lead {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--perm-muted);
+}
+
+.perm-rule-and {
+  align-self: flex-start;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--perm-accent);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.perm-rule-note {
+  font-size: 11.5px;
+  color: var(--perm-muted);
+}
+
+.perm-select {
+  min-height: 34px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--perm-border);
+  border-radius: 8px;
+  background: var(--bg-card, #ffffff);
+  color: inherit;
+  font-size: 12.5px;
+}
+
+.perm-tags {
+  display: flex;
+  flex: 1 1 200px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--perm-border);
+  border-radius: 8px;
+  background: var(--bg-card, #ffffff);
+}
+
+.perm-tags:focus-within {
+  border-color: var(--perm-accent);
+}
+
+.perm-tags input {
+  flex: 1 1 90px;
+  min-width: 80px;
+  min-height: 26px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+}
+
+.perm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border-radius: 999px;
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--perm-accent);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.perm-tag button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.perm-tag button:hover {
+  background: rgba(92, 67, 250, 0.18);
+}
+
+.perm-rule-remove,
+.perm-add-rule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--perm-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--perm-muted);
+  cursor: pointer;
+}
+
+.perm-rule-remove {
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+}
+
+.perm-rule-remove:hover {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+
+.perm-add-rule {
+  min-height: 34px;
+  padding: 0 12px;
+  border-style: dashed;
+  color: var(--perm-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--bg-card, #ffffff);
+}
+
+.perm-add-rule:disabled,
+.perm-rule-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Other pages: switches */
+.perm-pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  border-top: 1px solid var(--perm-border);
+}
+
+.perm-page {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--perm-border);
+  cursor: pointer;
+}
+
+.perm-page:hover {
+  background: var(--perm-soft);
+}
+
+.perm-page-icon {
+  flex-shrink: 0;
+  color: var(--perm-muted);
+}
+
+.perm-page.on .perm-page-icon {
+  color: var(--perm-accent);
+}
+
+.perm-page-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.perm-page-text strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.perm-page-text small {
+  font-size: 11.5px;
+  color: var(--perm-muted);
+}
+
+.perm-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+}
+
+.perm-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.perm-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.35);
+  transition: background 0.15s ease;
+  pointer-events: none;
+}
+
+.perm-switch span::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.perm-switch input:checked + span {
+  background: var(--perm-accent);
+}
+
+.perm-editor--deny .perm-switch input:checked + span {
+  background: #dc2626;
+}
+
+.perm-switch input:checked + span::after {
+  transform: translateX(16px);
+}
+
+.perm-switch input:focus-visible + span {
+  outline: 2px solid var(--perm-accent);
+  outline-offset: 2px;
+}
+
+/* ── Shared bits used by the user access modal ───────────────────────────────────── */
+
+.perm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.perm-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary, #64748b);
+  text-transform: uppercase;
+}
+
+.perm-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.perm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+
+.perm-chip.on {
+  border-color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.08);
+  color: var(--text-primary, #0f172a);
+}
+
+/* Tabs inside the group / user permission modals */
+.perm-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(100, 116, 139, 0.1);
+}
+
+.perm-tab {
+  flex: 1;
+  min-height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.perm-tab.active {
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.perm-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(92, 67, 250, 0.07);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #64748b);
+}
+
+.user-group-modal.wide {
+  max-width: min(780px, 92vw);
+}
+
+/* Entry point from the user edit modal */
+.perm-open-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px dashed var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+.perm-open-row span {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.perm-open-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--primary-color, #5c43fa);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary-color, #5c43fa);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.perm-open-btn:hover {
+  background: rgba(92, 67, 250, 0.08);
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────────────── */
+
+[data-theme='dark'] .perm-editor {
+  --perm-border: rgba(255, 255, 255, 0.1);
+  --perm-soft: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme='dark'] .perm-area,
+[data-theme='dark'] .perm-action,
+[data-theme='dark'] .perm-column,
+[data-theme='dark'] .perm-rule,
+[data-theme='dark'] .perm-select,
+[data-theme='dark'] .perm-tags,
+[data-theme='dark'] .perm-add-rule,
+[data-theme='dark'] .perm-level.on,
+[data-theme='dark'] .perm-seg-btn.on,
+[data-theme='dark'] .perm-tab.active {
+  background: #13241f;
+}
+
+[data-theme='dark'] .perm-level.on.tone-info,
+[data-theme='dark'] .perm-seg-btn.on.level-view { color: #38bdf8; }
+[data-theme='dark'] .perm-level.on.tone-good,
+[data-theme='dark'] .perm-seg-btn.on.level-edit { color: #34d399; }
+[data-theme='dark'] .perm-level.on.tone-warn { color: #fbbf24; }
+[data-theme='dark'] .perm-level.on.tone-danger,
+[data-theme='dark'] .perm-seg-btn.on.level-hidden { color: #f87171; }
+
+[data-theme='dark'] .perm-chip {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .perm-table-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .perm-levels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  }
+
+  .perm-column {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .perm-column-name {
+    flex-basis: auto;
+  }
+
+  .perm-rule .perm-select,
+  .perm-tags {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .perm-level,
+  .perm-seg-btn,
+  .perm-select,
+  .perm-add-rule,
+  .perm-fine-tune,
+  .perm-tab,
+  .perm-open-btn,
+  .perm-tags {
+    min-height: 44px;
+  }
+
+  .perm-rule-remove {
+    width: 44px;
+    height: 44px;
+  }
+
+  .perm-seg {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+  }
+
+  .perm-area-head,
+  .perm-table,
+  .perm-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .perm-open-btn {
+    width: 100%;
+  }
+}
+
+/* Icon-only tabs placed in the modal header, right of the title */
+.perm-tabs--head {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.perm-tab--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.perm-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.18);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.perm-tab--icon.active .perm-tab-count {
+  background: var(--primary-color, #5c43fa);
+  color: #ffffff;
+}
+
+@media (max-width: 480px) {
+  .perm-tab--icon {
+    min-height: 44px;
+  }
+}

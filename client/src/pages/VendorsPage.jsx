@@ -6,12 +6,12 @@ import { DynamicTable } from '../components/DynamicTable';
 import { ListPlus, Plus, SlidersHorizontal } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
+import { useAccess, applyColumnAccess, tablePermissions } from '../hooks/useAccess';
 import { usePortalTableFeatures, withPortalFeatureLocks } from '../hooks/usePortalTableFeatures';
 import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { buildFieldColumns } from './exams/examTableAdapter';
-import { canConfigureExamTable } from './exams/examTableConfig';
 import './ExamsPage.css';
 
 /** `vendors` keeps only these fixed columns; no custom field may use them. */
@@ -47,7 +47,9 @@ export const VendorsPage = () => {
   const saveChain = useRef(Promise.resolve());
   const [savingFields, setSavingFields] = useState(false);
   const [fieldsError, setFieldsError] = useState('');
-  const canConfigure = canConfigureExamTable();
+  const { access, can } = useAccess();
+  const canConfigure = can('vendors', 'configure');
+  const tablePerms = useMemo(() => tablePermissions(access, 'vendors'), [access]);
   const persistFeatures = useCallback(async (features) => {
     const res = await apiClient.put('/vendors/config', { features });
     setSuccessMsg('Feature Builder settings saved for everyone');
@@ -68,7 +70,10 @@ export const VendorsPage = () => {
     setBulkFieldsOpen(true);
   };
 
-  const columns = useMemo(() => buildFieldColumns(customFields), [customFields]);
+  const columns = useMemo(
+    () => applyColumnAccess(buildFieldColumns(customFields), 'vendors', access),
+    [customFields, access],
+  );
 
   const fetchConfig = async () => {
     try {
@@ -88,7 +93,7 @@ export const VendorsPage = () => {
   const persistFields = (next) => {
     const keyById = new Map(customFields.map((f) => [f.id, f.key]));
     if (next.some((f) => keyById.has(f.id) && keyById.get(f.id) !== f.key)) {
-      window.alert('A field key cannot be changed after it is created because its data would be lost. Create a new field instead.');
+      setErrorMsg('A field key cannot be changed after it is created because its data would be lost. Create a new field instead.');
       return;
     }
     const previous = customFields;
@@ -104,7 +109,7 @@ export const VendorsPage = () => {
         if (removed.length || added) await fetchVendorsFromBackend();
       } catch (err) {
         setCustomFields(previous);
-        window.alert(err.response?.data?.message || err.message || 'Could not save the field change.');
+        setErrorMsg(err.response?.data?.message || err.message || 'Could not save the field change.');
       }
     });
   };
@@ -359,6 +364,7 @@ export const VendorsPage = () => {
             onRefresh={fetchVendorsFromBackend}
             onImportRows={handleImportRows}
             showAddRow={false}
+            permissions={tablePerms}
             isDarkMode={isDarkMode}
             usePortalFeatures
             enableFeatureBuilder={canConfigure}
@@ -379,6 +385,7 @@ export const VendorsPage = () => {
         onChange={persistFields}
         title="Vendor fields"
         reservedKeys={RESERVED_VENDOR_KEYS}
+        allowUnique
         deleteConfirm={(f) =>
           `Delete field "${f.label}"? Its column and all vendor data stored in it will be permanently removed.`
         }
@@ -396,6 +403,7 @@ export const VendorsPage = () => {
           keyPlaceholder="gst_number"
           fields={customFields}
           reservedKeys={RESERVED_VENDOR_KEYS}
+          allowUnique
           saving={savingFields}
           error={fieldsError}
           onClose={() => setBulkFieldsOpen(false)}

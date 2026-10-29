@@ -29,7 +29,6 @@ import {
 } from './exams/examApi';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
 import {
-  canConfigureExamTable,
   fetchExamTableConfig,
   publishExamTableConfig,
   getDefaultExamTableConfig,
@@ -37,6 +36,12 @@ import {
   DEFAULT_EXAM_TABLE_FEATURES,
 } from './exams/examTableConfig';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
+import {
+  useAccess,
+  applyColumnAccess,
+  creatableFields,
+  tablePermissions,
+} from '../hooks/useAccess';
 import { TABLE_IDS } from '../constants/tableIds';
 import {
   getSharedViewFeatures,
@@ -60,7 +65,9 @@ import './ExamsPage.css';
 
 export const ExamsPage = () => {
   const navigate = useNavigate();
-  const canConfigure = useMemo(() => canConfigureExamTable(), []);
+  const { access, can } = useAccess();
+  const canConfigure = can('exams', 'configure');
+  const canCreate = can('exams', 'create');
   const {
     layoutReady,
     layoutPrefs,
@@ -113,7 +120,16 @@ export const ExamsPage = () => {
   formFieldsRef.current = formFields;
   tableFeaturesRef.current = tableFeatures;
 
-  const tableColumns = useMemo(() => buildExamTableColumns(formFields), [formFields]);
+  const tableColumns = useMemo(
+    () => applyColumnAccess(buildExamTableColumns(formFields), 'exams', access),
+    [formFields, access],
+  );
+  const tablePerms = useMemo(() => tablePermissions(access, 'exams'), [access]);
+  /** Create form shows only the fields this user may fill. */
+  const createFields = useMemo(
+    () => creatableFields(formFields, 'exams', access),
+    [formFields, access],
+  );
   const tableRows = useMemo(() => buildExamTableRows(exams), [exams]);
 
   const handleSaveLayoutAsDefault = useCallback(
@@ -432,7 +448,7 @@ export const ExamsPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationError = validateFormFields(formFields, form);
+    const validationError = validateFormFields(createFields, form);
     if (validationError) {
       setFormError(validationError);
       return;
@@ -600,7 +616,7 @@ export const ExamsPage = () => {
     [],
   );
 
-  const fieldRows = groupFieldsForLayout(formFields);
+  const fieldRows = groupFieldsForLayout(createFields);
   const fieldByKey = Object.fromEntries(formFields.map((f) => [f.key, f]));
 
   const renderFieldInput = (field) => {
@@ -635,9 +651,11 @@ export const ExamsPage = () => {
               <SlidersHorizontal size={16} strokeWidth={2} />
             </IconButton>
           )}
-          <IconButton variant="primary" label="Create exam" onClick={openCreate}>
-            <Plus size={16} strokeWidth={2.5} />
-          </IconButton>
+          {canCreate && (
+            <IconButton variant="primary" label="Create exam" onClick={openCreate}>
+              <Plus size={16} strokeWidth={2.5} />
+            </IconButton>
+          )}
           </>
         }
       />
@@ -684,9 +702,10 @@ export const ExamsPage = () => {
               onRowUpdate={handleRowUpdate}
               onRowDelete={handleRowDelete}
               onDuplicateRow={handleDuplicateRow}
-              onExploreRow={handleExploreRow}
+              onExploreRow={can('exam_rows', 'view') ? handleExploreRow : undefined}
               onImportRows={handleImportRows}
               showAddRow={false}
+              permissions={tablePerms}
               enableFeatureBuilder={canConfigure}
               onFeaturesChange={canConfigure ? handleFeaturesChange : undefined}
               onSaveFeatures={canConfigure ? handleSaveFeatures : undefined}
@@ -742,7 +761,7 @@ export const ExamsPage = () => {
             <form className="exams-drawer-form" onSubmit={handleSubmit} noValidate>
               <div className="exams-drawer-body">
                 {formError && <div className="exams-form-error">{formError}</div>}
-                {formFields.length === 0 ? (
+                {createFields.length === 0 ? (
                   <div className="exams-create-empty">
                     <p>No form fields yet.</p>
                     <p className="exams-create-empty-hint">
@@ -784,7 +803,7 @@ export const ExamsPage = () => {
                 <button
                   type="submit"
                   className="exams-btn primary"
-                  disabled={formFields.length === 0 || submitting}
+                  disabled={createFields.length === 0 || submitting}
                 >
                   <Plus size={15} />
                   <span>{submitting ? 'Creating…' : 'Create exam'}</span>

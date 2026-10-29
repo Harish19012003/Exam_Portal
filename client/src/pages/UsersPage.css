@@ -2758,3 +2758,22 @@ input:checked + .slider:before {
 }
 
 
+
+/* App dropdown (SearchableSelect) inside the user create / edit modals: match the other inputs */
+.users-form-select .exams-search-select-trigger {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.users-form-select .exams-search-select-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .users-form-select .exams-search-select-trigger {
+    min-height: 44px;
+  }
+}

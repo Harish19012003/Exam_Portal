@@ -1,3 +1,4 @@
+import { useConfirm } from '../../feedback';
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { LayoutTemplate, Pencil, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { apiClient } from '../../api/client';
@@ -28,6 +29,7 @@ const loadServiceOptions = async () => {
 
 /** Settings → Config → Field presets. `createTick` increments when the toolbar button is pressed. */
 export const FieldPresetsPanel = ({ createTick = 0 }) => {
+  const confirm = useConfirm();
   const formId = useId();
   const [presets, setPresets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -99,7 +101,14 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
   };
 
   const handleDelete = async (preset) => {
-    if (!window.confirm(`Delete the preset "${preset.name}"?\n\nExam tables already created from it are not affected.`)) return;
+    const ok = await confirm({
+      title: 'Delete preset?',
+      message: `Delete the preset "${preset.name}"?`,
+      tertiary: 'Exam tables already created from it are not affected.',
+      confirmLabel: 'Delete preset',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteExamPreset(preset.id);
       await load();

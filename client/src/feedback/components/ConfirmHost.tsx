@@ -1,6 +1,6 @@
+import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { getConfirmPositionClasses, type ConfirmPositionSettings } from '../confirmPosition';
-import { MODAL_BACKDROP } from '../feedbackTokens';
 import type { ConfirmItem } from '../types';
 import { useIsMobileViewport } from './ToastPositionSettings';
 import { ConfirmModal } from './ConfirmModal';
@@ -17,12 +17,25 @@ export function ConfirmHost({ confirm, isDarkMode, confirmPosition, onDismiss }:
   const position = isMobile ? confirmPosition.mobile : confirmPosition.desktop;
   const positionClasses = getConfirmPositionClasses(position);
 
+  // Escape cancels, like the browser's own confirm.
+  useEffect(() => {
+    if (!confirm) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      confirm.onCancel?.();
+      onDismiss();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [confirm, onDismiss]);
+
   if (!confirm) return null;
 
   return createPortal(
     <>
       <div
-        className={MODAL_BACKDROP}
+        className="fixed inset-0 z-[10050] bg-slate-900/55 animate-[fadeIn_0.15s_ease-out]"
         onClick={() => {
           confirm.onCancel?.();
           onDismiss();

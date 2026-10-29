@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { FeatureBuilderPanel, SectionLabel, ToggleRow } from '../../DynamicData/FeatureBuilderParts';
-import { Check, Palette, X, Table, SlidersHorizontal, Layers, Columns, GripVertical, Settings, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { Check, Palette, X, Table, Rows3, SlidersHorizontal, Layers, Columns, GripVertical, Settings, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import {
   type FirstColumnElementKey,
 } from '../hooks/useTableFeatureConfig';
 import type { ColumnConfig, CustomIconElement, CustomRowActionButton, DetailViewMode, GridLinesConfig, RowActionType, SummaryChipConfig, TableColorSet, TableColorsConfig, TableFeaturesConfig } from '../types';
 import { TABLE_COLOR_PRESETS } from '../utils/tableColors';
-import { GRID_LINE_MAX_PX, GRID_LINE_MIN_PX, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, resolveGridLines } from '../types';
+import { DEFAULT_PAGE_SIZE, GRID_LINE_MAX_PX, GRID_LINE_MIN_PX, PAGE_SIZE_OPTIONS, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, resolveGridLines } from '../types';
 import { getTableFeatureItemsForSection, FEATURE_SECTION_FIND, FEATURE_SECTION_SUMMARIZE, FEATURE_SECTION_CHROME, FEATURE_SECTION_INTERACT, FEATURE_SECTION_STRUCTURE } from '../../DynamicData/viewFeatures';
 import type { FeatureScope } from '../../DynamicData/viewFeatures';
 import { SummaryChipsEditor } from '../../DynamicData/SummaryChipsEditor';
@@ -344,6 +344,7 @@ interface ConstructionSidebarProps {
   featuresDirty?: boolean;
   onPatchGridLines?: (patch: GridLinesConfig) => void;
   onSetRowHeight?: (px: number) => void;
+  onSetDefaultPageSize?: (rows: number) => void;
   onPatchTableColors?: (patch: TableColorsConfig) => void;
   onPatchRowActions?: (patch: {
     showExplore?: boolean;
@@ -837,6 +838,7 @@ export function ConstructionSidebar({
   onPatchRowActions,
   onPatchGridLines,
   onSetRowHeight,
+  onSetDefaultPageSize,
   onPatchTableColors,
 }: ConstructionSidebarProps) {
   const [draggedKey, setDraggedKey] = useState<FirstColumnElementKey | null>(null);
@@ -1476,6 +1478,45 @@ export function ConstructionSidebar({
                   />
                   <span className="px-1.5 text-gray-400">px</span>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Default rows per page — what the table shows when it opens */}
+          <section className="space-y-2">
+            <SectionLabel icon={Rows3} isDarkMode={isDarkMode}>Default Rows Visible</SectionLabel>
+            <div
+              className={`flex flex-col gap-2.5 rounded-xl border px-3.5 py-3 ${
+                isDarkMode ? 'border-gray-800 bg-gray-800/40 text-gray-300' : 'border-gray-200 bg-white text-gray-700'
+              }`}
+            >
+              <span className="text-[12.5px] font-medium">
+                Rows shown per page
+                <span className="block text-[11px] font-normal text-gray-400">
+                  How many rows the table shows when it opens. Users can still change it in the footer.
+                </span>
+              </span>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Default rows per page">
+                {PAGE_SIZE_OPTIONS.map(size => {
+                  const active = (Number(customFeatures.defaultPageSize) || DEFAULT_PAGE_SIZE) === size;
+                  return (
+                    <button
+                      key={size}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => onSetDefaultPageSize?.(size)}
+                      className={`min-h-[36px] min-w-[44px] rounded-lg border px-3 text-xs font-bold transition-colors ${
+                        active
+                          ? 'border-[#13C296] bg-[#13C296] text-white'
+                          : isDarkMode
+                            ? 'border-gray-700 bg-gray-800/80 text-gray-200 hover:border-[#13C296]'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-[#13C296]'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </section>

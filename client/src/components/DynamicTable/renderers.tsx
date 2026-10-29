@@ -454,16 +454,28 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
 
     case 'tags': {
       const tagList = Array.isArray(value) ? value as string[] : str ? str.split(',').map(s => s.trim()) : [];
+      const tagColors = isFieldColumn(column) ? column.optionColors : undefined;
       const colors = ['bg-blue-100 text-blue-700', 'bg-purple-100 text-purple-700', 'bg-pink-100 text-pink-700', 'bg-orange-100 text-orange-700', 'bg-teal-100 text-teal-700'];
       const darkColors = ['bg-blue-900/40 text-blue-300', 'bg-purple-900/40 text-purple-300', 'bg-pink-900/40 text-pink-300', 'bg-orange-900/40 text-orange-300', 'bg-teal-900/40 text-teal-300'];
       return (
         <div className="flex flex-wrap gap-1">
-          {tagList.map((t, i) => (
-            <span key={t} className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
-              ${isDarkMode ? darkColors[i % darkColors.length] : colors[i % colors.length]}`}>
-              {t}
-            </span>
-          ))}
+          {tagList.map((t, i) => {
+            const own = tagColors?.[t];
+            return own ? (
+              <span
+                key={t}
+                className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border"
+                style={{ color: own, backgroundColor: `${own}1f`, borderColor: `${own}55` }}
+              >
+                {t}
+              </span>
+            ) : (
+              <span key={t} className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
+                ${isDarkMode ? darkColors[i % darkColors.length] : colors[i % colors.length]}`}>
+                {t}
+              </span>
+            );
+          })}
         </div>
       );
     }

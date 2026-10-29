@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
 import { apiClient } from '../api/client';
+import { useAccess, clearAccessCache } from '../hooks/useAccess';
 import { NetworkIndicator } from '../components/ui/NetworkIndicator';
 import { NotificationDropdown } from '../components/ui/NotificationDropdown';
 import {
@@ -11,6 +12,7 @@ import {
   GraduationCap,
   Database,
   DatabaseZap,
+  ListOrdered,
   TableProperties,
   Table2,
   Users,
@@ -28,12 +30,14 @@ import {
   Settings2,
   Zap,
 } from 'lucide-react';
+import { ExamSwitcher } from './ExamSwitcher';
 import './DashboardLayout.css';
 import './ExamSidebar.css';
 
 const NAV_ITEMS = [
   {
     to: '/dashboard',
+    page: 'dashboard',
     label: 'Dashboard',
     icon: LayoutDashboard,
     activeIcon: LayoutGrid,
@@ -41,18 +45,28 @@ const NAV_ITEMS = [
   },
   {
     to: '/exams',
+    page: 'exams',
     label: 'Exams',
     icon: FileText,
     activeIcon: GraduationCap,
   },
   {
     to: '/vendors',
+    page: 'vendors',
     label: 'Vendor Data',
     icon: Database,
     activeIcon: DatabaseZap,
   },
   {
+    to: '/seq-view',
+    page: 'seq_view',
+    label: 'SeqView',
+    icon: ListOrdered,
+    activeIcon: ListOrdered,
+  },
+  {
     to: '/tables',
+    page: 'tables',
     label: 'Dynamic Table',
     icon: TableProperties,
     activeIcon: Table2,
@@ -83,6 +97,9 @@ export const DashboardLayout = () => {
       return !prev;
     });
   };
+  const { ready: accessReady, canPage } = useAccess();
+  // Until permissions load, show the full menu; the server still blocks anything not allowed.
+  const navItems = accessReady ? NAV_ITEMS.filter((item) => canPage(item.page)) : NAV_ITEMS;
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
   // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
@@ -139,6 +156,7 @@ export const DashboardLayout = () => {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
       localStorage.removeItem('sessionActive');
+      clearAccessCache();
       navigate('/login');
     }
   };
@@ -153,6 +171,9 @@ export const DashboardLayout = () => {
     }
     if (path === '/dashboard/vendors' || path === '/vendors') {
       return { label: 'Vendor Data', icon: DatabaseZap };
+    }
+    if (path === '/seq-view') {
+      return { label: 'SeqView', icon: ListOrdered };
     }
     if (path === '/dashboard/users' || path === '/users') {
       return { label: 'Settings / Users & Roles', icon: Users };
@@ -175,6 +196,10 @@ export const DashboardLayout = () => {
     return null;
   };
   const currentBreadcrumb = getBreadcrumb();
+  // On /exams/:id the breadcrumb's last part becomes a quick switch between exams.
+  const examPageId = /^\/exams\/[^/]+$/.test(location.pathname.replace(/\/$/, ''))
+    ? decodeURIComponent(location.pathname.replace(/\/$/, '').split('/')[2])
+    : null;
 
   return (
     <div className="layout">
@@ -191,7 +216,7 @@ export const DashboardLayout = () => {
         </div>
 
         <nav className="xs-nav" aria-label="Main Navigation">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -293,9 +318,13 @@ export const DashboardLayout = () => {
                         <span>{currentBreadcrumb.label}</span>
                       </Link>
                       <ChevronRight size={14} className="topbar-breadcrumb-separator" />
-                      <span className="topbar-breadcrumb-current">
-                        <span>{currentBreadcrumb.tail}</span>
-                      </span>
+                      {examPageId ? (
+                        <ExamSwitcher examId={examPageId} label={currentBreadcrumb.tail} />
+                      ) : (
+                        <span className="topbar-breadcrumb-current">
+                          <span>{currentBreadcrumb.tail}</span>
+                        </span>
+                      )}
                     </>
                   ) : (
                     <span className="topbar-breadcrumb-current">

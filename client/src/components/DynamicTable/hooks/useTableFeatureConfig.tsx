@@ -67,11 +67,20 @@ export function useTableFeatureConfig({
   onToggleColumnVis,
   onSortColumn,
 }: UseTableFeatureConfigOptions) {
-  const [customIconElements, setCustomIconElements] = useState<CustomIconElement[]>([]);
-  const [customRowActionButtons, setCustomRowActionButtons] = useState<CustomRowActionButton[]>([
-    { id: 'btn_edit', label: 'Edit', action: 'edit', iconName: 'pencil', color: '#13C296', size: 'md', enabled: true },
-    { id: 'btn_delete', label: 'Delete', action: 'delete', iconName: 'trash-2', color: '#f43f5e', size: 'md', enabled: true },
-  ]);
+  // Saved features only hold the resolved selection column / row actions, so the builder's local state starts from them.
+  const savedSelection = initialFeatures?.selectionColumn;
+  const savedRowActions = initialFeatures?.rowActions;
+  const [customIconElements, setCustomIconElements] = useState<CustomIconElement[]>(
+    () => (Array.isArray(savedSelection?.customIconElements) ? savedSelection.customIconElements : []),
+  );
+  const [customRowActionButtons, setCustomRowActionButtons] = useState<CustomRowActionButton[]>(() =>
+    Array.isArray(savedRowActions?.customButtons)
+      ? savedRowActions.customButtons
+      : [
+          { id: 'btn_edit', label: 'Edit', action: 'edit', iconName: 'pencil', color: '#13C296', size: 'md', enabled: true },
+          { id: 'btn_delete', label: 'Delete', action: 'delete', iconName: 'trash-2', color: '#f43f5e', size: 'md', enabled: true },
+        ],
+  );
 
   const addCustomRowActionButton = useCallback((presetAction?: RowActionType) => {
     const newAction = presetAction || 'share';
@@ -124,17 +133,28 @@ export function useTableFeatureConfig({
       prev.map(b => (b.id === id ? { ...b, ...updates } : b))
     );
   }, []);
-  const [firstColOrder, setFirstColOrder] = useState<string[]>(['checkbox']);
+  const savedOrder = Array.isArray(savedSelection?.elementOrder) ? (savedSelection.elementOrder as string[]) : null;
+  const [firstColOrder, setFirstColOrder] = useState<string[]>(() => savedOrder ?? ['checkbox']);
 
-  const [enableTriggerIcon, setEnableTriggerIcon] = useState(false);
-  const [orderedElementKeys, setOrderedElementKeys] = useState<FirstColumnElementKey[]>(['expander', 'checkbox', 'icon']);
-  const [detailViewMode, setDetailViewMode] = useState<DetailViewMode>('sidebar-drawer');
-  const [customDetailIcon, setCustomDetailIcon] = useState('external-link');
-  const [expanderIcon, setExpanderIcon] = useState('chevron');
-  const [expanderOperation, setExpanderOperation] = useState<DetailViewMode>('inline-subtable');
-  const [showSubRowCount, setShowSubRowCount] = useState(true);
-  const [actionsAlwaysVisible, setActionsAlwaysVisible] = useState(false);
-  const [chosenIconName, setChosenIconName] = useState('external-link');
+  const [enableTriggerIcon, setEnableTriggerIcon] = useState(() => {
+    const mode = savedSelection?.mode;
+    const hasCustomIcon = (savedSelection?.customIconElements ?? []).some((e) => e.enabled);
+    return (mode === 'icon-only' || mode === 'checkbox-and-icon') && !hasCustomIcon;
+  });
+  const [orderedElementKeys, setOrderedElementKeys] = useState<FirstColumnElementKey[]>(
+    () => (savedOrder as FirstColumnElementKey[] | null) ?? ['expander', 'checkbox', 'icon'],
+  );
+  const [detailViewMode, setDetailViewMode] = useState<DetailViewMode>(
+    () => savedSelection?.detailViewMode ?? 'sidebar-drawer',
+  );
+  const [customDetailIcon, setCustomDetailIcon] = useState(() => savedSelection?.iconName || 'external-link');
+  const [expanderIcon, setExpanderIcon] = useState(() => savedSelection?.expanderIcon || 'chevron');
+  const [expanderOperation, setExpanderOperation] = useState<DetailViewMode>(
+    () => savedSelection?.expanderOperation ?? 'inline-subtable',
+  );
+  const [showSubRowCount, setShowSubRowCount] = useState(() => savedSelection?.showSubRowCount !== false);
+  const [actionsAlwaysVisible, setActionsAlwaysVisible] = useState(() => savedRowActions?.showOnHover === false);
+  const [chosenIconName, setChosenIconName] = useState(() => savedSelection?.iconName || 'external-link');
   const [isTransposed, setIsTransposed] = useState(false);
   const [customFeatures, setCustomFeatures] = useState<TableFeaturesConfig>(() => ({
     ...DEFAULT_CUSTOM_FEATURES,
@@ -230,6 +250,10 @@ export function useTableFeatureConfig({
 
   const setRowHeight = useCallback((px: number) => {
     setCustomFeatures((prev) => ({ ...prev, rowHeight: px }));
+  }, []);
+
+  const setDefaultPageSize = useCallback((rows: number) => {
+    setCustomFeatures((prev) => ({ ...prev, defaultPageSize: rows }));
   }, []);
 
   const patchGridLines = useCallback((patch: GridLinesConfig) => {
@@ -388,6 +412,7 @@ export function useTableFeatureConfig({
     patchRowActions,
     patchGridLines,
     setRowHeight,
+    setDefaultPageSize,
     patchTableColors,
     updateSummaryChips,
     resolvedFeatures,

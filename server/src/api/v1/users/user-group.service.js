@@ -1,5 +1,6 @@
 import { AppError } from '../../../core/errors.js';
-import { ERROR_CODES } from '@exam-view/shared';
+import { ERROR_CODES, normalizePermissionSet } from '@exam-view/shared';
+import { invalidateAccessCache } from '../../../core/access.js';
 import * as repo from './user-group.repository.js';
 
 const MAX_GROUPS = 50;
@@ -14,7 +15,9 @@ const clean = (body = {}) => {
   const ids = Array.isArray(body.userIds) ? body.userIds : [];
   if (ids.length > MAX_MEMBERS) throw validationError('Too many members in one group');
   const userIds = [...new Set(ids.map((v) => String(v ?? '').trim()).filter(Boolean))];
-  return { name, userIds };
+  const data = { name, userIds };
+  if (body.permissions !== undefined) data.permissions = normalizePermissionSet(body.permissions);
+  return data;
 };
 
 const assertNameFree = async (name, ignoreId) => {
@@ -30,7 +33,9 @@ export const createGroup = async (body, actor) => {
   const data = clean(body);
   if ((await repo.listGroups()).length >= MAX_GROUPS) throw validationError(`At most ${MAX_GROUPS} groups`);
   await assertNameFree(data.name);
-  return repo.create({ ...data, createdBy: actor?.id });
+  const group = await repo.create({ ...data, createdBy: actor?.id });
+  invalidateAccessCache();
+  return group;
 };
 
 export const updateGroup = async (id, body) => {
@@ -38,11 +43,13 @@ export const updateGroup = async (id, body) => {
   await assertNameFree(data.name, id);
   const group = await repo.update(id, data);
   if (!group) throw notFound();
+  invalidateAccessCache();
   return group;
 };
 
 export const deleteGroup = async (id) => {
   if (!(await repo.findById(id))) throw notFound();
   await repo.remove(id);
+  invalidateAccessCache();
   return { success: true };
 };

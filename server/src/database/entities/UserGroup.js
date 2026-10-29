@@ -12,6 +12,8 @@ export const UserGroupSchema = new EntitySchema({
     id: { type: 'string', serializedPrimaryKey: true },
     name: { type: 'string' },
     user_ids: { type: 'json', default: [] },
+    /** Permission set — see shared/src/constants/access.js */
+    permissions: { type: 'json', nullable: true },
     created_by: { type: 'string', nullable: true },
     created_at: { type: 'Date', onCreate: () => new Date() },
     updated_at: { type: 'Date', onCreate: () => new Date(), onUpdate: () => new Date() },

@@ -215,6 +215,14 @@ export const listRows = (examId) =>
     return repo.listRows(table.id, fields);
   });
 
+export const getRow = (examId, rowId) =>
+  withMeta(async () => {
+    const { table, fields } = await tableAndFields(examId);
+    const row = await repo.findRow(table.id, fields, rowId);
+    if (!row) throw notFound('Row not found');
+    return row;
+  });
+
 export const createRow = (examId, body, userId) =>
   withMeta(async () => {
     const { table, fields } = await tableAndFields(examId);

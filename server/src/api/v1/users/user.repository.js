@@ -87,6 +87,8 @@ class UserRepository extends BaseRepository {
       status: entity.status,
       is_primary: Boolean(entity.is_primary),
       permissions: entity.permissions,
+      access_overrides: entity.access_overrides || null,
+      tag_ids: Array.isArray(entity.tag_ids) ? entity.tag_ids.map(String) : [],
       two_factor_enabled: Boolean(entity.two_factor_enabled),
       timezone: entity.timezone || 'UTC',
       last_active_at: entity.last_active_at || null,

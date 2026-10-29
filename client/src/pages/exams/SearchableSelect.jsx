@@ -19,6 +19,7 @@ export const SearchableSelect = ({
   portal = false,
   className = '',
   ariaLabel,
+  disabled = false,
 }) => {
   const generatedId = useId();
   const selectId = id || generatedId;
@@ -200,6 +201,7 @@ export const SearchableSelect = ({
         ref={triggerRef}
         type="button"
         aria-label={ariaLabel}
+        disabled={disabled}
         className={`exams-search-select-trigger ${open ? 'open' : ''}`}
         onClick={() => (open ? close() : setOpen(true))}
         aria-haspopup="listbox"

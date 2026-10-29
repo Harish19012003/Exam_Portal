@@ -1,6 +1,7 @@
 import { userRepository } from './user.repository.js';
 import { AppError } from '../../../core/errors.js';
-import { ERROR_CODES, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
+import { ERROR_CODES, DEFAULT_ROLE_PERMISSIONS, normalizePermissionSet } from '@exam-view/shared';
+import { invalidateAccessCache } from '../../../core/access.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { getOrm } from '../../../database/connection.js';
@@ -51,6 +52,9 @@ export const createUser = async (userData, creatorUser) => {
       403,
       ERROR_CODES.FORBIDDEN
     );
+  }
+  if (userData.role && userData.role !== 'user' && creatorUser?.role !== 'super_admin') {
+    throw new AppError('Only a Super Admin can create Admin accounts. Use groups to give access.', 403, ERROR_CODES.FORBIDDEN);
   }
 
   const userId = uuidv4();
@@ -105,6 +109,11 @@ export const updateUser = async (targetId, updateData, currentActor) => {
     );
   }
 
+  // Role decides fallback access for users outside configured groups, so it is a privilege.
+  if (updateData.role !== undefined && updateData.role !== targetUser.role && currentActor?.role !== 'super_admin') {
+    throw new AppError('Only a Super Admin can change roles. Use groups to give access.', 403, ERROR_CODES.FORBIDDEN);
+  }
+
   // Prevent demoting the Primary Super Admin
   if (targetUser.is_primary && updateData.role && updateData.role !== 'super_admin') {
     throw new AppError(
@@ -146,11 +155,23 @@ export const updateUser = async (targetId, updateData, currentActor) => {
     payload.permissions = JSON.stringify(DEFAULT_ROLE_PERMISSIONS[updateData.role] || []);
   }
 
+  if (updateData.access_overrides !== undefined) {
+    if (currentActor?.role !== 'super_admin') {
+      throw new AppError('Only a Super Admin can change extra or blocked access.', 403, ERROR_CODES.FORBIDDEN);
+    }
+    const raw = updateData.access_overrides || {};
+    payload.access_overrides = {
+      grant: normalizePermissionSet(raw.grant),
+      deny: normalizePermissionSet(raw.deny),
+    };
+  }
+
   if (updateData.password) {
     payload.password_hash = await bcrypt.hash(updateData.password, 10);
   }
 
   await userRepository.update(targetId, payload);
+  invalidateAccessCache();
   return await getUserById(targetId);
 };
 
@@ -317,9 +338,9 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     }
 
     // Role authority check
-    if (role === 'super_admin' && creatorUser?.role !== 'super_admin') {
+    if (role !== 'user' && creatorUser?.role !== 'super_admin') {
       results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Only Super Admins can create super_admin role accounts', reason: 'Only Super Admins can create super_admin role accounts' });
+      results.errors.push({ row: rowNum, email, error: 'Only Super Admins can create admin or super_admin accounts', reason: 'Only Super Admins can create admin or super_admin accounts' });
       continue;
     }
 
@@ -394,5 +415,6 @@ export const deleteUser = async (targetId, currentActor) => {
   }
 
   await userRepository.delete(targetId);
+  invalidateAccessCache();
   return { success: true, message: 'User deleted successfully' };
 };

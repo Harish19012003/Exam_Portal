@@ -139,6 +139,7 @@ export const toFieldDefinition = (item, order) => {
     sameAsDefaultOn: true,
     order,
   };
+  if (item.unique) def.unique = true;
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }

@@ -25,6 +25,7 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
   enableTranspose: false,
   enableSettings: false,
   enableOpenDetail: true,
+  defaultPageSize: 15,
   summaryChips: [],
   quickFilterFieldKeys: [],
   gridLines: {

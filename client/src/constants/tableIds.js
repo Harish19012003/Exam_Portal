@@ -5,4 +5,6 @@
 export const TABLE_IDS = Object.freeze({
   EXAMS: 'exam_management_v1',
   VENDORS: 'vendor_master_data_v4',
+  USERS: 'user_management_v1',
+  SEQ_VIEW: 'seq_view_data_v1',
 });

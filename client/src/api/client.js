@@ -25,6 +25,7 @@ const clearSession = () => {
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
   localStorage.removeItem('sessionActive');
+  localStorage.removeItem('accessCache');
 };
 
 // Single-flight refresh: concurrent callers share one in-flight request.
