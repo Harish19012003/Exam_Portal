@@ -1,4 +1,6 @@
 export { FeedbackProvider, useFeedback } from './FeedbackProvider';
+export { useConfirm } from './useConfirm';
+export type { ConfirmOptions } from './useConfirm';
 export { FEEDBACK_COMPONENTS, FEEDBACK_COMPONENT_COUNT, getAllComponentNames, getComponentsByCategory } from './registry';
 export { isAlertName } from './alertPresets';
 export { isConfirmName } from './confirmPresets';

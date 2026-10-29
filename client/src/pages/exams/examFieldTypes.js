@@ -133,6 +133,9 @@ export const FIELDS_STORAGE_KEY = 'exam_form_fields_v2';
 
 export { loadConfigDropdownLists, getConfigListOptions };
 
+/** Field types that can be marked Unique (matches the server). */
+export const UNIQUE_FIELD_TYPES = new Set(['text', 'code', 'mono', 'email', 'phone', 'number', 'currency', 'link']);
+
 export const slugifyKey = (label) =>
   String(label || '')
     .trim()

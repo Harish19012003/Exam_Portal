@@ -3,6 +3,8 @@ import { ERROR_CODES } from '@exam-view/shared';
 import { cleanFields, cleanRowValues } from '../exam-tables/exam-table.service.js';
 import { effectiveType } from '../exam-tables/exam-table.repository.js';
 import { decodeCellValue, encodeCellValue } from '../exams/exam.repository.js';
+import { vendorRepository } from './vendor.repository.js';
+import { assertCanBecomeUnique } from '../shared/unique-fields.js';
 import * as repo from './vendor-fields.repository.js';
 
 const MAX_FEATURES_BYTES = 200000;
@@ -24,6 +26,12 @@ export const saveConfig = async (body = {}, userId) => {
     const fields = cleanFields(body.fields);
     const clash = fields.find((f) => repo.VENDOR_RESERVED_KEYS.includes(f.key));
     if (clash) throw validationError(`"${clash.key}" is reserved and cannot be used as a field key`);
+
+    const newlyUnique = fields.filter((f) => f.unique === true && !current.some((c) => c.key === f.key && c.unique === true));
+    if (newlyUnique.length) {
+      const rows = await vendorRepository.findAll();
+      newlyUnique.forEach((f) => assertCanBecomeUnique(f, rows));
+    }
 
     const keys = new Set(fields.map((f) => f.key));
     const removed = current.filter((f) => !keys.has(f.key)).map((f) => f.key);

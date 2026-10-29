@@ -140,6 +140,15 @@
   background-color: var(--dt-stripe-bg) !important;
 }
 
+/* The sticky columns' opaque edge must match the shaded row, or it shows as a white band beside them. */
+.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td.dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 var(--dt-stripe-bg), 1px 0 0 0 var(--dt-stripe-bg) !important;
+}
+
+.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td.dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 var(--dt-stripe-bg), -1px 0 0 0 var(--dt-stripe-bg) !important;
+}
+
 .dt-themed[data-dt-foot] [data-dt-footer-bar],
 .dt-themed[data-dt-foot] .dt-grid > tfoot,
 .dt-themed[data-dt-foot] .dt-grid > tfoot td {

@@ -1,3 +1,4 @@
+import { useConfirm } from '../feedback';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
@@ -5,6 +6,7 @@ import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Table2, X } from 'lucide-react';
 import { DynamicTable } from '../components/DynamicTable';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
+import { useAccess, applyColumnAccess, creatableFields, tablePermissions } from '../hooks/useAccess';
 import { getExam } from './exams/examApi';
 import {
   apiErrorMessage,
@@ -30,37 +32,9 @@ import {
   snapshotFeatureStores,
   validateFormFields,
 } from './exams/examTableHelpers';
+import { buildExamLabel } from './exams/examLabel';
 import './ExamsPage.css';
 import './ExamExplorePage.css';
-
-const pick = (values, keys) => {
-  for (const key of keys) {
-    const v = values?.[key];
-    if (v != null && String(v).trim() !== '') return String(v).trim();
-  }
-  return '';
-};
-
-/** "UPPSC (Bio-Metric - abc)" — service / project code parts are optional. */
-export const buildExamLabel = (exam) => {
-  const values = exam?.values || {};
-  const name = pick(values, ['exam_name', 'name', 'title']) || 'Untitled exam';
-  const detail = [pick(values, ['service']), pick(values, ['project_code'])]
-    .filter(Boolean)
-    .join(' - ');
-  return detail ? `${name} (${detail})` : name;
-};
-
-const ADMIN_ROLES = new Set(['super_admin', 'global_admin', 'admin']);
-
-/** Mirrors the server: only admin roles may create tables or change columns. */
-const canBuildTable = () => {
-  try {
-    return ADMIN_ROLES.has(JSON.parse(localStorage.getItem('user') || '{}')?.role);
-  } catch {
-    return false;
-  }
-};
 
 /** Auto-filled, audit and computed fields are never copied when duplicating a row. */
 const SKIP_DUPLICATE_KEYS = new Set([
@@ -80,10 +54,14 @@ const tableFeaturesFor = (saved) => ({
 });
 
 export const ExamExplorePage = () => {
+  const confirm = useConfirm();
   const { examId } = useParams();
   const navigate = useNavigate();
   const { setBreadcrumbTail } = useOutletContext() || {};
-  const isAdmin = useMemo(() => canBuildTable(), []);
+  const { access, can } = useAccess();
+  /** Creating the table / changing its columns needs the explore table's configure right. */
+  const isAdmin = can('exam_rows', 'configure');
+  const canCreateRow = can('exam_rows', 'create');
 
   const [exam, setExam] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | missing | error
@@ -130,7 +108,12 @@ export const ExamExplorePage = () => {
   } = useTableLayoutPrefs(layoutTableId, { enabled: Boolean(layoutTableId) });
 
   const label = exam ? buildExamLabel(exam) : '';
-  const tableColumns = useMemo(() => buildExamTableColumns(fields), [fields]);
+  const tableColumns = useMemo(
+    () => applyColumnAccess(buildExamTableColumns(fields), 'exam_rows', access),
+    [fields, access],
+  );
+  const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
+  const createFields = useMemo(() => creatableFields(fields, 'exam_rows', access), [fields, access]);
   const tableRows = useMemo(() => buildExamTableRows(rows), [rows]);
 
   const applySnapshot = useCallback((snap) => {
@@ -152,7 +135,7 @@ export const ExamExplorePage = () => {
       const data = await listExamRows(examId);
       setRows(data.rows);
     } catch (err) {
-      setMessage(apiErrorMessage(err, 'Could not load rows'));
+      setMessage(apiErrorMessage(err, 'Could not load the center list'));
     } finally {
       setRowsLoading(false);
     }
@@ -230,9 +213,13 @@ export const ExamExplorePage = () => {
     const removed = serverFieldsRef.current.filter((f) => !nextKeys.has(f.key));
     if (removed.length) {
       const names = removed.map((f) => f.label || f.key).join(', ');
-      const ok = window.confirm(
-        `Remove ${names}?\n\nThis permanently deletes the column and all data stored in it. This cannot be undone.`,
-      );
+      const ok = await confirm({
+        title: 'Remove column?',
+        message: `Remove ${names}?`,
+        tertiary: 'This permanently deletes the column and all data stored in it. This cannot be undone.',
+        confirmLabel: 'Remove',
+        destructive: true,
+      });
       if (!ok) {
         setFields(serverFieldsRef.current);
         return;
@@ -241,7 +228,7 @@ export const ExamExplorePage = () => {
     try {
       const snap = await saveExamTableConfig(examId, { fields: next, confirmDrops: removed.length > 0 });
       serverFieldsRef.current = snap.fields;
-      setMessage('Table columns saved');
+      setMessage('Center list fields saved');
       await loadRows();
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not save the table columns'));
@@ -251,7 +238,7 @@ export const ExamExplorePage = () => {
         // keep local state
       }
     }
-  }, [examId, applySnapshot, loadRows]);
+  }, [examId, applySnapshot, loadRows, confirm]);
 
   const handleFieldsChange = useCallback(
     (nextFields) => {
@@ -317,7 +304,7 @@ export const ExamExplorePage = () => {
       const next = await updateExamRow(examId, rowId, values);
       setRows((prev) => prev.map((r) => (r.id === rowId ? next : r)));
     } catch (err) {
-      setMessage(apiErrorMessage(err, 'Could not update the row'));
+      setMessage(apiErrorMessage(err, 'Could not update the center'));
     }
   };
 
@@ -326,9 +313,9 @@ export const ExamExplorePage = () => {
     try {
       await deleteExamRows(examId, ids);
       setRows((prev) => prev.filter((r) => !ids.includes(r.id)));
-      setMessage(ids.length > 1 ? 'Rows deleted' : 'Row deleted');
+      setMessage(ids.length > 1 ? 'Centers deleted' : 'Center deleted');
     } catch (err) {
-      setMessage(apiErrorMessage(err, 'Could not delete the row'));
+      setMessage(apiErrorMessage(err, 'Could not delete the center'));
     }
   };
 
@@ -347,9 +334,9 @@ export const ExamExplorePage = () => {
     try {
       const created = await createExamRow(examId, values);
       setRows((prev) => [created, ...prev]);
-      setMessage('Row duplicated');
+      setMessage('Center duplicated');
     } catch (err) {
-      setMessage(apiErrorMessage(err, 'Could not duplicate the row'));
+      setMessage(apiErrorMessage(err, 'Could not duplicate the center'));
     }
   };
 
@@ -386,7 +373,7 @@ export const ExamExplorePage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationError = validateFormFields(fields, form);
+    const validationError = validateFormFields(createFields, form);
     if (validationError) {
       setFormError(validationError);
       return;
@@ -397,9 +384,9 @@ export const ExamExplorePage = () => {
       const created = await createExamRow(examId, form);
       setRows((prev) => [created, ...prev]);
       setIsCreateOpen(false);
-      setMessage('Row added');
+      setMessage('Center added');
     } catch (err) {
-      setFormError(apiErrorMessage(err, 'Could not save the row. Please try again.'));
+      setFormError(apiErrorMessage(err, 'Could not save the center. Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -448,13 +435,13 @@ export const ExamExplorePage = () => {
   );
 
   if (status === 'loading') {
-    return <div className="exam-explore-page exam-explore-state">Loading exam…</div>;
+    return <div className="exam-explore-page exam-explore-state">Loading center list…</div>;
   }
 
   if (status !== 'ready') {
     return (
       <div className="exam-explore-page">
-        <PageHeading title="Exam" leading={backButton} />
+        <PageHeading title="Center list" leading={backButton} />
         <div className="exam-explore-panel exam-explore-state" role="alert">
           {status === 'missing' ? 'This exam no longer exists.' : 'Could not load this exam. Please try again.'}
         </div>
@@ -468,7 +455,8 @@ export const ExamExplorePage = () => {
   return (
     <div className="exams-page exams-page--table exam-explore-page">
       <PageHeading
-        title={`Exam : ${label}`}
+        title="Center list"
+        subtitle={`Exam : ${label}`}
         leading={backButton}
         actions={
           hasTable ? (
@@ -478,9 +466,11 @@ export const ExamExplorePage = () => {
                   <SlidersHorizontal size={16} strokeWidth={2} />
                 </IconButton>
               )}
-              <IconButton variant="primary" label="Add row" onClick={openCreate} disabled={fields.length === 0}>
-                <Plus size={16} strokeWidth={2.5} />
-              </IconButton>
+              {canCreateRow && (
+                <IconButton variant="primary" label="Add center" onClick={openCreate} disabled={createFields.length === 0}>
+                  <Plus size={16} strokeWidth={2.5} />
+                </IconButton>
+              )}
             </>
           ) : null
         }
@@ -496,13 +486,13 @@ export const ExamExplorePage = () => {
         {!hasTable ? (
           <div className="exam-explore-state">
             <Table2 size={22} strokeWidth={1.75} />
-            <p className="exam-explore-empty-title">No table created for this exam yet</p>
+            <p className="exam-explore-empty-title">No center list created for this exam yet</p>
             <p className="exam-explore-empty-hint">
               {!isAdmin
-                ? 'An admin needs to create this exam’s table first.'
+                ? 'An admin needs to create this exam’s center list first.'
                 : matchedPreset
                   ? `There is a field preset for ${matchedPreset.serviceValue}. Create the table from it to start with those ${matchedPreset.fieldCount} fields.`
-                  : 'Each exam gets its own table with its own fields. Create the table, then build its fields.'}
+                  : 'Each exam gets its own center list with its own fields. Create the list, then build its fields.'}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
             {isAdmin && (
@@ -518,7 +508,7 @@ export const ExamExplorePage = () => {
                   onClick={() => handleCreateTable()}
                   disabled={creating}
                 >
-                  {creating && !matchedPreset ? 'Creating…' : matchedPreset ? 'Start blank' : 'Create table'}
+                  {creating && !matchedPreset ? 'Creating…' : matchedPreset ? 'Start blank' : 'Create center list'}
                 </button>
               </div>
             )}
@@ -529,8 +519,8 @@ export const ExamExplorePage = () => {
             <p>No fields yet</p>
             <p className="exams-create-empty-hint">
               {isAdmin
-                ? 'Use the sliders icon to build fields, then add rows with +.'
-                : 'Ask an admin to build the fields for this exam’s table.'}
+                ? 'Use the sliders icon to build fields, then add centers with +.'
+                : 'Ask an admin to build the fields for this exam’s center list.'}
             </p>
           </div>
         ) : rowsLoading || !layoutReady ? (
@@ -555,6 +545,7 @@ export const ExamExplorePage = () => {
               onRowDelete={handleRowDelete}
               onDuplicateRow={handleDuplicateRow}
               showAddRow={false}
+              permissions={tablePerms}
               enableFeatureBuilder={isAdmin}
               onFeaturesChange={isAdmin ? handleFeaturesChange : undefined}
               onSaveFeatures={isAdmin ? handleSaveFeatures : undefined}
@@ -568,12 +559,12 @@ export const ExamExplorePage = () => {
 
       {isCreateOpen && (
         <div className="exams-drawer-overlay" onClick={() => setIsCreateOpen(false)}>
-          <aside className="exams-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Add row">
+          <aside className="exams-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Add center">
             <div className="exams-drawer-header">
               <div className="exams-drawer-title-group">
                 <h2 className="exams-drawer-title">
                   <FilePlus2 size={18} className="exams-drawer-title-icon" />
-                  <span>Add row</span>
+                  <span>Add center</span>
                 </h2>
                 <p className="exams-drawer-subtitle">{label}</p>
               </div>
@@ -584,7 +575,7 @@ export const ExamExplorePage = () => {
             <form className="exams-drawer-form" onSubmit={handleSubmit} noValidate>
               <div className="exams-drawer-body">
                 {formError && <div className="exams-form-error">{formError}</div>}
-                {groupFieldsForLayout(fields).map((row) =>
+                {groupFieldsForLayout(createFields).map((row) =>
                   row.length === 2 ? (
                     <div key={`${row[0].id}_${row[1].id}`} className="exams-form-row">
                       {row.map((field) => renderFieldInput(field))}
@@ -600,7 +591,7 @@ export const ExamExplorePage = () => {
                 </button>
                 <button type="submit" className="exams-btn primary" disabled={submitting}>
                   <Plus size={15} />
-                  <span>{submitting ? 'Saving…' : 'Add row'}</span>
+                  <span>{submitting ? 'Saving…' : 'Add center'}</span>
                 </button>
               </div>
             </form>

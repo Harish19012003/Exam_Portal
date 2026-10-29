@@ -67,6 +67,7 @@ export const AVAILABLE_RIGHTS = [
   { id: 'roles:manage', label: 'Manage Roles & Rights', category: 'Administration' },
   { id: 'exams:manage', label: 'Manage Exams', category: 'Examinations' },
   { id: 'vendors:manage', label: 'Manage Vendor Database', category: 'Vendors' },
+  { id: 'seqviews:manage', label: 'Manage SeqView Data', category: 'SeqView' },
   { id: 'settings:manage', label: 'System Settings', category: 'System' },
   { id: 'audit_logs:view', label: 'View Audit Logs', category: 'Security' },
 ];
@@ -80,6 +81,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'users:update',
     'exams:manage',
     'vendors:manage',
+    'seqviews:manage',
     'settings:manage',
     'audit_logs:view',
   ],
@@ -87,6 +89,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'users:view',
     'exams:manage',
     'vendors:manage',
+    'seqviews:manage',
   ],
   user: [
     'exams:view',

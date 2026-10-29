@@ -818,3 +818,196 @@
 .main-content:has(.tables-page--dynamic) {
   overflow: hidden;
 }
+/* Shown in place of a page the user's groups don't include */
+.page-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: min(60vh, 480px);
+  padding: clamp(1rem, 4vw, 2.5rem);
+  text-align: center;
+  color: var(--text-secondary, #64748b);
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.page-gate h2 {
+  margin: 0;
+  font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+  color: var(--text-primary, #0f172a);
+}
+
+.page-gate p {
+  margin: 0;
+  max-width: 420px;
+  font-size: 0.9rem;
+}
+
+.page-gate-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border-radius: 8px;
+  background: var(--primary-color, #2563eb);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Breadcrumb exam switcher (exam pages): current exam + searchable list of all exams */
+.exam-switcher {
+  position: relative;
+  min-width: 0;
+}
+
+.exam-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(62vw, 560px);
+  min-height: 32px;
+  padding: 4px 8px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.exam-switcher-trigger:hover,
+.exam-switcher-trigger.open {
+  background: var(--primary-light, rgba(37, 99, 235, 0.08));
+  border-color: var(--border-color, #e2e8f0);
+}
+
+.exam-switcher-trigger:focus-visible {
+  outline: 2px solid var(--primary-color, #5c43fa);
+  outline-offset: 1px;
+}
+
+.exam-switcher-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exam-switcher-chevron {
+  flex-shrink: 0;
+  color: var(--text-secondary, #64748b);
+  transition: transform 0.15s ease;
+}
+
+.exam-switcher-trigger.open .exam-switcher-chevron {
+  transform: rotate(180deg);
+}
+
+.exam-switcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 1100;
+  width: 440px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e6e8eb);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+}
+
+.exam-switcher-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text-secondary, #64748b);
+  border-bottom: 1px solid var(--border-color, #e6e8eb);
+}
+
+.exam-switcher-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  font: inherit;
+  color: var(--text-primary, #0f172a);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+.exam-switcher-list {
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.exam-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-primary, #0f172a);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.exam-switcher-item.active {
+  background: var(--primary-light, #f0edff);
+}
+
+.exam-switcher-item.current {
+  font-weight: 600;
+  color: var(--primary-color, #5c43fa);
+}
+
+.exam-switcher-check {
+  flex: 0 0 16px;
+  display: inline-flex;
+}
+
+.exam-switcher-item-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exam-switcher-empty {
+  padding: 18px 12px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-secondary, #64748b);
+}
+
+.exam-switcher-error {
+  color: #dc2626;
+}
+
+@media (max-width: 480px) {
+  .exam-switcher-menu {
+    position: fixed;
+    top: 56px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  .exam-switcher-item {
+    min-height: 44px;
+  }
+}

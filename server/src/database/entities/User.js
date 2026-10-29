@@ -17,6 +17,10 @@ export const UserSchema = new EntitySchema({
     status: { type: 'string', default: 'active' },
     is_primary: { type: 'boolean', default: false },
     permissions: { type: 'json', nullable: true },
+    /** Per-person overrides outside groups: { grant, deny } permission sets. */
+    access_overrides: { type: 'json', nullable: true },
+    /** Ids of the user's tags (see UserTag). */
+    tag_ids: { type: 'json', nullable: true },
     two_factor_enabled: { type: 'boolean', default: false },
     timezone: { type: 'string', default: 'UTC' },
     last_active_at: { type: 'Date', nullable: true },

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { AuthGuard } from './AuthGuard';
+import { PageGate } from './PageGate';
 import { ROLES } from '@exam-view/shared';
 import { DashboardLayout } from '../layouts/DashboardLayout';
 
@@ -15,6 +16,7 @@ import { LandingPage } from '../pages/LandingPage';
 import { UsersPage } from '../pages/UsersPage';
 import { TablesPage } from '../pages/TablesPage';
 import { VendorsPage } from '../pages/VendorsPage';
+import { SeqViewPage } from '../pages/SeqViewPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
 const UnauthorizedPage = () => (
@@ -67,7 +69,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: '/dashboard',
-            element: <DashboardHome />,
+            element: <PageGate page="dashboard"><DashboardHome /></PageGate>,
           },
           {
             path: '/profile',
@@ -79,19 +81,23 @@ export const router = createBrowserRouter([
           },
           {
             path: '/exams',
-            element: <ExamsPage />,
+            element: <PageGate page="exams"><ExamsPage /></PageGate>,
           },
           {
             path: '/exams/:examId',
-            element: <ExamExplorePage />,
+            element: <PageGate page="exams"><ExamExplorePage /></PageGate>,
           },
           {
             path: '/tables',
-            element: <TablesPage />,
+            element: <PageGate page="tables"><TablesPage /></PageGate>,
           },
           {
             path: '/vendors',
-            element: <VendorsPage />,
+            element: <PageGate page="vendors"><VendorsPage /></PageGate>,
+          },
+          {
+            path: '/seq-view',
+            element: <PageGate page="seq_view"><SeqViewPage /></PageGate>,
           },
           {
             path: '/users',

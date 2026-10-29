@@ -5,6 +5,7 @@ import { UsersPage } from './UsersPage';
 import { MessageTemplatesTab } from './settings/MessageTemplatesTab';
 import { ConfigTab } from './settings/ConfigTab';
 import { ExamTableConfigTab } from './settings/ExamTableConfigTab';
+import { useAccess } from '../hooks/useAccess';
 import {
   Users,
   Mail,
@@ -23,7 +24,7 @@ const TABS_CONFIG = [
     icon: Users,
     badge: 'Admin',
     badgeType: 'admin',
-    adminOnly: true,
+    page: 'users',
     description: 'Manage portal accounts, assign role-based access control, configure granular permissions, and bulk import.',
   },
   {
@@ -32,7 +33,7 @@ const TABS_CONFIG = [
     icon: Mail,
     badge: '6',
     badgeType: 'orange',
-    adminOnly: false,
+    page: null,
     description: 'Customizable email & notification templates for OTPs, exams, and alerts.',
   },
   {
@@ -41,7 +42,7 @@ const TABS_CONFIG = [
     icon: SlidersHorizontal,
     badge: null,
     badgeType: 'slate',
-    adminOnly: true,
+    page: 'settings',
     description: 'Create dropdown lists and other generic settings values used across the portal.',
   },
   {
@@ -50,7 +51,7 @@ const TABS_CONFIG = [
     icon: Table2,
     badge: 'Admin',
     badgeType: 'admin',
-    adminOnly: true,
+    page: 'settings',
     description: 'Shared Exam management fields and Feature Builder config published for all portal members.',
   },
 ];
@@ -58,24 +59,14 @@ const TABS_CONFIG = [
 export const SettingsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Read current authenticated user
-  const currentUser = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || '{}');
-    } catch {
-      return {};
-    }
-  }, []);
-
-  const isAdmin = useMemo(() => {
-    const role = currentUser?.role;
-    return role === 'super_admin' || role === 'global_admin' || role === 'admin';
-  }, [currentUser]);
-
-  // Filter available tabs
-  const availableTabs = useMemo(() => {
-    return TABS_CONFIG.filter((t) => !t.adminOnly || isAdmin);
-  }, [isAdmin]);
+  // Tabs follow the page rights from the user's groups (templates are open to everyone)
+  const { canPage, access } = useAccess();
+  const availableTabs = useMemo(
+    () => TABS_CONFIG.filter((t) => !t.page || canPage(t.page)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [access],
+  );
+  const showTab = (id) => availableTabs.some((t) => t.id === id);
 
   // Determine active tab
   const urlTab = searchParams.get('tab');
@@ -83,8 +74,8 @@ export const SettingsPage = () => {
     if (urlTab && availableTabs.some((t) => t.id === urlTab)) {
       return urlTab;
     }
-    return isAdmin ? 'users' : 'templates';
-  }, [urlTab, availableTabs, isAdmin]);
+    return availableTabs[0]?.id || 'templates';
+  }, [urlTab, availableTabs]);
 
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -106,6 +97,8 @@ export const SettingsPage = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef(null);
+  // Empty slot left of the dropdown; the active tab can render its action buttons into it.
+  const [actionsSlot, setActionsSlot] = useState(null);
   const searchInputRef = useRef(null);
 
   // Info Tooltip state
@@ -163,7 +156,7 @@ export const SettingsPage = () => {
   const CurrentIcon = currentTabConfig.icon;
 
   return (
-    <div className="settings-page">
+    <div className={`settings-page ${activeTab === 'users' ? 'settings-page--fill' : ''}`}>
       {/* TOP TOOLBAR: Left Title & Right-Aligned Tab Selector Dropdown */}
       <div className="settings-top-toolbar">
         {/* Left Side: Section Title with Info Tooltip Icon */}
@@ -173,6 +166,8 @@ export const SettingsPage = () => {
 
         {/* Right Side: Dropdown Tab Selector */}
         <div className="settings-toolbar-right" ref={dropdownRef}>
+          <div className="settings-toolbar-actions" ref={setActionsSlot} />
+
           {/* Lime Green Pill Trigger Button */}
           <div className="settings-dropdown-wrapper">
             <button
@@ -263,9 +258,9 @@ export const SettingsPage = () => {
       {/* TAB CONTENT PANELS */}
       <div className="settings-tab-viewport">
         {/* 1. USER MANAGEMENT */}
-        {activeTab === 'users' && isAdmin && (
-          <div className="settings-panel-view">
-            <UsersPage embedded={true} />
+        {activeTab === 'users' && showTab('users') && (
+          <div className="settings-panel-view settings-panel-view--fill">
+            <UsersPage embedded={true} actionsSlot={actionsSlot} />
           </div>
         )}
 
@@ -277,14 +272,14 @@ export const SettingsPage = () => {
         )}
 
         {/* 3. CONFIG */}
-        {activeTab === 'config' && isAdmin && (
+        {activeTab === 'config' && showTab('config') && (
           <div className="settings-panel-view">
             <ConfigTab />
           </div>
         )}
 
         {/* 4. EXAM TABLE (shared Feature Builder config) */}
-        {activeTab === 'exam-table' && isAdmin && (
+        {activeTab === 'exam-table' && showTab('exam-table') && (
           <div className="settings-panel-view">
             <ExamTableConfigTab />
           </div>

@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SlidersHorizontal, Table2, RefreshCw } from 'lucide-react';
-import {
-  fetchExamTableConfig,
-  canConfigureExamTable,
-} from '../exams/examTableConfig';
+import { fetchExamTableConfig } from '../exams/examTableConfig';
+import { useAccess } from '../../hooks/useAccess';
 
 /**
  * Settings surface for the shared Exam table config.
@@ -12,7 +10,7 @@ import {
  */
 export const ExamTableConfigTab = () => {
   const navigate = useNavigate();
-  const canConfigure = canConfigureExamTable();
+  const canConfigure = useAccess().can('exams', 'configure');
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

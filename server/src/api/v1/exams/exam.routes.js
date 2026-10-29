@@ -1,21 +1,19 @@
 import { Router } from 'express';
 import * as examController from './exam.controller.js';
-import { authenticate, authorize } from '../../../core/auth.middleware.js';
-import { ROLES } from '@exam-view/shared';
+import { authenticate } from '../../../core/auth.middleware.js';
+import { withAccess } from '../../../core/access.js';
 
 const router = Router();
 
-const WRITE_ROLES = [ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN, ROLES.USER];
-const ADMIN_ROLES = [ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN];
-
-router.use(authenticate);
+// Table actions, column levels and row rules are checked in the controller (see core/access.js).
+router.use(authenticate, withAccess);
 
 router.get('/', examController.listExams);
-router.post('/import', authorize(WRITE_ROLES), examController.importExams);
+router.post('/import', examController.importExams);
 router.get('/:id', examController.getExam);
-router.post('/', authorize(WRITE_ROLES), examController.createExam);
-router.put('/:id', authorize(WRITE_ROLES), examController.updateExam);
-router.patch('/:id', authorize(WRITE_ROLES), examController.updateExam);
-router.delete('/:id', authorize(WRITE_ROLES), examController.deleteExam);
+router.post('/', examController.createExam);
+router.put('/:id', examController.updateExam);
+router.patch('/:id', examController.updateExam);
+router.delete('/:id', examController.deleteExam);
 
 export default router;

@@ -1,0 +1,334 @@
+.sv-api-modal {
+  width: 720px;
+}
+
+.sv-api-body,
+.exams-bulk-body.sv-api-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* The shared bulk-table dialog removes the right padding; this form needs it. */
+  padding-right: clamp(12px, 2vw, 18px);
+  padding-left: clamp(12px, 2vw, 18px);
+}
+
+.sv-api-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.sv-api-grow {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.sv-api-method {
+  flex: 0 0 110px;
+}
+
+.sv-api-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.sv-api-field input,
+.sv-api-field select,
+.sv-api-field textarea,
+.sv-api-row > input {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+}
+
+.sv-api-row > input {
+  flex: 1 1 160px;
+  width: auto;
+}
+
+.sv-api-field textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+[data-theme='dark'] .sv-api-field input,
+[data-theme='dark'] .sv-api-field select,
+[data-theme='dark'] .sv-api-field textarea,
+[data-theme='dark'] .sv-api-row > input {
+  background: var(--bg-card, #1e293b);
+  border-color: var(--border-color, #334155);
+  color: var(--text-primary, #f1f5f9);
+}
+
+.sv-api-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exams-bulk-title .sv-api-tipbtn {
+  margin-left: 2px;
+}
+
+.sv-api-tipwrap {
+  display: inline-flex;
+}
+
+.sv-api-tipbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.sv-api-tipbtn:hover,
+.sv-api-tipbtn:focus-visible,
+.sv-api-tipbtn[aria-expanded='true'] {
+  color: var(--primary, #4f46e5);
+  background: rgba(79, 70, 229, 0.1);
+}
+
+.sv-api-tip {
+  position: fixed;
+  z-index: 1300;
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #f8fafc;
+  background: #1e293b;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+  pointer-events: none;
+}
+
+.sv-api-muted {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.sv-api-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.sv-api-add {
+  align-self: flex-start;
+}
+
+.sv-api-result,
+.sv-api-error {
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  overflow-wrap: anywhere;
+}
+
+.sv-api-result pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  font-size: 0.75rem;
+}
+
+.sv-api-error {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.sv-api-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: clamp(10px, 2vw, 14px) clamp(12px, 2vw, 18px);
+  border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+@media (max-width: 480px) {
+  .sv-api-method {
+    flex: 1 1 100%;
+  }
+
+  .sv-api-footer > * {
+    flex: 1 1 100%;
+    min-height: 44px;
+  }
+
+  .sv-api-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .sv-api-tipbtn {
+    width: 44px;
+    height: 44px;
+    margin: -11px;
+  }
+}
+
+.sv-api-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font-weight: 500;
+  font-size: 0.85rem;
+  cursor: pointer;
+  position: relative;
+}
+
+.sv-api-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 40px;
+  height: 24px;
+  min-height: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.sv-api-switch-track {
+  position: relative;
+  flex: 0 0 40px;
+  height: 22px;
+  background: var(--border-color, #cbd5e1);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+.sv-api-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  transition: transform 0.15s ease;
+}
+
+.sv-api-switch input:checked + .sv-api-switch-track {
+  background: var(--primary, #4f46e5);
+}
+
+.sv-api-switch input:checked + .sv-api-switch-track::after {
+  transform: translateX(18px);
+}
+
+.sv-api-switch input:focus-visible + .sv-api-switch-track {
+  outline: 2px solid var(--primary, #4f46e5);
+  outline-offset: 2px;
+}
+
+.sv-api-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sv-api-chip {
+  min-height: 34px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sv-api-chip:hover {
+  border-color: var(--primary, #4f46e5);
+}
+
+.sv-api-chip.is-active {
+  color: #fff;
+  background: var(--primary, #4f46e5);
+  border-color: var(--primary, #4f46e5);
+}
+
+[data-theme='dark'] .sv-api-chip {
+  color: var(--text-primary, #f1f5f9);
+  background: var(--bg-card, #1e293b);
+  border-color: var(--border-color, #334155);
+}
+
+[data-theme='dark'] .sv-api-chip.is-active {
+  color: #fff;
+  background: var(--primary, #4f46e5);
+}
+
+.sv-api-interval input[aria-invalid='true'] {
+  border-color: #dc2626;
+}
+
+.sv-api-interval {
+  align-items: center;
+}
+
+.sv-api-interval input {
+  flex: 0 0 90px;
+  width: 90px;
+}
+
+.sv-api-interval select {
+  flex: 0 0 120px;
+  width: 120px;
+}
+
+.sv-api-status-error {
+  color: #b91c1c;
+}
+
+@media (max-width: 480px) {
+  .sv-api-switch {
+    min-height: 44px;
+  }
+
+  .sv-api-chip {
+    min-height: 44px;
+  }
+}
+
+.sv-api-interval input[type='time'] {
+  flex: 0 0 140px;
+  width: 140px;
+}

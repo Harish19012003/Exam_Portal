@@ -11,10 +11,14 @@ export const getProfile = async (req, res, next) => {
   }
 };
 
+const PROFILE_FIELDS = ['first_name', 'last_name', 'phone_number', 'phone', 'timezone', 'password', 'two_factor_enabled'];
+
 export const updateProfile = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const user = await userService.updateUser(userId, req.body, req.user);
+    const body = req.body || {};
+    const own = Object.fromEntries(PROFILE_FIELDS.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
+    const user = await userService.updateUser(userId, own, req.user);
     return successResponse(res, user, 200);
   } catch (error) {
     next(error);

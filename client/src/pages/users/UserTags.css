@@ -1,0 +1,283 @@
+.user-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-tag-add {
+  display: flex;
+  gap: 8px;
+}
+
+.user-tag-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+}
+
+.user-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.user-tag-row:last-child {
+  border-bottom: 0;
+}
+
+.user-tag-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-tag-count {
+  flex: 0 0 auto;
+  min-width: 28px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+}
+
+.user-tag-empty {
+  padding: 18px 12px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-secondary, #64748b);
+}
+
+.user-tag-color-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.user-tag-color {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--bg-card, #fff);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-color, #cbd5e1);
+  cursor: pointer;
+}
+
+.user-tag-palette {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(5, 28px);
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+}
+
+.user-tag-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.user-tag-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-color, #5c43fa);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  cursor: pointer;
+}
+
+.user-tag-create:hover:not(:disabled) {
+  background: var(--primary-light, #f0edff);
+}
+
+@media (max-width: 480px) {
+  .user-tag-add {
+    flex-direction: column;
+  }
+
+  .user-tag-color,
+  .user-tag-swatch {
+    width: 36px;
+    height: 36px;
+  }
+
+  .user-tag-palette {
+    grid-template-columns: repeat(5, 36px);
+  }
+}
+
+.user-tag-sortbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+.user-tag-sortbar label {
+  font-weight: 700;
+}
+
+.user-tag-sort {
+  width: auto;
+  min-width: 140px;
+}
+
+.user-tag-sort-hint {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.user-tag-reorder {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.user-tag-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 36px;
+  color: var(--text-secondary, #64748b);
+  border-radius: 6px;
+  cursor: grab;
+}
+
+.user-tag-grip:hover,
+.user-tag-grip:focus-visible {
+  color: var(--primary-color, #5c43fa);
+  background: var(--primary-light, #f0edff);
+  outline: none;
+}
+
+.user-tag-grip:active {
+  cursor: grabbing;
+}
+
+/* Up / down buttons are for touch screens, where dragging by the handle is unreliable. */
+.user-tag-steps {
+  display: none;
+  flex-direction: column;
+}
+
+.user-tag-steps button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.user-tag-steps button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .user-tag-grip {
+    display: none;
+  }
+
+  .user-tag-steps {
+    display: flex;
+  }
+
+  .user-tag-steps button {
+    width: 36px;
+    height: 22px;
+  }
+}
+
+.user-tag-row.dragging {
+  opacity: 0.45;
+}
+
+.user-tag-row.drop-target {
+  box-shadow: inset 0 2px 0 var(--primary-color, #5c43fa);
+}
+
+.user-tag-levels {
+  display: inline-flex;
+  align-items: center;
+}
+
+.user-tag-levels button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.user-tag-levels button:hover:not(:disabled) {
+  color: var(--primary-color, #5c43fa);
+  background: var(--primary-light, #f0edff);
+}
+
+.user-tag-levels button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+
+@media (max-width: 480px) {
+  .user-tag-levels button {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* Sub-tags: a guide line shows which tag they belong to. */
+.user-tag-row.nested {
+  background-image: linear-gradient(var(--border-color, #e2e8f0), var(--border-color, #e2e8f0));
+  background-repeat: no-repeat;
+  background-size: 2px 100%;
+  background-position: 22px 0;
+}

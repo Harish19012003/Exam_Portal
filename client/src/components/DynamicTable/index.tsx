@@ -58,7 +58,7 @@ import { useTableFeatureConfig } from './hooks/useTableFeatureConfig';
 
 import type { ColumnConfig, RowData, TableFeaturesConfig, DataRow, FilterValue } from './types';
 import { resolveTableColors, tableColorStyle } from './utils/tableColors';
-import { DEFAULT_FEATURES, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, lineColorValue, resolveGridLines } from './types';
+import { DEFAULT_FEATURES, PAGE_SIZE_OPTIONS, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, lineColorValue, resolveGridLines } from './types';
 
 interface DynamicTableProps {
   isDarkMode: boolean;
@@ -110,6 +110,28 @@ interface DynamicTableProps {
   onDuplicateRow?: (row: DataRow) => void | Promise<void>;
   /** @deprecated Prefer features.enableAddRow */
   showAddRow?: boolean;
+  /**
+   * Edit button / context-menu Edit: the page opens its own editor for this row instead of the table's inline row edit.
+   */
+  onEditRow?: (row: DataRow) => void;
+  /**
+   * Delete button / context-menu Delete: the page runs its own checks and confirmation for this row.
+   * The table does not remove the row itself; the page reloads the rows afterwards.
+   */
+  onDeleteRowRequest?: (row: DataRow) => void;
+  /**
+   * What the signed-in user may do here (from their group permissions). Anything `false` is hidden;
+   * omitted keys are allowed. Column-level view/edit is applied by the page via column `editable`.
+   */
+  permissions?: TablePermissions;
+}
+
+export interface TablePermissions {
+  create?: boolean;
+  edit?: boolean;
+  delete?: boolean;
+  import?: boolean;
+  export?: boolean;
 }
 
 export function DynamicTable({
@@ -135,11 +157,17 @@ export function DynamicTable({
   onRowDelete,
   onBulkUpdate,
   onRefresh,
-  onImportRows,
+  onEditRow,
+  onDeleteRowRequest,
+  onImportRows: onImportRowsProp,
   onExploreRow,
-  onDuplicateRow,
+  onDuplicateRow: onDuplicateRowProp,
   showAddRow,
+  permissions,
 }: DynamicTableProps) {
+  const allow = (key: keyof TablePermissions) => permissions?.[key] !== false;
+  const onImportRows = allow('import') ? onImportRowsProp : undefined;
+  const onDuplicateRow = allow('create') ? onDuplicateRowProp : undefined;
   const resolvedFeatures = useMemo(() => {
     const base = { ...DEFAULT_FEATURES, ...(features || {}) };
     if (typeof showAddRow === 'boolean') {
@@ -151,7 +179,7 @@ export function DynamicTable({
   const state = useTableState(
     initialColumns ?? COLUMN_CONFIG,
     (initialRows as DataRow[]) ?? MOCK_ROWS,
-    { tableId, shareState, layoutPrefs, onLayoutPrefsChange, onRowUpdate, onRowDelete, onBulkUpdate, onRefresh },
+    { tableId, shareState, layoutPrefs, onLayoutPrefsChange, onRowUpdate, onRowDelete, onDeleteRowRequest, onBulkUpdate, onRefresh },
   );
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
@@ -225,7 +253,7 @@ export function DynamicTable({
   /** Portal pages (Exams): published `features` win. Feature Builder still edits live stores. */
   const lockToPortalProps = usePortalFeatures && !enableFeatureBuilder;
 
-  const activeFeatures = useMemo(
+  const baseFeatures = useMemo(
     () => {
       const source = enableFeatureBuilder ? featureConfig.resolvedFeatures : resolvedFeatures;
       if (lockToPortalProps) {
@@ -286,11 +314,42 @@ export function DynamicTable({
     ],
   );
 
+  const permissionKey = ['create', 'edit', 'delete', 'import', 'export']
+    .map((k) => (allow(k as keyof TablePermissions) ? 1 : 0))
+    .join('');
+  const activeFeatures = useMemo(() => {
+    if (!permissions) return baseFeatures;
+    return {
+      ...baseFeatures,
+      enableAddRow: baseFeatures.enableAddRow && allow('create'),
+      enableExport: baseFeatures.enableExport && allow('export'),
+      enableImport: baseFeatures.enableImport && allow('import'),
+      enableBulkActions: baseFeatures.enableBulkActions && (allow('edit') || allow('delete')),
+      rowActions: {
+        ...baseFeatures.rowActions,
+        showEdit: baseFeatures.rowActions?.showEdit !== false && allow('edit'),
+        showDelete: baseFeatures.rowActions?.showDelete !== false && allow('delete'),
+        showDuplicate: Boolean(baseFeatures.rowActions?.showDuplicate) && allow('create'),
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseFeatures, permissionKey]);
+
+  // Apply the Feature Builder's default rows per page when it changes (and on first load).
+  // Only the setting itself is watched, so a size picked in the footer sticks until the default changes.
+  const defaultPageSize = Number(activeFeatures.defaultPageSize);
+  useEffect(() => {
+    if (!(PAGE_SIZE_OPTIONS as readonly number[]).includes(defaultPageSize)) return;
+    state.setPageSize(defaultPageSize);
+    state.setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultPageSize]);
+
   useEffect(() => {
     if (!onFeaturesChange || !enableFeatureBuilder) return undefined;
     const timer = window.setTimeout(() => {
       onFeaturesChange({
-        ...activeFeatures,
+        ...baseFeatures,
         quickFilterFieldKeys: quickFiltersStore.fieldKeys,
       } as TableFeaturesConfig);
     }, 450);
@@ -298,7 +357,7 @@ export function DynamicTable({
   }, [
     enableFeatureBuilder,
     onFeaturesChange,
-    activeFeatures,
+    baseFeatures,
     quickFiltersStore.fieldKeys,
   ]);
 
@@ -512,6 +571,12 @@ export function DynamicTable({
   const handleContextEdit = useCallback(() => {
     if (!state.contextMenu) return;
     const rowId = state.contextMenu.rowId;
+    if (onEditRow) {
+      const target = state.rows.find(r => r.rowId === rowId);
+      state.setContextMenu(null);
+      if (target) onEditRow(target);
+      return;
+    }
     state.setEditingRowIds(prev => {
       const next = new Set(prev);
       next.add(rowId);
@@ -519,7 +584,7 @@ export function DynamicTable({
     });
     state.setEditingCell(null);
     state.setContextMenu(null);
-  }, [state.contextMenu, state.setEditingRowIds, state.setEditingCell, state.setContextMenu]);
+  }, [onEditRow, state.rows, state.contextMenu, state.setEditingRowIds, state.setEditingCell, state.setContextMenu]);
 
   const handleCopyCalculations = () => {
     const text = buildCalculationsClipboardText(state.columns, aggregations);
@@ -595,7 +660,8 @@ export function DynamicTable({
           hasActiveFilters={hasActiveFilters}
           activeFilterCount={activeFilterCount}
           onClearAll={handleClearAllSynced}
-          onRefresh={() => state.setRows([...MOCK_ROWS])}
+          // Pages that load from the API pass onRefresh to reload; only the demo table falls back to its sample rows.
+          onRefresh={() => (onRefresh ? void onRefresh() : state.setRows([...MOCK_ROWS]))}
           onOpenSidebar={() => {
             state.setActiveSidebar('columns');
             state.setOpenFilterKey(null);
@@ -777,6 +843,10 @@ export function DynamicTable({
                       onSetEditingCell={state.setEditingCell}
                       onOpenRecordSidebar={target => setEditingRecordSidebarRow(target ?? row)}
                       onStartRowEdit={() => {
+                        if (onEditRow) {
+                          onEditRow(row);
+                          return;
+                        }
                         state.setEditingRowIds(prev => {
                           const next = new Set(prev);
                           next.add(row.rowId);
@@ -1143,7 +1213,7 @@ export function DynamicTable({
             onSaveFeatures
               ? () =>
                   onSaveFeatures({
-                    ...activeFeatures,
+                    ...baseFeatures,
                     quickFilterFieldKeys: quickFiltersStore.fieldKeys,
                   } as TableFeaturesConfig)
               : undefined
@@ -1153,6 +1223,7 @@ export function DynamicTable({
           onPatchRowActions={featureConfig.patchRowActions}
           onPatchGridLines={featureConfig.patchGridLines}
           onSetRowHeight={featureConfig.setRowHeight}
+          onSetDefaultPageSize={featureConfig.setDefaultPageSize}
           onPatchTableColors={featureConfig.patchTableColors}
         />
       )}

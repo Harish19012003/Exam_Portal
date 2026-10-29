@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import * as userController from './user.controller.js';
 import * as groupController from './user-group.controller.js';
+import * as tableConfigController from './user-table-config.controller.js';
+import * as tagController from './user-tag.controller.js';
 import { authenticate, authorize } from '../../../core/auth.middleware.js';
+import { requirePage, requireSuperAdmin, getAccessFor } from '../../../core/access.js';
+import { successResponse } from '../../../core/response.js';
 import { ROLES } from '@exam-view/shared';
 
 const router = Router();
@@ -11,60 +15,45 @@ router.get('/profile', authenticate, userController.getProfile);
 router.patch('/profile', authenticate, userController.updateProfile);
 router.put('/profile', authenticate, userController.updateProfile);
 
+// Effective access of the signed-in user (groups + overrides resolved).
+router.get('/me/access', authenticate, async (req, res, next) => {
+  try {
+    return successResponse(res, await getAccessFor(req.user.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+const usersPage = [authenticate, requirePage('users')];
+const superAdminOnly = [authenticate, requireSuperAdmin];
+
 // Admin list all users
-router.get(
-  '/',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
-  userController.listUsers
-);
+router.get('/', ...usersPage, userController.listUsers);
 
-// User groups (tabs on User Management). Declared before '/:id' routes.
-const adminOnly = [authenticate, authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN])];
-router.get('/groups', ...adminOnly, groupController.listGroups);
-router.post('/groups', ...adminOnly, groupController.createGroup);
-router.put('/groups/:id', ...adminOnly, groupController.updateGroup);
-router.patch('/groups/:id', ...adminOnly, groupController.updateGroup);
-router.delete('/groups/:id', ...adminOnly, groupController.deleteGroup);
+// User groups. Declared before '/:id' routes. Membership and permissions are privileges,
+// so only a Super Admin may change them.
+router.get('/table-config', ...usersPage, tableConfigController.getTableConfig);
+router.put('/table-config', ...usersPage, requireSuperAdmin, tableConfigController.saveTableConfig);
+// Tags: anyone who can open the Users page can read them; only a Super Admin creates, changes or assigns them.
+router.get('/tags', ...usersPage, tagController.listTags);
+router.post('/tags', ...superAdminOnly, tagController.createTag);
+router.post('/tags/assign', ...superAdminOnly, tagController.assignTags);
+router.put('/tags/order', ...superAdminOnly, tagController.reorderTags);
+router.put('/tags/:id', ...superAdminOnly, tagController.updateTag);
+router.patch('/tags/:id', ...superAdminOnly, tagController.updateTag);
+router.delete('/tags/:id', ...superAdminOnly, tagController.deleteTag);
+router.put('/:id/tags', ...superAdminOnly, tagController.setUserTags);
+router.get('/groups', ...usersPage, groupController.listGroups);
+router.post('/groups', ...superAdminOnly, groupController.createGroup);
+router.put('/groups/:id', ...superAdminOnly, groupController.updateGroup);
+router.patch('/groups/:id', ...superAdminOnly, groupController.updateGroup);
+router.delete('/groups/:id', ...superAdminOnly, groupController.deleteGroup);
 
-// Admin only: create a new user directly
-router.post(
-  '/',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
-  userController.createUser
-);
-
-// Admin bulk upload users from CSV
-router.post(
-  '/bulk',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
-  userController.bulkCreateUsers
-);
-
-// Admin update user role, status, rights, and details
-router.put(
-  '/:id',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
-  userController.updateUser
-);
-
-router.patch(
-  '/:id',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
-  userController.updateUser
-);
-
-// Disable 2FA for a user
-router.post(
-  '/:id/disable-2fa',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]),
-  userController.disable2FA
-);
+router.post('/', ...usersPage, userController.createUser);
+router.post('/bulk', ...usersPage, userController.bulkCreateUsers);
+router.put('/:id', ...usersPage, userController.updateUser);
+router.patch('/:id', ...usersPage, userController.updateUser);
+router.post('/:id/disable-2fa', ...usersPage, userController.disable2FA);
 
 // Delete user: Primary super admin can delete any (except themselves), others cannot delete super admin
 router.delete(
