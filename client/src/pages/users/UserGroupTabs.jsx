@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Pencil, Plus, X } from 'lucide-react';
+import { Pencil, Plus, ShieldCheck, Users, X } from 'lucide-react';
 import { Button, IconButton } from '../../components/Button';
+import { InfoTip } from '../../components/PageHeading';
+import { PermissionSetEditor, cleanPermissionSet } from './PermissionSetEditor';
 import './UserGroups.css';
 
 export const ROLE_TABS = [
   { id: 'role:super_admin', label: 'Super Admin' },
-  { id: 'role:global_admin', label: 'Global Admin' },
   { id: 'role:admin', label: 'Admin' },
   { id: 'role:user', label: 'Standard User' },
 ];
@@ -51,7 +52,7 @@ export const UserGroupTabs = ({ users, groups, value, onChange, onCreate, onEdit
           `group:${g.id}`,
           g.name,
           counts.group(g),
-          <span
+          onEdit && <span
             role="button"
             tabIndex={0}
             className="user-group-edit"
@@ -73,19 +74,23 @@ export const UserGroupTabs = ({ users, groups, value, onChange, onCreate, onEdit
           </span>,
         ),
       )}
-      <button type="button" className="user-group-tab user-group-add" onClick={onCreate}>
-        <Plus size={14} />
-        <span>New group</span>
-      </button>
+      {onCreate && (
+        <button type="button" className="user-group-tab user-group-add" onClick={onCreate}>
+          <Plus size={14} />
+          <span>New group</span>
+        </button>
+      )}
     </div>
   );
 };
 
-/** Create / edit one group: a name and its members. */
+/** Create / edit one group: a name, its members and what they may access. */
 export const UserGroupModal = ({ group, users, saving, error, onSave, onDelete, onClose }) => {
   const [name, setName] = useState(group?.name || '');
   const [members, setMembers] = useState(() => new Set((group?.userIds || []).map(String)));
   const [query, setQuery] = useState('');
+  const [view, setView] = useState('members');
+  const [permissions, setPermissions] = useState(() => group?.permissions || { pages: {}, tables: {} });
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -112,14 +117,40 @@ export const UserGroupModal = ({ group, users, saving, error, onSave, onDelete, 
   const submit = (e) => {
     e.preventDefault();
     if (!name.trim() || saving) return;
-    onSave({ name: name.trim(), userIds: [...members] });
+    onSave({ name: name.trim(), userIds: [...members], permissions: cleanPermissionSet(permissions) });
   };
 
   return (
     <div className="user-group-overlay" onClick={onClose}>
-      <form className="user-group-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label={group ? 'Edit group' : 'New group'}>
+      <form className="user-group-modal wide" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label={group ? 'Edit group' : 'New group'}>
         <div className="user-group-modal-head">
-          <h2>{group ? 'Edit group' : 'New group'}</h2>
+          <div className="user-group-title">
+            <h2>{group ? 'Edit group' : 'New group'}</h2>
+            <InfoTip title="How group access works" className="user-group-info">
+              Choose an access level for each area. Use Fine-tune to protect columns or limit rows. Someone in several
+              groups gets everything those groups allow together; Super Admins always have full access.
+            </InfoTip>
+          </div>
+          <div className="perm-tabs perm-tabs--head" role="tablist" aria-label="Group settings">
+            {[
+              ['members', `Members (${members.size})`, Users, members.size],
+              ['permissions', 'Permissions', ShieldCheck, null],
+            ].map(([id, label, Icon, count]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={view === id}
+                aria-label={label}
+                title={label}
+                className={`perm-tab perm-tab--icon${view === id ? ' active' : ''}`}
+                onClick={() => setView(id)}
+              >
+                <Icon size={16} aria-hidden="true" />
+                {count !== null && <span className="perm-tab-count">{count}</span>}
+              </button>
+            ))}
+          </div>
           <IconButton variant="ghost" label="Close" onClick={onClose}>
             <X size={16} />
           </IconButton>
@@ -139,6 +170,10 @@ export const UserGroupModal = ({ group, users, saving, error, onSave, onDelete, 
             />
           </div>
 
+          {view === 'permissions' ? (
+            <PermissionSetEditor value={permissions} onChange={setPermissions} mode="group" disabled={saving} />
+          ) : (
+          <>
           <div className="user-group-field">
             <label htmlFor="user-group-search">Members ({members.size} selected)</label>
             <input
@@ -167,6 +202,8 @@ export const UserGroupModal = ({ group, users, saving, error, onSave, onDelete, 
             ))}
             {shown.length === 0 && <div className="user-group-member">No users match.</div>}
           </div>
+          </>
+          )}
 
           {error ? <p className="user-group-error" role="alert">{error}</p> : null}
         </div>

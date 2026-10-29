@@ -84,6 +84,8 @@ export interface FieldColumn extends BaseColumn {
   sortable?: boolean;
   editable?: boolean;
   options?: string[]; // for dropdown | multiselect | status
+  /** Chip colour per value (hex) for tags / multiselect cells. Values without one use the default palette. */
+  optionColors?: Record<string, string>;
   selectOptions?: string[]; // Alias for options
   allowCustom?: boolean; // Allow custom inputs for dropdown, status, multiselect
   required?: boolean;
@@ -346,6 +348,8 @@ export interface RowActionsConfig {
   showExplore?: boolean;
   /** Duplicate row (page creates a copy via onDuplicateRow) */
   showDuplicate?: boolean;
+  /** Fallback "edit record in sidebar" icon. Defaults to shown. */
+  showRecordSidebar?: boolean;
   iconName?: string;
   customButtons?: CustomRowActionButton[];
   renderCustomActions?: (row: DataRow) => React.ReactNode;
@@ -421,6 +425,10 @@ export interface TableColorsConfig {
   dark?: TableColorSet;
 }
 
+/** Rows-per-page choices shared by the footer picker and the Feature Builder default. */
+export const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100, 200, 500] as const;
+export const DEFAULT_PAGE_SIZE = 15;
+
 export const ROW_HEIGHT_MIN_PX = 28;
 export const ROW_HEIGHT_MAX_PX = 200;
 
@@ -429,6 +437,8 @@ export interface TableFeaturesConfig {
   tableColors?: TableColorsConfig;
   /** Fixed row height in px. 0 / unset = follow the Density setting. */
   rowHeight?: number;
+  /** Rows shown per page when the table opens (users can still change it in the footer). */
+  defaultPageSize?: number;
   enableRowSelection?: boolean;
   enableActionsColumn?: boolean;
   selectionColumn?: SelectionColumnConfig;
@@ -490,6 +500,7 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
     vertical: { show: false, width: 1, color: '', opacity: 100 },
   },
   rowHeight: 0,
+  defaultPageSize: DEFAULT_PAGE_SIZE,
   tableColors: { preset: 'default', stripe: false, light: {}, dark: {} },
   enableRowSelection: true,
   enableActionsColumn: true,

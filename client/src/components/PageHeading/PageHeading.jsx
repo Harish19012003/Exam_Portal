@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Info } from 'lucide-react';
+import React from 'react';
+import { InfoTip } from './InfoTip';
 import './PageHeading.css';
 
 /**
@@ -8,7 +8,7 @@ import './PageHeading.css';
  * has its own toolbar; otherwise use <PageHeading>.
  */
 export const PageTitle = ({ title, subtitle, info, leading }) => {
-  const [infoOpen, setInfoOpen] = useState(false);
+  const about = typeof title === 'string' ? title : 'this page';
 
   return (
     <div className="page-title-block">
@@ -17,30 +17,9 @@ export const PageTitle = ({ title, subtitle, info, leading }) => {
         <div className="page-title-row">
           <h1 className="page-title">{title}</h1>
           {info ? (
-            <div
-              className="page-info-wrap"
-              onMouseEnter={() => setInfoOpen(true)}
-              onMouseLeave={() => setInfoOpen(false)}
-            >
-              <button
-                type="button"
-                className={`page-info-btn${infoOpen ? ' active' : ''}`}
-                onClick={() => setInfoOpen((open) => !open)}
-                aria-label={`About ${typeof title === 'string' ? title : 'this page'}`}
-                aria-expanded={infoOpen}
-              >
-                <Info size={15} />
-              </button>
-              {infoOpen && (
-                <div className="page-info-popover" role="tooltip">
-                  <div className="page-info-popover-head">
-                    <Info size={13} />
-                    <span>About {typeof title === 'string' ? title : 'this page'}</span>
-                  </div>
-                  <p>{info}</p>
-                </div>
-              )}
-            </div>
+            <InfoTip title={`About ${about}`} label={`About ${about}`}>
+              {info}
+            </InfoTip>
           ) : null}
         </div>
         {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}

@@ -140,6 +140,9 @@ export const STATUS_COLORS: Record<
   Active: { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-400', dot: 'bg-emerald-500' },
   Inactive: { light: 'bg-gray-100 text-gray-600', dark: 'bg-gray-800 text-gray-400', dot: 'bg-gray-400' },
   Pending: { light: 'bg-amber-100 text-amber-700', dark: 'bg-amber-900/30 text-amber-400', dot: 'bg-amber-500' },
+  Suspended: { light: 'bg-rose-100 text-rose-700', dark: 'bg-rose-900/30 text-rose-400', dot: 'bg-rose-500' },
+  '2FA ON': { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-400', dot: 'bg-emerald-500' },
+  '2FA OFF': { light: 'bg-gray-100 text-gray-600', dark: 'bg-gray-800 text-gray-400', dot: 'bg-gray-400' },
 };
 
 /** Generate a unique row id */

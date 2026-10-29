@@ -5,6 +5,7 @@ const mapGroup = (row) => ({
   id: String(row.id ?? row._id),
   name: row.name,
   userIds: Array.isArray(row.user_ids) ? row.user_ids.map(String) : [],
+  permissions: row.permissions || null,
   updatedAt: row.updated_at,
 });
 
@@ -20,18 +21,25 @@ export const findById = async (id) => {
   return row ? mapGroup(row) : null;
 };
 
-export const create = async ({ name, userIds, createdBy }) => {
+export const create = async ({ name, userIds, permissions, createdBy }) => {
   const em = getEm();
-  const entity = em.create(UserGroup, { name, user_ids: userIds, created_by: createdBy || null });
+  const entity = em.create(UserGroup, {
+    name,
+    user_ids: userIds,
+    permissions: permissions ?? null,
+    created_by: createdBy || null,
+  });
   await em.persist(entity).flush();
   return mapGroup(entity);
 };
 
-export const update = async (id, { name, userIds }) => {
+export const update = async (id, { name, userIds, permissions }) => {
   const em = getEm();
   const row = await em.findOne(UserGroup, { id: String(id) });
   if (!row) return null;
-  em.assign(row, { name, user_ids: userIds, updated_at: new Date() });
+  const patch = { name, user_ids: userIds, updated_at: new Date() };
+  if (permissions !== undefined) patch.permissions = permissions;
+  em.assign(row, patch);
   await em.flush();
   return mapGroup(row);
 };

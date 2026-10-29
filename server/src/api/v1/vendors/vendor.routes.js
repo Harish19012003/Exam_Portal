@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import * as vendorController from './vendor.controller.js';
-import { authenticate, authorize } from '../../../core/auth.middleware.js';
-import { ROLES } from '@exam-view/shared';
+import { authenticate } from '../../../core/auth.middleware.js';
+import { withAccess } from '../../../core/access.js';
 
 const router = Router();
 
-// All vendor management routes require authenticated admin access
-router.use(authenticate);
-router.use(authorize([ROLES.SUPER_ADMIN, ROLES.GLOBAL_ADMIN, ROLES.ADMIN]));
+// Group permissions (table actions, columns, row rules) are checked in the controller.
+router.use(authenticate, withAccess);
 
 // Vendor table config: custom fields (stored in the vendors collection's `values`) + Feature Builder settings.
 // Static paths are declared before '/:id'.

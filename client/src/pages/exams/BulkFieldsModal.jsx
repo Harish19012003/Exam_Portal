@@ -6,6 +6,7 @@ import {
   AUTO_FILL_OPTIONS,
   OPTIONS_FIELD_TYPES,
   PHONE_VALIDATION_PRESETS,
+  UNIQUE_FIELD_TYPES,
   emptyPhoneValidation,
   isValidRegexPattern,
   normalizeFieldKey,
@@ -34,6 +35,7 @@ const newRow = (dataType = 'text') => ({
   autoFill: 'none',
   layout: 'full',
   required: false,
+  unique: false,
   optionsText: '',
   phoneValidationMode: 'none',
   phonePattern: '',
@@ -54,6 +56,7 @@ const rowFromField = (f) => {
     autoFill: f.autoFill || 'none',
     layout: f.layout || 'full',
     required: Boolean(f.required),
+    unique: Boolean(f.unique),
     optionsText: Array.isArray(f.options) ? f.options.join(', ') : '',
     phoneValidationMode: pv.mode || 'none',
     phonePattern: pv.pattern || '',
@@ -65,11 +68,12 @@ const rowFromField = (f) => {
   };
 };
 
-const rowToItem = (r) => ({
+const rowToItem = (r, allowUnique = false) => ({
   label: r.label.trim(),
   key: r.key.trim(),
   dataType: r.dataType,
   required: r.autoFill === 'none' && r.required,
+  unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
   options: OPTIONS_FIELD_TYPES.has(r.dataType) ? splitOptions(r.optionsText) : [],
   autoFill: r.autoFill,
   layout: r.layout,
@@ -77,14 +81,15 @@ const rowToItem = (r) => ({
 });
 
 /** The saved field with this row's edits applied, or null when nothing changed. */
-const changedField = (r) => {
-  const item = rowToItem(r);
+const changedField = (r, allowUnique = false) => {
+  const item = rowToItem(r, allowUnique);
   const o = r.orig;
   const next = {
     ...o,
     label: item.label,
     dataType: item.dataType,
     required: item.required,
+    ...(allowUnique ? { unique: item.unique } : {}),
     autoFill: item.autoFill,
     layout: item.layout,
     allowMultiple: item.dataType === 'multiselect',
@@ -92,7 +97,7 @@ const changedField = (r) => {
     ...(item.dataType === 'phone' ? { phoneValidation: item.phoneValidation } : {}),
   };
   const sig = (f) =>
-    JSON.stringify([f.label, f.dataType, Boolean(f.required), f.autoFill || 'none', f.layout || 'full', f.options || [], f.phoneValidation || null]);
+    JSON.stringify([f.label, f.dataType, Boolean(f.required), Boolean(f.unique), f.autoFill || 'none', f.layout || 'full', f.options || [], f.phoneValidation || null]);
   return sig(next) === sig(o) ? null : next;
 };
 
@@ -153,7 +158,7 @@ const validateRows = (rows, existingFields, extraReserved) => {
 };
 
 
-const COLUMNS = ['label', 'key', 'type', 'options', 'autofill', 'width', 'required'];
+const COLUMNS = ['label', 'key', 'type', 'options', 'autofill', 'width', 'required', 'unique'];
 const HEADER_WORDS = new Set(['label', 'name', 'field', 'field name', 'field label']);
 const TRUTHY = new Set(['yes', 'y', 'true', '1', 'x', '✓', '✔', 'required', '*']);
 
@@ -233,6 +238,8 @@ const cellPatch = (colName, raw) => {
       return [{ layout: /^h/i.test(v) ? 'half' : 'full' }, null];
     case 'required':
       return [{ required: TRUTHY.has(v.toLowerCase()) }, null];
+    case 'unique':
+      return [{ unique: TRUTHY.has(v.toLowerCase()) }, null];
     default:
       return [{}, null];
   }
@@ -280,6 +287,7 @@ export const BulkFieldsModal = ({
   labelPlaceholder = 'e.g. Exam Type',
   keyPlaceholder = 'exam_type',
   reservedKeys = [],
+  allowUnique = false,
   saving = false,
   error = '',
 }) => {
@@ -529,8 +537,8 @@ export const BulkFieldsModal = ({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (errorCount || !pending) return;
-    const items = rows.filter((r, i) => !r.existingId && !validation[i].blank).map(rowToItem);
-    const updated = rows.filter((r) => r.existingId).map(changedField).filter(Boolean);
+    const items = rows.filter((r, i) => !r.existingId && !validation[i].blank).map((r) => rowToItem(r, allowUnique));
+    const updated = rows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
     onAdd(items.map((item, i) => toFieldDefinition(item, fields.length + i + 1)), updated);
   };
 
@@ -562,7 +570,7 @@ export const BulkFieldsModal = ({
 
         <div className="exams-bulk-toolbar">
           <span className="exams-bulk-tip">
-            <strong>Paste from Excel / Sheets:</strong> click any cell and paste. Columns are Label · Key · Type · Options · Auto-fill · Width · Required, and rows are added automatically.
+            <strong>Paste from Excel / Sheets:</strong> click any cell and paste. Columns are Label · Key · Type · Options · Auto-fill · Width · Required{allowUnique ? ' · Unique' : ''}, and rows are added automatically.
           </span>
           <span className="exams-bulk-toolbar-actions">
             <button type="button" className="exams-text-add-btn" onClick={() => addRow()} disabled={rows.length >= maxRows}>
@@ -583,7 +591,7 @@ export const BulkFieldsModal = ({
         )}
 
         <div className="exams-bulk-body" ref={bodyRef} onScroll={() => tip && setTip(null)}>
-          <table className="exams-bulk-table">
+          <table className="exams-bulk-table" style={allowUnique ? { width: 'max(100%, 1640px)' } : undefined}>
             <colgroup>
               <col style={{ width: 44 }} />
               <col />
@@ -594,6 +602,7 @@ export const BulkFieldsModal = ({
               <col style={{ width: 210 }} />
               <col style={{ width: 150 }} />
               <col style={{ width: 90 }} />
+              {allowUnique && <col style={{ width: 90 }} />}
               <col style={{ width: 96 }} />
             </colgroup>
             <thead>
@@ -624,6 +633,11 @@ export const BulkFieldsModal = ({
                 <th>Auto-fill</th>
                 <th>Width</th>
                 <th className="col-req">Required</th>
+                {allowUnique && (
+                  <th className="col-req" title="No two records can share a value in this field">
+                    Unique
+                  </th>
+                )}
                 <th className="col-act" aria-label="Actions" />
               </tr>
             </thead>
@@ -797,6 +811,18 @@ export const BulkFieldsModal = ({
                         aria-label={`Row ${i + 1} required`}
                       />
                     </td>
+                    {allowUnique && (
+                      <td className="col-req" data-label="Unique">
+                        <input
+                          type="checkbox"
+                          checked={row.unique && UNIQUE_FIELD_TYPES.has(row.dataType)}
+                          disabled={!UNIQUE_FIELD_TYPES.has(row.dataType)}
+                          onChange={(e) => update(row.rid, { unique: e.target.checked })}
+                          aria-label={`Row ${i + 1} unique`}
+                          title={UNIQUE_FIELD_TYPES.has(row.dataType) ? 'No two records can share a value' : 'This field type cannot be unique'}
+                        />
+                      </td>
+                    )}
                     <td className="col-act">
                       <button
                         type="button"

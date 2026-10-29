@@ -1,7 +1,16 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { UserGroupTabs, UserGroupModal } from './users/UserGroupTabs';
+import { UserAccessModal } from './users/UserAccessModal';
+import { AssignTagsDialog, ManageTagsDialog } from './users/UserTagDialogs';
 import { PageHeading } from '../components/PageHeading';
 import { apiClient } from '../api/client';
+import { useConfirm, useFeedback } from '../feedback';
+import { useToast } from '../components/ui/Toast';
+import { DynamicTable } from '../components/DynamicTable';
+import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
+import { usePortalTableFeatures, withPortalFeatureLocks } from '../hooks/usePortalTableFeatures';
+import { TABLE_IDS } from '../constants/tableIds';
 import { ROLES, AVAILABLE_RIGHTS, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
 import {
   Users,
@@ -13,16 +22,11 @@ import {
   User,
   Pencil,
   Trash2,
-  Search,
   Plus,
   Check,
   X,
   AlertTriangle,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Mail,
-  Phone,
   UploadCloud,
   FileSpreadsheet,
   Download,
@@ -34,7 +38,10 @@ import {
   EyeOff,
   Zap,
   ShieldOff,
+  Tag,
 } from 'lucide-react';
+import { SearchableSelect } from './exams/SearchableSelect';
+import './ExamsPage.css';
 import './UsersPage.css';
 
 const TIMEZONES = [
@@ -52,22 +59,100 @@ const TIMEZONES = [
   { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT, +10:00)' },
 ];
 
-export const UsersPage = ({ embedded = false }) => {
+const ROLE_SELECT_OPTIONS = [
+  { value: 'super_admin', label: 'Super Admin' },
+  { value: 'global_admin', label: 'Global Admin' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'user', label: 'Standard User' },
+];
+
+const STATUS_SELECT_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'suspended', label: 'Suspended' },
+];
+
+const ROLE_LABELS = { super_admin: 'Super Admin', global_admin: 'Global Admin', admin: 'Admin', user: 'User' };
+const STATUS_LABELS = { active: 'Active', inactive: 'Inactive', suspended: 'Suspended' };
+
+/** Dynamic Table columns. The composite "User" column shows avatar, name, email, phone and the Primary tag; its source fields stay hidden. */
+const USER_COLUMNS = [
+  { key: 'user', label: 'User', dataType: 'composite', order: 1, visible: true, width: 300, filterable: true,
+    composedOf: [
+      { field: 'avatar', role: 'avatar' },
+      { field: 'full_name', role: 'primary' },
+      { field: 'email', role: 'secondary' },
+      { field: 'primary_tag', role: 'badge' },
+      { field: 'phone_number', role: 'tertiary' },
+    ] },
+  { key: 'role', label: 'Role', dataType: 'dropdown', options: Object.values(ROLE_LABELS), order: 2, visible: true, width: 150, editable: false, filterable: true, sortable: true },
+  { key: 'status', label: 'Status', dataType: 'status', options: Object.values(STATUS_LABELS), order: 4, visible: true, width: 130, editable: false, filterable: true, sortable: true },
+  { key: 'two_fa', label: '2FA Security', dataType: 'status', options: ['2FA ON', '2FA OFF'], order: 5, visible: true, width: 140, editable: false, filterable: true, sortable: true },
+  { key: 'timezone', label: 'Timezone', dataType: 'text', order: 6, visible: true, width: 170, editable: false, filterable: true, sortable: true },
+  { key: 'last_active_at', label: 'Last Activity', dataType: 'datetime', order: 7, visible: true, width: 200, editable: false, filterable: true, sortable: true },
+  { key: 'avatar', label: 'Avatar', dataType: 'image', order: 8, visible: false, width: 60, editable: false },
+  { key: 'full_name', label: 'Name', dataType: 'text', order: 9, visible: false, width: 180, editable: false, filterable: true, sortable: true },
+  { key: 'email', label: 'Email', dataType: 'email', order: 10, visible: false, width: 220, editable: false, filterable: true, sortable: true },
+  { key: 'phone_number', label: 'Phone', dataType: 'text', order: 11, visible: false, width: 150, editable: false, filterable: true, sortable: true },
+  { key: 'primary_tag', label: 'Primary Tag', dataType: 'text', order: 12, visible: false, width: 110, editable: false },
+];
+
+/** The Tags column is built from the current tag list, so its filter options and chip colours stay in step. */
+const buildUserColumns = (tags) => [
+  ...USER_COLUMNS,
+  {
+    key: 'tags',
+    label: 'Tags',
+    dataType: 'tags',
+    options: tags.map((t) => t.name),
+    optionColors: Object.fromEntries(tags.map((t) => [t.name, t.color])),
+    order: 3,
+    visible: true,
+    width: 240,
+    editable: false,
+    filterable: true,
+    sortable: false,
+  },
+];
+
+/** `actionsSlot`: when embedded in Settings, the header element the action buttons are shown in (left of the section dropdown). */
+/** What the table shows until an admin changes it in the Feature Builder (saved for everyone). */
+const USER_TABLE_DEFAULTS = {
+  enableSearch: true,
+  enableRefresh: true,
+  enableExport: true,
+  enableImport: false,
+  enableFullScreen: true,
+  enableDensity: true,
+  enableSettings: true,
+  enableQuickFilters: false,
+  enableSummaryChips: false,
+  enableSavedViews: false,
+  enableFooter: false,
+  enableOpenDetail: false,
+  enableRowSelection: false,
+  enableBulkActions: false,
+  enableCellEditing: false,
+  enableActionsColumn: true,
+};
+
+export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
+  const confirm = useConfirm();
+  const { show: showFeedback } = useFeedback();
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [groupModal, setGroupModal] = useState(null); // null | { group: object | null }
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  // Confirmations and errors show as toasts (top right), like the other portal pages, instead of a banner that shifts the page down.
+  const { addToast } = useToast();
+  const setSuccessMsg = useCallback((message) => { if (message) addToast(message, 'success'); }, [addToast]);
+  const setError = useCallback((message) => { if (message) addToast(message, 'error'); }, [addToast]);
 
   // Search & Filter & Sort
-  const [searchQuery, setSearchQuery] = useState('');
   // 'all' | 'role:<role>' | 'group:<id>'
   const [activeTab, setActiveTab] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('activity_desc'); // activity_desc, activity_asc, name_asc, name_desc, role, created_desc
 
   // Toggle summary stats cards visibility (default: false / off)
   const [showStats, setShowStats] = useState(() => {
@@ -229,6 +314,38 @@ export const UsersPage = ({ embedded = false }) => {
   }, []);
 
   // ── User groups (custom tabs) ──────────────────────────────────────────────
+  // ── Tags (central list; users hold tag ids) ─────────────────────────────────
+  const [tags, setTags] = useState([]);
+  const [tagsDialogOpen, setTagsDialogOpen] = useState(false);
+  const [assignTagsUser, setAssignTagsUser] = useState(null);
+
+  const fetchTags = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/users/tags');
+      setTags(response.data?.data || []);
+    } catch {
+      setTags([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTags();
+  }, [fetchTags]);
+
+  // Reload users without the full-page loading state, so the table does not blink after a tag change.
+  const refreshUsers = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/users');
+      setUsers(response.data?.data || []);
+    } catch {
+      /* the next full load will report it */
+    }
+  }, []);
+
+  const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
+  const userColumns = useMemo(() => buildUserColumns(tags), [tags]);
+  const tagsKey = useMemo(() => tags.map((t) => `${t.id}:${t.name}:${t.color}`).join('|'), [tags]);
+
   const fetchGroups = async () => {
     try {
       const response = await apiClient.get('/users/groups');
@@ -266,9 +383,38 @@ export const UsersPage = ({ embedded = false }) => {
     }
   };
 
+  // ── Personal access overrides (Super Admin only) ───────────────────────────
+  const [accessModalUser, setAccessModalUser] = useState(null);
+  const [accessSaving, setAccessSaving] = useState(false);
+  const [accessError, setAccessError] = useState('');
+
+  const handleSaveAccess = async (overrides) => {
+    if (!accessModalUser) return;
+    setAccessSaving(true);
+    setAccessError('');
+    try {
+      await apiClient.put(`/users/${accessModalUser.id}`, { access_overrides: overrides });
+      setSuccessMsg(`Access for ${accessModalUser.email} saved.`);
+      setAccessModalUser(null);
+      await fetchUsers();
+    } catch (err) {
+      setAccessError(err.response?.data?.message || 'Could not save access.');
+    } finally {
+      setAccessSaving(false);
+    }
+  };
+
   const handleDeleteGroup = async () => {
     const existing = groupModal?.group;
-    if (!existing || !window.confirm(`Delete the group "${existing.name}"? The users stay; only the group is removed.`)) return;
+    if (!existing) return;
+    const ok = await confirm({
+      title: 'Delete group?',
+      message: `Delete the group "${existing.name}"?`,
+      tertiary: 'The users stay; only the group is removed.',
+      confirmLabel: 'Delete group',
+      destructive: true,
+    });
+    if (!ok) return;
     setGroupSaving(true);
     try {
       await apiClient.delete(`/users/groups/${existing.id}`);
@@ -305,61 +451,15 @@ export const UsersPage = ({ embedded = false }) => {
     }
   }, [isEditModalOpen, isCreateModalOpen, isBulkUploadModalOpen, isTransferModalOpen, transferSubmitting]);
 
-  // Format relative last activity time
-  const formatLastActivity = (timestamp) => {
-    if (!timestamp) return { relative: 'Never logged in', full: 'No activity recorded' };
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return { relative: 'Never', full: 'Unknown' };
-
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHour = Math.floor(diffMin / 60);
-    const diffDay = Math.floor(diffHour / 24);
-
-    let relative = 'Just now';
-    if (diffSec < 60) relative = 'Just now';
-    else if (diffMin < 60) relative = `${diffMin}m ago`;
-    else if (diffHour < 24) relative = `${diffHour}h ago`;
-    else if (diffDay === 1) relative = 'Yesterday';
-    else if (diffDay < 7) relative = `${diffDay}d ago`;
-    else relative = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-    const full = date.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-
-    return { relative, full };
-  };
-
   // Stats calculation
   const totalUsers = users.length;
   const superAdminCount = users.filter((u) => u.role === 'super_admin').length;
   const adminCount = users.filter((u) => u.role === 'admin' || u.role === 'global_admin').length;
   const twoFaEnabledCount = users.filter((u) => Boolean(u.two_factor_enabled)).length;
 
-  // Filtered and sorted users
+  // Users in the selected tab. Search, filters and sorting are handled by the table itself.
   const processedUsers = useMemo(() => {
     let result = [...users];
-
-    // Filter by Search Query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (u) =>
-          (u.email && u.email.toLowerCase().includes(q)) ||
-          (u.first_name && u.first_name.toLowerCase().includes(q)) ||
-          (u.last_name && u.last_name.toLowerCase().includes(q)) ||
-          (u.phone_number && u.phone_number.toLowerCase().includes(q)) ||
-          (u.timezone && u.timezone.toLowerCase().includes(q))
-      );
-    }
 
     // Filter by tab: a role, or a custom group's members
     if (activeTab.startsWith('role:')) {
@@ -371,54 +471,184 @@ export const UsersPage = ({ embedded = false }) => {
       result = result.filter((u) => memberIds.has(String(u.id)));
     }
 
-    // Filter by Status
-    if (statusFilter !== 'all') {
-      result = result.filter((u) => (u.status || 'active') === statusFilter);
-    }
-
-    // Sort users
+    // Primary admin first, then most recent activity
     result.sort((a, b) => {
-      // Primary admin always stays at the very top for safety
       if (a.is_primary && !b.is_primary) return -1;
       if (!a.is_primary && b.is_primary) return 1;
-
-      switch (sortBy) {
-        case 'activity_desc': {
-          const timeA = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
-          const timeB = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
-          return timeB - timeA;
-        }
-        case 'activity_asc': {
-          const timeA = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
-          const timeB = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
-          return timeA - timeB;
-        }
-        case 'name_asc': {
-          const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email;
-          const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim() || b.email;
-          return nameA.localeCompare(nameB);
-        }
-        case 'name_desc': {
-          const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email;
-          const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim() || b.email;
-          return nameB.localeCompare(nameA);
-        }
-        case 'role': {
-          const roleWeight = { super_admin: 4, global_admin: 3, admin: 2, user: 1 };
-          return (roleWeight[b.role] || 0) - (roleWeight[a.role] || 0);
-        }
-        case 'created_desc': {
-          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return dateB - dateA;
-        }
-        default:
-          return 0;
-      }
+      const timeA = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
+      const timeB = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
+      return timeB - timeA;
     });
 
     return result;
-  }, [users, groups, searchQuery, activeTab, statusFilter, sortBy]);
+  }, [users, groups, activeTab]);
+
+  // ── Dynamic Table wiring ───────────────────────────────────────────────────
+  const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.getAttribute('data-theme') === 'dark');
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkMode(document.documentElement.getAttribute('data-theme') === 'dark');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
+  const {
+    layoutReady,
+    layoutPrefs,
+    hasUserLayoutOverride,
+    layoutEpoch,
+    canSaveLayoutAsDefault,
+    onLayoutPrefsChange,
+    onSaveLayoutAsDefault,
+    onResetLayoutToDefault,
+  } = useTableLayoutPrefs(TABLE_IDS.USERS);
+
+  const tableRows = useMemo(
+    () =>
+      processedUsers.map((u) => ({
+        rowId: String(u.id),
+        version: 1,
+        values: {
+          avatar: '',
+          full_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || 'User',
+          email: u.email || '',
+          phone_number: u.phone_number || '',
+          primary_tag: u.is_primary ? 'Primary' : '',
+          tags: (u.tag_ids || []).map((id) => tagById.get(String(id))?.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+          role: ROLE_LABELS[u.role] || 'User',
+          status: STATUS_LABELS[u.status || 'active'] || 'Active',
+          two_fa: u.two_factor_enabled ? '2FA ON' : '2FA OFF',
+          timezone: u.timezone || 'UTC',
+          last_active_at: u.last_active_at || '',
+        },
+      })),
+    [processedUsers, tagById],
+  );
+
+  // The row actions call the latest handlers without rebuilding the table's feature config on every render.
+  const userActionsRef = useRef(() => null);
+  // Edit and Delete are the table's own standard buttons (wired below). Transfer and Disable 2FA are extra icon buttons in the same style.
+  userActionsRef.current = (row) => {
+    const u = users.find((x) => String(x.id) === row.rowId);
+    if (!u) return null;
+    const showTransfer = isPrimaryAdmin && !u.is_primary && u.role === 'super_admin' && u.status === 'active';
+    const showDisable2FA = Boolean(u.two_factor_enabled) && canDisable2FA;
+    const showTags = isSuperAdmin;
+    if (!showTransfer && !showDisable2FA && !showTags) return null;
+    return (
+      <>
+        {showTags && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setAssignTagsUser(u);
+            }}
+            className="p-1 rounded-lg transition-colors text-gray-400 hover:text-indigo-500 hover:bg-indigo-50"
+            aria-label="Assign tags"
+            title="Assign tags"
+          >
+            <Tag className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+        )}
+        {showDisable2FA && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDisable2FA(u.id, u.email);
+            }}
+            className="p-1 rounded-lg transition-colors text-gray-400 hover:text-rose-500 hover:bg-rose-50"
+            aria-label="Disable 2FA"
+            title="Disable 2FA for this user"
+          >
+            <ShieldOff className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+        )}
+        {showTransfer && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenTransferModal(u);
+            }}
+            className="p-1 rounded-lg transition-colors text-gray-400 hover:text-amber-500 hover:bg-amber-50"
+            aria-label="Transfer Primary Tag"
+            title={`Transfer Primary Super Admin authority to ${u.first_name || u.email}`}
+          >
+            <Zap className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+        )}
+      </>
+    );
+  };
+
+  const findUser = (row) => users.find((x) => String(x.id) === row.rowId);
+  const handleTableEdit = (row) => {
+    const u = findUser(row);
+    if (!u) return;
+    if (!isSuperAdmin) {
+      showFeedback('alert.warning', { title: 'Not allowed', message: 'Only super admins can edit users.' });
+      return;
+    }
+    handleOpenEdit(u);
+  };
+  // Delete keeps its protections (primary admin, own account) and the confirm dialog, then reloads the list.
+  const handleTableDelete = (row) => {
+    const u = findUser(row);
+    if (!u) return;
+    if (!isSuperAdmin) {
+      showFeedback('alert.warning', { title: 'Not allowed', message: 'Only super admins can delete users.' });
+      return;
+    }
+    handleDeleteUser(u);
+  };
+
+  // Feature Builder: admins change what the table offers, and Save publishes it for every user.
+  const canConfigure = isSuperAdmin;
+  const portalFeatures = usePortalTableFeatures({
+    canConfigure,
+    persist: async (features) => {
+      const res = await apiClient.put('/users/table-config', { features });
+      setSuccessMsg('Feature Builder settings saved for everyone');
+      return res;
+    },
+  });
+  const hydrateFeatures = portalFeatures.hydrate;
+  useEffect(() => {
+    let live = true;
+    apiClient
+      .get('/users/table-config')
+      .then((res) => {
+        const data = res.data?.data || res.data || {};
+        if (live) hydrateFeatures({ ...USER_TABLE_DEFAULTS, ...(data.features || {}) });
+      })
+      .catch(() => live && hydrateFeatures({ ...USER_TABLE_DEFAULTS }));
+    return () => {
+      live = false;
+    };
+  }, [hydrateFeatures]);
+
+  const tableFeatures = useMemo(
+    () =>
+      withPortalFeatureLocks({
+        ...portalFeatures.features,
+        rowActions: {
+          ...portalFeatures.features.rowActions,
+          // Standard Edit / Delete buttons, but only for super admins. The table's panel icon and Explore/Duplicate don't apply here.
+          showEdit: isSuperAdmin && portalFeatures.features.rowActions?.showEdit !== false,
+          showDelete: isSuperAdmin && portalFeatures.features.rowActions?.showDelete !== false,
+          showExplore: false,
+          showDuplicate: false,
+          showRecordSidebar: false,
+          renderCustomActions: (row) => userActionsRef.current(row),
+        },
+      }),
+    // userActionsRef always holds the latest handlers; the button set is rebuilt when who is signed in changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [portalFeatures.features, isSuperAdmin, isPrimaryAdmin, canDisable2FA, currentUser?.id],
+  );
 
   // Open Edit Modal
   const handleOpenEdit = (user) => {
@@ -700,9 +930,14 @@ export const UsersPage = ({ embedded = false }) => {
 
   // Handle Disable 2FA
   const handleDisable2FA = async (userId, userEmail) => {
-    if (!window.confirm(`Are you sure you want to disable 2FA for ${userEmail}?`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Disable 2FA?',
+      message: `Disable two-factor authentication for ${userEmail}?`,
+      tertiary: 'They can sign in with just their password until they set 2FA up again.',
+      confirmLabel: 'Disable 2FA',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       setError('');
       await apiClient.post(`/users/${userId}/disable-2fa`);
@@ -720,16 +955,21 @@ export const UsersPage = ({ embedded = false }) => {
   // Handle Delete User
   const handleDeleteUser = async (user) => {
     if (user.is_primary) {
-      alert('The Primary Super Admin account is protected and cannot be deleted.');
+      showFeedback('alert.warning', { title: 'Account protected', message: 'The Primary Super Admin account is protected and cannot be deleted.' });
       return;
     }
     if (user.id === currentUser.id) {
-      alert('You cannot delete your own account.');
+      showFeedback('alert.warning', { title: 'Not allowed', message: 'You cannot delete your own account.' });
       return;
     }
-    if (!window.confirm(`Are you sure you want to permanently delete user ${user.first_name || ''} ${user.last_name || ''} (${user.email})?`)) {
-      return;
-    }
+    const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ');
+    const ok = await confirm({
+      title: 'Delete user?',
+      message: `Permanently delete ${fullName ? `${fullName} (${user.email})` : user.email}?`,
+      confirmLabel: 'Delete user',
+      destructive: true,
+    });
+    if (!ok) return;
 
     try {
       setError('');
@@ -776,6 +1016,52 @@ export const UsersPage = ({ embedded = false }) => {
     }
   };
 
+  const userActions = (
+    <div className="users-header-actions">
+      {isSuperAdmin && (
+        <>
+          <button
+            type="button"
+            className="bulk-upload-trigger-btn"
+            onClick={() => setTagsDialogOpen(true)}
+            title="Manage tags"
+            aria-label="Manage tags"
+          >
+            <Tag size={18} />
+          </button>
+          <button
+            type="button"
+            className="bulk-upload-trigger-btn"
+            onClick={() => setIsBulkUploadModalOpen(true)}
+            title="Bulk Upload (CSV)"
+            aria-label="Bulk Upload (CSV)"
+          >
+            <UploadCloud size={18} />
+          </button>
+          <button
+            type="button"
+            className="add-user-btn"
+            onClick={() => setIsCreateModalOpen(true)}
+            title="Add New User"
+            aria-label="Add New User"
+          >
+            <Plus size={18} />
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        className={`toggle-stats-btn ${!showStats ? 'hidden-stats' : ''}`}
+        onClick={toggleStats}
+        title={showStats ? "Hide summary labels" : "Show summary labels"}
+        aria-label={showStats ? "Hide summary labels" : "Show summary labels"}
+        aria-pressed={showStats}
+      >
+        {showStats ? <Eye size={18} /> : <EyeOff size={18} />}
+      </button>
+    </div>
+  );
+
   return (
     <div className={`users-page ${embedded ? 'embedded' : ''}`}>
       {/* Top Header (Non-embedded only) */}
@@ -786,27 +1072,13 @@ export const UsersPage = ({ embedded = false }) => {
         />
       )}
 
-      {/* Notifications */}
-      {successMsg && (
-        <div className="users-alert success">
-          <span>{successMsg}</span>
-          <button className="modal-close-btn" onClick={() => setSuccessMsg('')}><X size={16} /></button>
-        </div>
-      )}
-      {error && (
-        <div className="users-alert error">
-          <span>{error}</span>
-          <button className="modal-close-btn" onClick={() => setError('')}><X size={16} /></button>
-        </div>
-      )}
-
       <UserGroupTabs
         users={users}
         groups={groups}
         value={activeTab}
         onChange={setActiveTab}
-        onCreate={() => setGroupModal({ group: null })}
-        onEdit={(group) => setGroupModal({ group })}
+        onCreate={isSuperAdmin ? () => setGroupModal({ group: null }) : undefined}
+        onEdit={isSuperAdmin ? (group) => setGroupModal({ group }) : undefined}
       />
       {groupModal && (
         <UserGroupModal
@@ -819,85 +1091,48 @@ export const UsersPage = ({ embedded = false }) => {
           onClose={closeGroupModal}
         />
       )}
+      {tagsDialogOpen && (
+        <ManageTagsDialog
+          tags={tags}
+          onClose={() => setTagsDialogOpen(false)}
+          onChanged={async () => {
+            await fetchTags();
+            await refreshUsers();
+          }}
+        />
+      )}
+      {assignTagsUser && (
+        <AssignTagsDialog
+          user={assignTagsUser}
+          tags={tags}
+          onClose={() => setAssignTagsUser(null)}
+          onSaved={refreshUsers}
+          onTagsChanged={fetchTags}
+        />
+      )}
+      {accessModalUser && (
+        <UserAccessModal
+          user={accessModalUser}
+          groups={groups}
+          saving={accessSaving}
+          error={accessError}
+          onSave={handleSaveAccess}
+          onClose={() => {
+            setAccessModalUser(null);
+            setAccessError('');
+          }}
+        />
+      )}
 
-      {/* Controls Bar: Search, Filters, Sort & Action Icons in One Row */}
-      <div className="users-controls">
-        <div className="search-box">
-          <Search size={16} />
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search by name, email, or timezone..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      {/* Actions: bulk upload, add user and the summary toggle. In Settings they sit beside the section dropdown;
+          search, filters and sorting live in the table toolbar. */}
+      {embedded && actionsSlot ? (
+        createPortal(userActions, actionsSlot)
+      ) : (
+        <div className="users-controls" style={{ justifyContent: 'flex-end' }}>
+          {userActions}
         </div>
-
-        <div className="filters-group">
-
-          {/* Status Filter */}
-          <select
-            className="filter-select"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All Statuses</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="suspended">Suspended</option>
-          </select>
-
-          {/* Sort By Filter */}
-          <select
-            className="filter-select"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="activity_desc">Last Activity (Recent First)</option>
-            <option value="activity_asc">Last Activity (Oldest First)</option>
-            <option value="name_asc">Name (A to Z)</option>
-            <option value="name_desc">Name (Z to A)</option>
-            <option value="role">Role Priority</option>
-            <option value="created_desc">Date Created (Newest)</option>
-          </select>
-
-          <div className="users-header-actions">
-            {isSuperAdmin && (
-              <>
-                <span className="users-actions-divider" aria-hidden="true" />
-                <button
-                  type="button"
-                  className="bulk-upload-trigger-btn"
-                  onClick={() => setIsBulkUploadModalOpen(true)}
-                  title="Bulk Upload (CSV)"
-                  aria-label="Bulk Upload (CSV)"
-                >
-                  <UploadCloud size={18} />
-                </button>
-                <button
-                  type="button"
-                  className="add-user-btn"
-                  onClick={() => setIsCreateModalOpen(true)}
-                  title="Add New User"
-                  aria-label="Add New User"
-                >
-                  <Plus size={18} />
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              className={`toggle-stats-btn ${!showStats ? 'hidden-stats' : ''}`}
-              onClick={toggleStats}
-              title={showStats ? "Hide summary labels" : "Show summary labels"}
-              aria-label={showStats ? "Hide summary labels" : "Show summary labels"}
-              aria-pressed={showStats}
-            >
-              {showStats ? <Eye size={18} /> : <EyeOff size={18} />}
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Stats Row (Below Filters & Actions, toggleable via Eye icon) */}
       {showStats && (
@@ -944,201 +1179,58 @@ export const UsersPage = ({ embedded = false }) => {
         </div>
       )}
 
-      {/* Users Table */}
-      <div className="users-table-card">
-        <div className="table-responsive">
-          <table className="users-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>2FA Security</th>
-                <th>Timezone</th>
-                <th
-                  className="sortable-th"
-                  onClick={() => setSortBy(sortBy === 'activity_desc' ? 'activity_asc' : 'activity_desc')}
-                  title="Click to toggle Last Activity sort"
-                >
-                  <span className="th-content">
-                    <span>Last Activity</span>
-                    {sortBy === 'activity_desc' && <ArrowDown size={14} />}
-                    {sortBy === 'activity_asc' && <ArrowUp size={14} />}
-                    {sortBy !== 'activity_desc' && sortBy !== 'activity_asc' && <ArrowUpDown size={14} opacity={0.4} />}
-                  </span>
-                </th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="7" style={{ textAlign: 'center', padding: '32px' }}>
-                    Loading user records...
-                  </td>
-                </tr>
-              ) : processedUsers.length === 0 ? (
-                <tr>
-                  <td colSpan="7" style={{ textAlign: 'center', padding: '32px' }}>
-                    No users matching criteria.
-                  </td>
-                </tr>
-              ) : (
-                processedUsers.map((u) => {
-                  const initial = (u.first_name?.[0] || u.email?.[0] || 'U').toUpperCase();
-                  const isPrimary = Boolean(u.is_primary);
-                  const is2FA = Boolean(u.two_factor_enabled);
-                  const act = formatLastActivity(u.last_active_at);
-
-                  return (
-                    <tr key={u.id}>
-                      {/* User Cell */}
-                      <td>
-                        <div
-                          className="user-cell"
-                          onClick={() => isSuperAdmin && handleOpenEdit(u)}
-                          title={isSuperAdmin ? "Click to edit user" : undefined}
-                          style={{ cursor: isSuperAdmin ? 'pointer' : 'default' }}
-                        >
-                          <div className={`user-avatar-badge ${isPrimary ? 'is-primary' : ''}`}>
-                            {initial}
-                          </div>
-                          <div className="user-name-box">
-                            <span className="user-full-name">
-                              {[u.first_name, u.last_name].filter(Boolean).join(' ') || 'User'}
-                              {isPrimary && (
-                                <span className="table-primary-tag" title="Primary Administrator (Root Authority)">
-                                  <Zap size={10} strokeWidth={2.4} fill="currentColor" />
-                                  <span>Primary</span>
-                                </span>
-                              )}
-                            </span>
-                            <span className="user-email-text">{u.email}</span>
-                            {u.phone_number && (
-                              <span className="user-phone-text">
-                                <Phone size={10} />
-                                <span>{u.phone_number}</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Role Cell */}
-                      <td>
-                        {renderRoleBadge(u.role)}
-                      </td>
-
-                      {/* Status Cell */}
-                      <td>
-                        <span className={`status-indicator ${u.status || 'active'}`}>
-                          <span className="status-dot"></span>
-                          <span>{(u.status || 'active').toUpperCase()}</span>
-                        </span>
-                      </td>
-
-                      {/* 2FA Cell */}
-                      <td>
-                        <div className="twofa-cell">
-                          <span className={`badge-2fa ${is2FA ? 'enabled' : 'disabled'}`}>
-                            {is2FA ? (
-                              <>
-                                <ShieldCheck size={12} />
-                                <span>2FA ON</span>
-                              </>
-                            ) : (
-                              <>
-                                <ShieldAlert size={12} />
-                                <span>2FA OFF</span>
-                              </>
-                            )}
-                          </span>
-                          {is2FA && canDisable2FA && (
-                            <button
-                              className="btn-disable-2fa-mini"
-                              onClick={() => handleDisable2FA(u.id, u.email)}
-                              title="Disable 2FA for this user"
-                            >
-                              Disable
-                            </button>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Timezone Cell */}
-                      <td>
-                        <span className="timezone-chip" title={`Timezone: ${u.timezone || 'UTC'}`}>
-                          <Globe size={13} />
-                          <span>{u.timezone || 'UTC'}</span>
-                        </span>
-                      </td>
-
-                      {/* Last Activity Cell */}
-                      <td>
-                        <div className="activity-box" title={act.full}>
-                          <span className="activity-relative">{act.relative}</span>
-                          <span className="activity-date">{act.full}</span>
-                        </div>
-                      </td>
-
-                      {/* Actions Cell */}
-                      <td>
-                        <div className="table-actions">
-                          {/* Edit User */}
-                          {isSuperAdmin && (
-                            <button
-                              className="action-btn edit"
-                              onClick={() => handleOpenEdit(u)}
-                              title="Edit user details, role, status, and permissions"
-                            >
-                              <Pencil size={13} />
-                              <span>Edit</span>
-                            </button>
-                          )}
-
-                          {/* Transfer Primary Tag to other Super Admin */}
-                          {isPrimaryAdmin && !isPrimary && u.role === 'super_admin' && u.status === 'active' && (
-                            <button
-                              className="action-btn transfer-primary"
-                              onClick={() => handleOpenTransferModal(u)}
-                              title={`Transfer Primary Super Admin authority to ${u.first_name || u.email}`}
-                              aria-label="Transfer Primary Tag"
-                            >
-                              <Zap size={13} fill="currentColor" />
-                              <span>Transfer</span>
-                            </button>
-                          )}
-
-                          {/* Delete User */}
-                          {isSuperAdmin && (
-                            <button
-                              className="action-btn delete"
-                              onClick={() => handleDeleteUser(u)}
-                              disabled={isPrimary || u.id === currentUser.id}
-                              title={
-                                isPrimary
-                                  ? 'Primary Super Admin account is protected'
-                                  : u.id === currentUser.id
-                                  ? 'Cannot delete own account'
-                                  : 'Delete user'
-                              }
-                            >
-                              <Trash2 size={13} />
-                              <span>Delete</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* Users Table (Dynamic Table) */}
+      <div
+        style={
+          embedded
+            ? { flex: '1 1 0', minHeight: 420, display: 'flex', flexDirection: 'column', minWidth: 0 }
+            : { height: 'min(760px, calc(100vh - 340px))', minHeight: 420, display: 'flex', flexDirection: 'column', minWidth: 0 }
+        }
+      >
+        {loading || !layoutReady || !portalFeatures.ready ? (
+          <div className="users-table-card" style={{ padding: '32px', textAlign: 'center' }}>Loading user records...</div>
+        ) : (
+          <DynamicTable
+            key={`users_layout_${layoutEpoch}_${tagsKey}`}
+            tableId={TABLE_IDS.USERS}
+            shareState={false}
+            initialColumns={userColumns}
+            initialRows={tableRows}
+            layoutPrefs={layoutPrefs}
+            onLayoutPrefsChange={onLayoutPrefsChange}
+            canSaveLayoutAsDefault={canSaveLayoutAsDefault}
+            hasUserLayoutOverride={hasUserLayoutOverride}
+            onSaveLayoutAsDefault={
+              canSaveLayoutAsDefault
+                ? async (prefs) => {
+                    const result = await onSaveLayoutAsDefault?.(prefs);
+                    if (result?.message) (result.ok ? setSuccessMsg : setError)(result.message);
+                  }
+                : undefined
+            }
+            onResetLayoutToDefault={
+              hasUserLayoutOverride
+                ? async () => {
+                    const result = await onResetLayoutToDefault?.();
+                    if (result?.message) (result.ok ? setSuccessMsg : setError)(result.message);
+                  }
+                : undefined
+            }
+            onRefresh={fetchUsers}
+            showAddRow={false}
+            isDarkMode={isDarkMode}
+            usePortalFeatures
+            onEditRow={handleTableEdit}
+            onDeleteRowRequest={handleTableDelete}
+            enableFeatureBuilder={canConfigure}
+            onFeaturesChange={canConfigure ? portalFeatures.onChange : undefined}
+            onSaveFeatures={canConfigure ? portalFeatures.save : undefined}
+            isSavingFeatures={portalFeatures.saving}
+            featuresDirty={portalFeatures.dirty}
+            features={tableFeatures}
+          />
+        )}
       </div>
-
-
 
       {/* 1. CREATE NEW USER MODAL */}
       {isCreateModalOpen && (
@@ -1235,52 +1327,44 @@ export const UsersPage = ({ embedded = false }) => {
                 <div className="form-row">
                   <div className="form-group">
                     <label>Assign Role</label>
-                    <select
-                      className="form-select"
+                    <SearchableSelect
+                      portal
+                      className="users-form-select"
+                      ariaLabel="Role"
                       value={createForm.role}
-                      onChange={(e) => {
-                        const newRole = e.target.value;
+                      options={ROLE_SELECT_OPTIONS}
+                      onChange={(newRole) =>
                         setCreateForm({
                           ...createForm,
                           role: newRole,
                           permissions: DEFAULT_ROLE_PERMISSIONS[newRole] || [],
-                        });
-                      }}
-                    >
-                      <option value="super_admin">Super Admin</option>
-                      <option value="global_admin">Global Admin</option>
-                      <option value="admin">Admin</option>
-                      <option value="user">Standard User</option>
-                    </select>
+                        })}
+                    />
                   </div>
 
                   <div className="form-group">
                     <label>Status</label>
-                    <select
-                      className="form-select"
+                    <SearchableSelect
+                      portal
+                      className="users-form-select"
+                      ariaLabel="Status"
                       value={createForm.status}
-                      onChange={(e) => setCreateForm({ ...createForm, status: e.target.value })}
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="suspended">Suspended</option>
-                    </select>
+                      options={STATUS_SELECT_OPTIONS}
+                      onChange={(value) => setCreateForm({ ...createForm, status: value })}
+                    />
                   </div>
                 </div>
 
                 <div className="form-group">
                   <label>User Timezone</label>
-                  <select
-                    className="form-select"
+                  <SearchableSelect
+                    portal
+                    className="users-form-select"
+                    ariaLabel="Timezone"
                     value={createForm.timezone}
-                    onChange={(e) => setCreateForm({ ...createForm, timezone: e.target.value })}
-                  >
-                    {TIMEZONES.map((tz) => (
-                      <option key={tz.value} value={tz.value}>
-                        {tz.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={TIMEZONES}
+                    onChange={(value) => setCreateForm({ ...createForm, timezone: value })}
+                  />
                 </div>
 
                 {/* 2FA Informational Notice */}
@@ -1409,6 +1493,22 @@ export const UsersPage = ({ embedded = false }) => {
                   </div>
                 )}
 
+                {isSuperAdmin && selectedUser.role !== 'super_admin' && (
+                  <div className="perm-open-row">
+                    <span>Pages, tables, columns and rows this user can reach come from their groups.</span>
+                    <button
+                      type="button"
+                      className="perm-open-btn"
+                      onClick={() => {
+                        setIsEditModalOpen(false);
+                        setAccessModalUser(selectedUser);
+                      }}
+                    >
+                      Personal access…
+                    </button>
+                  </div>
+                )}
+
                 {/* Transfer Primary Banner - Available when Primary Super Admin edits another active Super Admin */}
                 {isPrimaryAdmin && !selectedUser.is_primary && selectedUser.role === 'super_admin' && selectedUser.status === 'active' && (
                   <div className="transfer-primary-banner">
@@ -1482,54 +1582,46 @@ export const UsersPage = ({ embedded = false }) => {
                 <div className="form-row">
                   <div className="form-group">
                     <label>Account Role</label>
-                    <select
-                      className="form-select"
+                    <SearchableSelect
+                      portal
+                      className="users-form-select"
+                      ariaLabel="Role"
                       value={editForm.role}
+                      options={ROLE_SELECT_OPTIONS}
                       disabled={selectedUser.is_primary}
-                      onChange={(e) => {
-                        const newRole = e.target.value;
+                      onChange={(newRole) =>
                         setEditForm({
                           ...editForm,
                           role: newRole,
                           permissions: DEFAULT_ROLE_PERMISSIONS[newRole] || [],
-                        });
-                      }}
-                    >
-                      <option value="super_admin">Super Admin</option>
-                      <option value="global_admin">Global Admin</option>
-                      <option value="admin">Admin</option>
-                      <option value="user">Standard User</option>
-                    </select>
+                        })}
+                    />
                   </div>
 
                   <div className="form-group">
                     <label>Status</label>
-                    <select
-                      className="form-select"
+                    <SearchableSelect
+                      portal
+                      className="users-form-select"
+                      ariaLabel="Status"
                       value={editForm.status}
+                      options={STATUS_SELECT_OPTIONS}
                       disabled={selectedUser.is_primary}
-                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="suspended">Suspended</option>
-                    </select>
+                      onChange={(value) => setEditForm({ ...editForm, status: value })}
+                    />
                   </div>
                 </div>
 
                 <div className="form-group">
                   <label>User Timezone</label>
-                  <select
-                    className="form-select"
+                  <SearchableSelect
+                    portal
+                    className="users-form-select"
+                    ariaLabel="Timezone"
                     value={editForm.timezone}
-                    onChange={(e) => setEditForm({ ...editForm, timezone: e.target.value })}
-                  >
-                    {TIMEZONES.map((tz) => (
-                      <option key={tz.value} value={tz.value}>
-                        {tz.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={TIMEZONES}
+                    onChange={(value) => setEditForm({ ...editForm, timezone: value })}
+                  />
                 </div>
 
                 {/* 2FA Status & Admin Management */}

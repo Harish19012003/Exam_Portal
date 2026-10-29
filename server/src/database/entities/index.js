@@ -5,6 +5,10 @@ import { ExamTableSchema } from './ExamTable.js';
 import { ExamRowSchema } from './ExamRow.js';
 import { VendorSchema } from './Vendor.js';
 import { VendorMetaSchema } from './VendorMeta.js';
+import { SeqViewSchema } from './SeqView.js';
+import { SeqViewMetaSchema } from './SeqViewMeta.js';
+import { UserTableMetaSchema } from './UserTableMeta.js';
+import { UserTagSchema } from './UserTag.js';
 import { ExamFieldPresetSchema } from './ExamFieldPreset.js';
 import { SystemSettingSchema } from './SystemSetting.js';
 import { UserPreferenceSchema } from './UserPreference.js';
@@ -21,6 +25,10 @@ export const entities = [
   ExamRowSchema,
   VendorSchema,
   VendorMetaSchema,
+  SeqViewSchema,
+  SeqViewMetaSchema,
+  UserTableMetaSchema,
+  UserTagSchema,
   ExamFieldPresetSchema,
   SystemSettingSchema,
   UserPreferenceSchema,
@@ -37,6 +45,10 @@ export { ExamTable } from './ExamTable.js';
 export { ExamRow } from './ExamRow.js';
 export { Vendor } from './Vendor.js';
 export { VendorMeta } from './VendorMeta.js';
+export { SeqView } from './SeqView.js';
+export { SeqViewMeta } from './SeqViewMeta.js';
+export { UserTableMeta } from './UserTableMeta.js';
+export { UserTag } from './UserTag.js';
 export { ExamFieldPreset } from './ExamFieldPreset.js';
 export { SystemSetting } from './SystemSetting.js';
 export { UserPreference } from './UserPreference.js';

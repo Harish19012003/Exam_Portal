@@ -8,6 +8,7 @@ import env from './config/env.js';
 import { logger } from './core/logger.js';
 import { testConnection, closeOrm } from './database/connection.js';
 import { initializeSocket } from './core/socket.js';
+import { startSeqViewSyncJob, stopSeqViewSyncJob } from './jobs/seq-view-sync.job.js';
 
 const PORT = env.PORT;
 
@@ -26,6 +27,9 @@ async function bootstrap() {
       logger.info(`[server] Running on http://localhost:${PORT}`);
       logger.info(`[server] Environment: ${env.NODE_ENV}`);
     });
+
+    // 4. Background jobs
+    startSeqViewSyncJob();
   } catch (error) {
     logger.error('Failed to start server', error);
     process.exit(1);
@@ -37,6 +41,7 @@ let isShuttingDown = false;
 const shutdown = (signal) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  stopSeqViewSyncJob();
   logger.info(`[server] ${signal} received — shutting down gracefully`);
 
   // Close all open keep-alive and websocket connections immediately

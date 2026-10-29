@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { PAGE_SIZE_OPTIONS } from '../types';
 
 interface TableFooterProps {
   page: number;
@@ -12,7 +13,7 @@ interface TableFooterProps {
   selectedCount: number;
 }
 
-const PAGE_SIZES = [10, 15, 25, 50, 100];
+const PAGE_SIZES = PAGE_SIZE_OPTIONS;
 
 export function TableFooter({
   page,

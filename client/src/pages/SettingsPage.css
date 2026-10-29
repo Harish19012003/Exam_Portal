@@ -164,8 +164,27 @@
 .settings-toolbar-right {
   display: flex;
   align-items: center;
+  gap: 12px;
   margin-left: auto;
   position: relative;
+}
+
+/* Action buttons of the active tab (e.g. Users: upload, add, summary toggle), shown left of the tab dropdown. */
+.settings-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-toolbar-actions:empty {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .settings-toolbar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 
 /* Clean Neutral & Minimal Pill Trigger */
@@ -1527,4 +1546,20 @@
   .settings-shortcut-btn {
     display: none;
   }
+}
+
+/* Users tab: the table takes all the height left under the header, instead of a fixed size. */
+.settings-page--fill {
+  flex: 1 0 auto;
+}
+
+.settings-page--fill > .settings-tab-viewport,
+.settings-panel-view--fill {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-panel-view--fill > .users-page {
+  flex: 1 0 auto;
 }

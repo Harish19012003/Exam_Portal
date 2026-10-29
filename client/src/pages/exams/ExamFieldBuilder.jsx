@@ -1,3 +1,4 @@
+import { useConfirm } from '../../feedback';
 import React, { useEffect, useId, useState } from 'react';
 import {
   Settings2,
@@ -35,6 +36,7 @@ import {
   CHOICE_FIELD_TYPES,
   DATE_LINK_TYPES,
   PHONE_VALIDATION_PRESETS,
+  UNIQUE_FIELD_TYPES,
   emptyFieldForm,
   emptyPhoneValidation,
   isValidRegexPattern,
@@ -86,8 +88,10 @@ export const ExamFieldBuilder = ({
   deleteConfirm,
   bulkModalProps = {},
   startWithNewField = false,
+  allowUnique = false,
 }) => {
   const formId = useId();
+  const confirm = useConfirm();
   const [editorOpen, setEditorOpen] = useState(false);
   const [form, setForm] = useState(emptyFieldForm);
   const [error, setError] = useState('');
@@ -176,6 +180,7 @@ export const ExamFieldBuilder = ({
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
     if (field.sameAsFieldKey) parts.push('Same-as');
     if (field.required) parts.push('Required');
+    if (field.unique) parts.push('Unique');
     if (field.layout === 'half') parts.push('Half');
     return parts.join(' · ');
   };
@@ -200,6 +205,7 @@ export const ExamFieldBuilder = ({
       keyTouched: true,
       dataType: field.dataType,
       required: Boolean(field.required),
+      unique: Boolean(field.unique),
       optionsText: (field.options || []).join('\n'),
       formula: field.formula || '',
       autoFill: field.autoFill || 'none',
@@ -343,6 +349,7 @@ export const ExamFieldBuilder = ({
       key,
       dataType: form.dataType,
       required: form.autoFill && form.autoFill !== 'none' ? false : form.required,
+      ...(allowUnique ? { unique: UNIQUE_FIELD_TYPES.has(form.dataType) && Boolean(form.unique) } : {}),
       options: optionsSource === 'manual' ? options : [],
       optionsSource,
       configListId: optionsSource === 'config' ? form.configListId : '',
@@ -370,11 +377,12 @@ export const ExamFieldBuilder = ({
     closeEditor();
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const target = fields.find((f) => f.id === id);
     if (!target) return;
     const message = deleteConfirm ? deleteConfirm(target) : `Delete field "${target.label}"?`;
-    if (!window.confirm(message)) return;
+    const ok = await confirm({ title: 'Delete field?', message, confirmLabel: 'Delete field', destructive: true });
+    if (!ok) return;
     onChange(
       fields
         .filter((f) => f.id !== id)
@@ -775,6 +783,17 @@ export const ExamFieldBuilder = ({
                 </label>
               )}
 
+              {allowUnique && UNIQUE_FIELD_TYPES.has(form.dataType) && (
+                <label className="exams-check-row">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.unique)}
+                    onChange={(e) => setForm((p) => ({ ...p, unique: e.target.checked }))}
+                  />
+                  <span>Unique: no two records can have the same value</span>
+                </label>
+              )}
+
               {isDateLinkable && (
                 <div className="exams-options-block">
                   <SearchableSelect
@@ -939,6 +958,7 @@ export const ExamFieldBuilder = ({
       <BulkFieldsModal
         fields={fields}
         reservedKeys={reservedKeys}
+        allowUnique={allowUnique}
         {...bulkModalProps}
         onClose={closeBulk}
         onAdd={handleBulkAdd}

@@ -632,7 +632,7 @@ function TableDataRowComponent({
               <>
                 {rowActions?.renderCustomActions && rowActions.renderCustomActions(row)}
 
-                {rowActions?.showExplore && (
+                {rowActions?.showExplore && onExploreRow && (
                   <button
                     type="button"
                     onClick={(e) => {
@@ -647,7 +647,7 @@ function TableDataRowComponent({
                   </button>
                 )}
 
-                {rowActions?.showDuplicate && (
+                {rowActions?.showDuplicate && onDuplicateRow && (
                   <button
                     type="button"
                     onClick={(e) => {
@@ -709,7 +709,7 @@ function TableDataRowComponent({
 
                   return (
                     <>
-                      {onOpenRecordSidebar && (
+                      {onOpenRecordSidebar && rowActions?.showRecordSidebar !== false && (
                         <button
                           type="button"
                           onClick={() => onOpenRecordSidebar(row)}

@@ -1,3 +1,4 @@
+import { useConfirm } from '../../feedback';
 import React, { useState, useEffect, useId } from 'react';
 import {
   ListChecks,
@@ -54,6 +55,7 @@ const emptyDropdownForm = () => ({
 });
 
 export const ConfigTab = () => {
+  const confirm = useConfirm();
   const formId = useId();
   const [activeSection, setActiveSection] = useState('dropdowns');
   const [dropdowns, setDropdowns] = useState(loadConfigDropdownLists);
@@ -185,10 +187,15 @@ export const ConfigTab = () => {
     closeDrawer();
   };
 
-  const handleDeleteDropdown = (listId) => {
+  const handleDeleteDropdown = async (listId) => {
     const target = dropdowns.find((d) => d.id === listId);
     if (!target) return;
-    const confirmed = window.confirm(`Delete dropdown list "${target.name}"?`);
+    const confirmed = await confirm({
+      title: 'Delete dropdown list?',
+      message: `Delete the dropdown list "${target.name}"?`,
+      confirmLabel: 'Delete list',
+      destructive: true,
+    });
     if (!confirmed) return;
     setDropdowns((prev) => prev.filter((d) => d.id !== listId));
   };

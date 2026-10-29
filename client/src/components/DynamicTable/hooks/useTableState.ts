@@ -84,6 +84,11 @@ export type UseTableStateOptions = {
   onLayoutPrefsChange?: (prefs: TablePrefs) => void;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
+  /**
+   * When set, deleting a row hands it to the page instead of removing it from the table (no undo toast).
+   * The page runs its own checks and confirmation, then reloads the rows.
+   */
+  onDeleteRowRequest?: (row: DataRow) => void;
   /** One call for a whole bulk update. When omitted, each row goes through onRowUpdate. */
   onBulkUpdate?: (items: { rowId: string; values: Record<string, unknown>; row: DataRow }[]) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
@@ -101,6 +106,7 @@ export function useTableState(
     onLayoutPrefsChange,
     onRowUpdate,
     onRowDelete,
+    onDeleteRowRequest,
     onBulkUpdate,
   } = options;
 
@@ -402,6 +408,11 @@ export function useTableState(
     const index = rows.findIndex(r => r.rowId === rowId);
     if (index === -1) return;
     const row = rows[index];
+    if (onDeleteRowRequest) {
+      setContextMenu(null);
+      onDeleteRowRequest(row);
+      return;
+    }
     if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
 
     setRows(prev => prev.filter(r => r.rowId !== rowId));
@@ -414,7 +425,7 @@ export function useTableState(
     }, 15000);
     deleteTimerRef.current = timerId;
     setPendingDelete({ rowId, row, timerId, index });
-  }, [rows, onRowDelete]);
+  }, [rows, onRowDelete, onDeleteRowRequest]);
 
   const handleUndoDelete = useCallback(() => {
     if (!pendingDelete) return;

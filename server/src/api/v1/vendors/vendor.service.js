@@ -1,4 +1,5 @@
 import { vendorRepository } from './vendor.repository.js';
+import { assertUniqueBatch, assertUniqueValues } from '../shared/unique-fields.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 import { decodeVendor, getCustomFields, pickCustomValues } from './vendor-fields.service.js';
@@ -51,14 +52,18 @@ export async function getVendorById(id) {
 export async function createVendor(input) {
   const fields = await getCustomFields();
   requireFields(fields);
-  const id = await vendorRepository.create(prepare(fields, input));
+  const values = prepare(fields, input);
+  assertUniqueValues(fields, values, await vendorRepository.findAll());
+  const id = await vendorRepository.create(values);
   return getVendorById(id);
 }
 
 export async function updateVendor(id, input, version) {
   const fields = await getCustomFields();
   const vendorId = toId(id);
-  await vendorRepository.update(vendorId, prepare(fields, input, { partial: true }), version);
+  const values = prepare(fields, input, { partial: true });
+  assertUniqueValues(fields, values, await vendorRepository.findAll(), { excludeId: vendorId });
+  await vendorRepository.update(vendorId, values, version);
   return getVendorById(vendorId);
 }
 
@@ -69,13 +74,14 @@ export async function deleteVendors(ids) {
 }
 
 /** Rows are objects keyed by field key. All-or-nothing; errors name the offending row. */
-export async function importVendors(rows) {
+export async function importVendors(rows, { ignoreExisting = false } = {}) {
   const fields = await getCustomFields();
   requireFields(fields);
   if (!Array.isArray(rows) || !rows.length) throw validationError('No rows to import');
   if (rows.length > MAX_IMPORT_ROWS) throw validationError(`Import at most ${MAX_IMPORT_ROWS} rows at a time`);
 
   const prepared = rows.map((row, i) => prepare(fields, row, { prefix: `Row ${i + 1}: ` }));
+  assertUniqueBatch(fields, prepared, await vendorRepository.findAll(), { ignoreExisting });
   const count = await vendorRepository.createMany(prepared);
   return { success: true, count };
 }
