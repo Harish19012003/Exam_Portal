@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link2 } from 'lucide-react';
 import {
   BOOLEAN_FIELD_TYPES,
@@ -9,6 +9,43 @@ import {
 } from './examFieldTypes';
 import { SearchableSelect } from './SearchableSelect';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
+import { TableLookupSelect } from './TableLookupSelect';
+import { MISSING_LABEL, isLinkedField, isTableSourceField, resolveLookupRows } from './tableLookupApi';
+
+/** Read-only value of a column from the row picked in another (table column) field. */
+const LinkedValueField = ({ field, sourceField, sourceValue }) => {
+  const [text, setText] = useState('');
+  const id = Array.isArray(sourceValue) ? sourceValue[0] : sourceValue;
+  const { column } = field.linkedFrom || {};
+  const table = sourceField?.tableSource?.table;
+
+  useEffect(() => {
+    if (!id || !table || !column) {
+      setText('');
+      return undefined;
+    }
+    let cancelled = false;
+    resolveLookupRows({ table, columns: [column], ids: [String(id)] })
+      .then((found) => {
+        if (!cancelled) setText(found?.[id] ? found[id].values?.[column] ?? '' : MISSING_LABEL);
+      })
+      .catch(() => {
+        if (!cancelled) setText('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, table, column]);
+
+  return (
+    <div className="exams-form-group">
+      <span className="exams-audit-label">{field.label}</span>
+      <div className="exams-audit-value" title={sourceField ? `Read from ${sourceField.label}` : undefined}>
+        {id ? text || '…' : '—'}
+      </div>
+    </div>
+  );
+};
 
 const formatLinkedDateValue = (value, dataType, emptyLabel = '—') => {
   if (!value) return emptyLabel;
@@ -31,6 +68,8 @@ export const ExamCustomFieldInput = ({
   value,
   onChange,
   sameAsChecked = false,
+  linkedSourceField = null,
+  linkedSourceValue = undefined,
   sameAsSourceLabel = '',
   onSameAsToggle,
 }) => {
@@ -90,6 +129,10 @@ export const ExamCustomFieldInput = ({
     </div>
   );
 
+  if (isLinkedField(field)) {
+    return <LinkedValueField field={field} sourceField={linkedSourceField} sourceValue={linkedSourceValue} />;
+  }
+
   if (isAuto || dataType === 'formula' || dataType === 'composite') {
     return (
       <div className="exams-form-group">
@@ -119,6 +162,24 @@ export const ExamCustomFieldInput = ({
           {field.required ? ' *' : ''}
         </span>
       </label>
+    );
+  }
+
+  // Options read live from a column of the Vendor / SeqView table; the value is that row's id.
+  if (
+    isTableSourceField(field) &&
+    (dataType === 'dropdown' || dataType === 'status' || dataType === 'multiselect')
+  ) {
+    return (
+      <TableLookupSelect
+        id={id}
+        label={field.label}
+        required={field.required}
+        source={field.tableSource}
+        multiple={dataType === 'multiselect'}
+        value={value}
+        onChange={onChange}
+      />
     );
   }
 

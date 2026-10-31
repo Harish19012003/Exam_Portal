@@ -30,6 +30,7 @@ export const EXAM_FIELD_TYPES = [
   { value: 'icon', label: 'Icon' },
   { value: 'formula', label: 'Formula' },
   { value: 'composite', label: 'Composite' },
+  { value: 'linked', label: 'Linked value' },
 ];
 
 export const AUTO_FILL_OPTIONS = [
@@ -283,6 +284,12 @@ export const emptyFieldForm = () => ({
   layout: 'full',
   optionsSource: 'manual',
   configListId: '',
+  lookupTable: '',
+  lookupColumn: '',
+  lookupDetail: '',
+  fillColumns: [],
+  linkedFieldKey: '',
+  linkedColumn: '',
   allowMultiple: false,
   sameAsFieldKey: '',
   sameAsDefaultOn: true,

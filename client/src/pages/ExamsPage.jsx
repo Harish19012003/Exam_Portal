@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
+import { useConfirm } from '../feedback';
+import { apiErrorMessage } from './exams/examTableApi';
 import { useNavigate } from 'react-router-dom';
 import { Plus, X, FilePlus2, SlidersHorizontal, CalendarDays } from 'lucide-react';
 import { DynamicTable } from '../components/DynamicTable';
@@ -28,6 +30,8 @@ import {
   migrateLocalExamsToSqlIfNeeded,
 } from './exams/examApi';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
+import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
+import { groupSyncPatch } from './exams/tableLookupApi';
 import {
   fetchExamTableConfig,
   publishExamTableConfig,
@@ -65,6 +69,7 @@ import './ExamsPage.css';
 
 export const ExamsPage = () => {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const { access, can } = useAccess();
   const canConfigure = can('exams', 'configure');
   const canCreate = can('exams', 'create');
@@ -130,7 +135,9 @@ export const ExamsPage = () => {
     () => creatableFields(formFields, 'exams', access),
     [formFields, access],
   );
-  const tableRows = useMemo(() => buildExamTableRows(exams), [exams]);
+  const savedTableRows = useMemo(() => buildExamTableRows(exams), [exams]);
+  // Table-column fields store a row id; the table shows that row's current label.
+  const tableRows = useLookupDisplayRows(savedTableRows, formFields);
 
   const handleSaveLayoutAsDefault = useCallback(
     async (prefs) => {
@@ -419,7 +426,8 @@ export const ExamsPage = () => {
 
   const handleFieldChange = (key, value) => {
     setForm((prev) => {
-      const next = { ...prev, [key]: value };
+      // Column group: picking a row in one member sets the same row in the others.
+      const next = { ...prev, [key]: value, ...groupSyncPatch(formFields, key, value) };
       formFields.forEach((f) => {
         if (
           f.sameAsFieldKey === key &&
@@ -475,7 +483,10 @@ export const ExamsPage = () => {
   };
 
   const handleRowUpdate = async (rowId, updatedValues) => {
-    const next = await updateExam(rowId, { values: updatedValues });
+    const original = exams.find((exam) => exam.id === rowId);
+    const next = await updateExam(rowId, {
+      values: restoreLookupIds(updatedValues, original?.values, formFields),
+    });
     if (!next) {
       setPageMessage('Could not update exam');
       return;
@@ -483,11 +494,38 @@ export const ExamsPage = () => {
     setExams((prev) => prev.map((exam) => (exam.id === rowId ? next : exam)));
   };
 
+  // Deleting an exam also deletes its center list and every center in it, so always ask first.
+  // (Without this the table's own delete is a soft delete that only reaches the server after
+  // 15 seconds, so leaving the page or refreshing in that window brought the exam back.)
   const handleRowDelete = async (rowIds) => {
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
-    await Promise.all(ids.map((id) => deleteExam(id)));
-    setExams((prev) => prev.filter((exam) => !ids.includes(exam.id)));
+    const ok = await confirm({
+      title: ids.length > 1 ? `Delete ${ids.length} exams?` : 'Delete exam?',
+      message:
+        ids.length > 1
+          ? `Delete the ${ids.length} selected exams?`
+          : 'Delete this exam?',
+      tertiary: 'Its center list and every center in it are deleted too. This cannot be undone.',
+      confirmLabel: ids.length > 1 ? 'Delete exams' : 'Delete exam',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    const results = await Promise.allSettled(ids.map((id) => deleteExam(id)));
+    const deleted = ids.filter((_, i) => results[i].status === 'fulfilled');
+    const failed = results.find((r) => r.status === 'rejected');
+    if (deleted.length) setExams((prev) => prev.filter((exam) => !deleted.includes(exam.id)));
+    if (failed) {
+      setPageMessage(apiErrorMessage(failed.reason, 'Could not delete the exam'));
+      // Show what is really on the server.
+      listExams().then(setExams).catch(() => {});
+      return;
+    }
     setPageMessage(ids.length > 1 ? 'Exams deleted' : 'Exam deleted');
+  };
+
+  const handleDeleteRowRequest = (row) => {
+    if (row?.id) handleRowDelete([row.id]);
   };
 
   /** Duplicate row: copy visible field values; skip auto-fill / audit / formula. */
@@ -502,8 +540,8 @@ export const ExamsPage = () => {
     async (row) => {
       const fields = formFieldsRef.current || [];
       const visibility = layoutPrefs?.columnVisibility || {};
-      const source =
-        row?.values && typeof row.values === 'object' ? row.values : {};
+      const rowValues = row?.rawValues || row?.values;
+      const source = rowValues && typeof rowValues === 'object' ? rowValues : {};
       const skipKeys = new Set([
         'id',
         'created_at',
@@ -631,6 +669,8 @@ export const ExamsPage = () => {
         onChange={(val) => handleFieldChange(field.key, val)}
         sameAsChecked={Boolean(sameAsFlags[field.key])}
         sameAsSourceLabel={sourceField?.label || ''}
+        linkedSourceField={field.linkedFrom ? fieldByKey[field.linkedFrom.fieldKey] : null}
+        linkedSourceValue={field.linkedFrom ? form[field.linkedFrom.fieldKey] : undefined}
         onSameAsToggle={
           field.sameAsFieldKey
             ? (checked) => handleSameAsToggle(field.key, checked)
@@ -701,6 +741,7 @@ export const ExamsPage = () => {
               }
               onRowUpdate={handleRowUpdate}
               onRowDelete={handleRowDelete}
+              onDeleteRowRequest={handleDeleteRowRequest}
               onDuplicateRow={handleDuplicateRow}
               onExploreRow={can('exam_rows', 'view') ? handleExploreRow : undefined}
               onImportRows={handleImportRows}

@@ -35,7 +35,7 @@ const DEFAULT_CUSTOM_FEATURES: TableFeaturesConfig = {
   enableRefresh: false,
   enableDensity: false,
   enableExport: false,
-  enableImport: false,
+  enableImport: true,
   enableSavedViews: false,
   enableFullScreen: false,
   enableTranspose: true,

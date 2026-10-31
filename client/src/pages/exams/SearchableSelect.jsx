@@ -45,7 +45,8 @@ export const SearchableSelect = ({
     return options.filter(
       (o) =>
         String(o.label).toLowerCase().includes(q) ||
-        String(o.value).toLowerCase().includes(q)
+        String(o.value).toLowerCase().includes(q) ||
+        String(o.group || '').toLowerCase().includes(q)
     );
   }, [options, query, showSearch]);
 
@@ -170,13 +171,21 @@ export const SearchableSelect = ({
           filtered.map((opt, index) => {
             const isSelected = opt.value === value;
             const isActive = index === highlight;
+            // Options may carry a `group`: its heading shows once above the first option of the group.
+            const showGroup = opt.group && opt.group !== filtered[index - 1]?.group;
             return (
-              <li key={opt.value}>
+              <React.Fragment key={opt.value}>
+              {showGroup && (
+                <li role="presentation" className="exams-search-select-group">
+                  {opt.group}
+                </li>
+              )}
+              <li>
                 <button
                   type="button"
                   role="option"
                   aria-selected={isSelected}
-                  className={`exams-search-select-option ${isSelected ? 'selected' : ''} ${isActive ? 'active' : ''}`}
+                  className={`exams-search-select-option ${opt.group ? 'is-grouped' : ''} ${isSelected ? 'selected' : ''} ${isActive ? 'active' : ''}`}
                   onMouseEnter={() => setHighlight(index)}
                   onClick={() => handleSelect(opt.value)}
                 >
@@ -184,6 +193,7 @@ export const SearchableSelect = ({
                   {isSelected && <Check size={13} strokeWidth={2.5} className="exams-search-select-check" />}
                 </button>
               </li>
+              </React.Fragment>
             );
           })
         ) : (
@@ -208,7 +218,7 @@ export const SearchableSelect = ({
         aria-expanded={open}
       >
         <span className={`exams-search-select-value ${selected ? '' : 'placeholder'}`}>
-          {selected?.label || placeholder}
+          {selected?.triggerLabel || selected?.label || placeholder}
         </span>
         <ChevronDown size={14} className={`exams-search-select-chevron ${open ? 'rotated' : ''}`} />
       </button>

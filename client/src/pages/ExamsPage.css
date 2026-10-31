@@ -2093,7 +2093,7 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
-  padding: 10px clamp(12px, 2vw, 18px);
+  padding: 6px clamp(12px, 2vw, 18px);
   font-size: 0.8rem;
   color: var(--text-secondary, #64748b);
   background: var(--bg-primary, #f8fafc);
@@ -2106,16 +2106,10 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 }
 
 .exams-bulk-tip {
-  flex: 1 1 320px;
+  flex: 1 1 240px;
   min-width: 0;
-}
-
-.exams-bulk-tip strong {
-  color: var(--text-primary, #0f172a);
-}
-
-[data-theme='dark'] .exams-bulk-tip strong {
-  color: var(--text-primary, #f1f5f9);
+  font-size: 0.75rem;
+  opacity: 0.85;
 }
 
 .exams-bulk-toolbar-actions {
@@ -2219,6 +2213,8 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 
 .exams-bulk-body {
   padding-right: 0;
+  /* No top padding: a sticky header sticks below it, letting rows show above the header. */
+  padding-top: 0;
   background: var(--bg-card, #ffffff);
 }
 
@@ -2238,6 +2234,51 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 
   .exams-bulk-table {
     width: 100%;
+  }
+}
+
+/* Bulk modal: pinned (frozen) columns — tables only, phones use stacked cards */
+@media (min-width: 481px) {
+  .exams-bulk-table th.is-pinned,
+  .exams-bulk-table td.is-pinned {
+    position: sticky;
+    background: var(--bg-card, #ffffff);
+  }
+
+  .exams-bulk-table td.is-pinned {
+    z-index: 2;
+  }
+
+  .exams-bulk-table th.is-pinned {
+    z-index: 4;
+  }
+
+  .exams-bulk-table th.pin-edge,
+  .exams-bulk-table td.pin-edge {
+    box-shadow: 8px 0 8px -8px rgba(15, 23, 42, 0.18);
+  }
+
+  [data-theme='dark'] .exams-bulk-table th.is-pinned,
+  [data-theme='dark'] .exams-bulk-table td.is-pinned {
+    background: var(--bg-card, #1e293b);
+  }
+}
+
+/* Pin buttons appear on header hover/focus; the active one stays visible. Touch has no hover. */
+.exams-bulk-pin-btn {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.exams-bulk-table th:hover .exams-bulk-pin-btn,
+.exams-bulk-pin-btn:focus-visible,
+.exams-bulk-pin-btn.is-open {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .exams-bulk-pin-btn {
+    opacity: 0.6;
   }
 }
 
@@ -2365,4 +2406,301 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-bulk-table .exams-bulk-select .exams-search-select-trigger {
     min-height: 44px;
   }
+}
+
+/* Bulk modal: Options cell adapts to its source (typed / Config list / table column) */
+.exams-bulk-lookup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+.exams-bulk-hint {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--text-secondary, #64748b);
+}
+
+/* Field builder: columns that become Linked value fields */
+.exams-fill-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.exams-fill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 4px 12px;
+}
+
+.exams-fill-grid .exams-check-row {
+  min-height: 36px;
+}
+
+/* Bulk modal: tabs */
+.exams-bulk-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 clamp(12px, 2vw, 18px);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.exams-bulk-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.exams-bulk-tab.active {
+  color: var(--primary-color, #5c43fa);
+  border-bottom-color: var(--primary-color, #5c43fa);
+}
+
+.exams-bulk-tab-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.14);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.exams-bulk-tab.active .exams-bulk-tab-count {
+  background: rgba(92, 67, 250, 0.14);
+}
+
+.exams-bulk-tab-warn {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #dc2626;
+}
+
+/* Bulk modal: dependencies manager */
+.exams-bulk-deps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.exams-bulk-deps-intro {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.exams-bulk-deps-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  text-align: center;
+  border: 1px dashed var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+.exams-bulk-deps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.exams-dep-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-left: 3px solid var(--primary-color, #5c43fa);
+  border-radius: 12px;
+  background: var(--bg-card, #ffffff);
+}
+
+.exams-dep-warn {
+  border-left-color: #dc2626;
+}
+
+.exams-dep-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+}
+
+.exams-dep-source {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--primary-color, #5c43fa);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.exams-dep-sub {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+}
+
+.exams-dep-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.exams-dep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text-primary, #0f172a);
+  background: transparent;
+  border: 1px dashed var(--border-color, #cbd5e1);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.exams-dep-chip:hover {
+  border-color: var(--primary-color, #5c43fa);
+}
+
+.exams-dep-chip.on {
+  color: #ffffff;
+  background: var(--primary-color, #5c43fa);
+  border: 1px solid var(--primary-color, #5c43fa);
+}
+
+.exams-dep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exams-dep-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  color: var(--text-secondary, #64748b);
+}
+
+.exams-dep-item input {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-primary, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+}
+
+.exams-dep-item input.invalid {
+  border-color: #dc2626;
+}
+
+.exams-dep-col {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.exams-dep-item-stack > * {
+  flex: 1 1 140px;
+}
+
+.exams-dep-item-stack .exams-bulk-remove {
+  flex: 0 0 auto;
+}
+
+.exams-dep-orphan-name {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+/* Bulk modal: read-only chips in the Fields grid for linked rows */
+.exams-bulk-static-chip,
+.exams-bulk-dep-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 6px;
+  color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.08);
+  border: 1px solid transparent;
+}
+
+.exams-bulk-dep-link {
+  width: 100%;
+  cursor: pointer;
+}
+
+.exams-bulk-dep-link.invalid {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+@media (max-width: 480px) {
+  .exams-dep-chip,
+  .exams-dep-item input {
+    min-height: 44px;
+  }
+}
+
+/* Searchable select: group headings (e.g. a table name above its columns) */
+.exams-search-select-group {
+  padding: 8px 8px 3px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+}
+
+.exams-search-select-option.is-grouped {
+  padding-left: 18px;
 }

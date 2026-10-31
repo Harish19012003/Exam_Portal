@@ -47,8 +47,11 @@ import {
   getConfigListOptions,
   getDateLinkCandidates,
 } from './examFieldTypes';
+import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
 import { SearchableSelect } from './SearchableSelect';
 import { BulkFieldsModal } from './BulkFieldsModal';
+import { ColumnGroupsModal } from './ColumnGroupsModal';
+import { humanizeGroup } from './tableLookupApi';
 
 const TYPE_ICONS = {
   text: Type,
@@ -76,6 +79,47 @@ const TYPE_ICONS = {
   icon: Image,
   formula: Sigma,
   composite: Layers,
+  linked: Link2,
+};
+
+/**
+ * Keep the Linked value fields of one table-column field in step with its ticked columns:
+ * add one (right after the field) for each newly ticked column, drop the ones unticked.
+ * Linked fields hold no data of their own, so removing one loses nothing.
+ */
+const syncLinkedFields = (list, source, wantedColumns, columnLabels) => {
+  const wanted = source.optionsSource === 'table' ? wantedColumns : [];
+  const kept = list.filter((f) => !(isLinkedField(f) && f.linkedFrom.fieldKey === source.key && !wanted.includes(f.linkedFrom.column)));
+  const have = new Set(linkedFieldsOf(kept, source.key).map((f) => f.linkedFrom.column));
+  const taken = new Set(kept.map((f) => f.key));
+  const added = wanted
+    .filter((column) => !have.has(column))
+    .map((column) => {
+      let key = normalizeFieldKey(`${source.key}_${column}`).slice(0, 60) || 'linked';
+      for (let n = 2; taken.has(key); n += 1) key = `${key.replace(/_\d+$/, '')}_${n}`;
+      taken.add(key);
+      return {
+        id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        label: columnLabels[column] || column,
+        key,
+        dataType: 'linked',
+        required: false,
+        options: [],
+        optionsSource: 'manual',
+        configListId: '',
+        allowMultiple: false,
+        autoFill: 'none',
+        layout: 'full',
+        sameAsFieldKey: '',
+        sameAsDefaultOn: true,
+        linkedFrom: { fieldKey: source.key, column },
+      };
+    });
+  if (added.length === 0 && kept.length === list.length) return list;
+  const at = kept.findIndex((f) => f.id === source.id);
+  const lastLinked = kept.reduce((n, f, i) => (isLinkedField(f) && f.linkedFrom.fieldKey === source.key ? i : n), at);
+  const result = [...kept.slice(0, Math.max(at, lastLinked) + 1), ...added, ...kept.slice(Math.max(at, lastLinked) + 1)];
+  return result.map((f, i) => ({ ...f, order: i + 1 }));
 };
 
 export const ExamFieldBuilder = ({
@@ -84,6 +128,9 @@ export const ExamFieldBuilder = ({
   onClose,
   onChange,
   title = 'Fields',
+  subtitle,
+  topSlot = null,
+  footer = null,
   reservedKeys = [],
   deleteConfirm,
   bulkModalProps = {},
@@ -99,6 +146,8 @@ export const ExamFieldBuilder = ({
   const [dragFieldId, setDragFieldId] = useState(null);
   const [dragOverFieldId, setDragOverFieldId] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  const [lookupSources, setLookupSources] = useState([]);
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -110,6 +159,11 @@ export const ExamFieldBuilder = ({
     value: l.id,
     label: `${l.name} (${(l.options || []).length})`,
   }));
+  const lookupColumns = lookupSources.find((t) => t.table === form.lookupTable)?.columns || [];
+  // Linked value: the table-column fields it can read from, and that table's columns.
+  const linkSourceFields = fields.filter((f) => isTableSourceField(f) && f.id !== form.id);
+  const linkSource = linkSourceFields.find((f) => f.key === form.linkedFieldKey);
+  const linkColumns = lookupSources.find((t) => t.table === linkSource?.tableSource?.table)?.columns || [];
   const previewConfigOptions =
     form.optionsSource === 'config' && form.configListId
       ? getConfigListOptions(form.configListId)
@@ -166,6 +220,21 @@ export const ExamFieldBuilder = ({
     };
   }, [open, editorOpen, bulkOpen, onClose]);
 
+  // Tables a field can read options from (only fetched once the editor shows the "Table column" source).
+  const wantsLookupSources = open && editorOpen && (form.optionsSource === 'table' || form.dataType === 'linked');
+  useEffect(() => {
+    if (!wantsLookupSources || lookupSources.length > 0) return undefined;
+    let cancelled = false;
+    listLookupSources()
+      .then((rows) => {
+        if (!cancelled) setLookupSources(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsLookupSources, lookupSources.length]);
+
   if (!open) return null;
 
   const typeLabel = (value) =>
@@ -177,6 +246,8 @@ export const ExamFieldBuilder = ({
     parts.push(typeLabel(field.dataType));
     if (field.allowMultiple) parts.push('Multi');
     if (field.optionsSource === 'config') parts.push('Config');
+    if (field.optionsSource === 'table') parts.push(field.lookupGroup ? `Group · ${humanizeGroup(field.lookupGroup)}` : 'Table');
+    if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
     if (field.sameAsFieldKey) parts.push('Same-as');
     if (field.required) parts.push('Required');
@@ -212,6 +283,12 @@ export const ExamFieldBuilder = ({
       layout: field.layout || 'full',
       optionsSource: field.optionsSource || 'manual',
       configListId: field.configListId || '',
+      lookupTable: field.tableSource?.table || '',
+      lookupColumn: field.tableSource?.column || '',
+      lookupDetail: field.tableSource?.detailColumn || '',
+      fillColumns: linkedFieldsOf(fields, field.key).map((f) => f.linkedFrom.column),
+      linkedFieldKey: field.linkedFrom?.fieldKey || '',
+      linkedColumn: field.linkedFrom?.column || '',
       allowMultiple: Boolean(field.allowMultiple) || field.dataType === 'multiselect',
       sameAsFieldKey: field.sameAsFieldKey || '',
       sameAsDefaultOn: field.sameAsDefaultOn !== false,
@@ -232,9 +309,14 @@ export const ExamFieldBuilder = ({
 
   const closeBulk = () => setBulkOpen(false);
 
-  const handleBulkAdd = (newFields, updatedFields = []) => {
+  const handleBulkAdd = (newFields, updatedFields = [], removedIds = []) => {
     const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
-    onChange([...fields.map((f) => updatedById.get(f.id) || f), ...newFields]);
+    const gone = new Set(removedIds);
+    onChange(
+      [...fields.map((f) => updatedById.get(f.id) || f), ...newFields]
+        .filter((f) => !gone.has(f.id))
+        .map((f, i) => ({ ...f, order: i + 1 })),
+    );
     closeBulk();
   };
 
@@ -274,6 +356,11 @@ export const ExamFieldBuilder = ({
           setError('Selected Config list has no options.');
           return;
         }
+      } else if (optionsSource === 'table') {
+        if (!form.lookupTable || !form.lookupColumn) {
+          setError('Choose the table and column to read options from.');
+          return;
+        }
       } else {
         options = parseOptions(form.optionsText);
         if (options.length === 0) {
@@ -281,6 +368,11 @@ export const ExamFieldBuilder = ({
           return;
         }
       }
+    }
+
+    if (form.dataType === 'linked' && (!form.linkedFieldKey || !form.linkedColumn)) {
+      setError('Choose the field to read from and which of its columns to show.');
+      return;
     }
 
     if (needsFormula && !form.formula.trim()) {
@@ -348,11 +440,23 @@ export const ExamFieldBuilder = ({
       label,
       key,
       dataType: form.dataType,
-      required: form.autoFill && form.autoFill !== 'none' ? false : form.required,
+      required:
+        form.dataType === 'linked' || (form.autoFill && form.autoFill !== 'none') ? false : form.required,
+      linkedFrom:
+        form.dataType === 'linked' ? { fieldKey: form.linkedFieldKey, column: form.linkedColumn } : undefined,
       ...(allowUnique ? { unique: UNIQUE_FIELD_TYPES.has(form.dataType) && Boolean(form.unique) } : {}),
       options: optionsSource === 'manual' ? options : [],
       optionsSource,
       configListId: optionsSource === 'config' ? form.configListId : '',
+      lookupGroup: optionsSource === 'table' ? fields.find((f) => f.id === form.id)?.lookupGroup : undefined,
+      tableSource:
+        optionsSource === 'table'
+          ? {
+              table: form.lookupTable,
+              column: form.lookupColumn,
+              ...(form.lookupDetail ? { detailColumn: form.lookupDetail } : {}),
+            }
+          : undefined,
       allowMultiple,
       formula: needsFormula ? form.formula.trim() : undefined,
       autoFill: form.autoFill || 'none',
@@ -362,18 +466,21 @@ export const ExamFieldBuilder = ({
       ...(phoneValidation ? { phoneValidation } : { phoneValidation: undefined }),
     };
 
-    if (isEditing) {
-      onChange(fields.map((f) => (f.id === form.id ? { ...f, ...payload } : f)));
-    } else {
-      onChange([
-        ...fields,
-        {
+    const savedField = isEditing
+      ? { ...fields.find((f) => f.id === form.id), ...payload }
+      : {
           id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           ...payload,
           order: fields.length + 1,
-        },
-      ]);
-    }
+        };
+    const base = isEditing ? fields.map((f) => (f.id === form.id ? savedField : f)) : [...fields, savedField];
+    // A table-column field can also fill other fields from the same row (Linked values).
+    const columnLabels = Object.fromEntries(lookupColumns.map((c) => [c.key, c.label]));
+    onChange(
+      form.dataType === 'linked'
+        ? base
+        : syncLinkedFields(base, savedField, optionsSource === 'table' ? form.fillColumns || [] : [], columnLabels),
+    );
     closeEditor();
   };
 
@@ -385,7 +492,7 @@ export const ExamFieldBuilder = ({
     if (!ok) return;
     onChange(
       fields
-        .filter((f) => f.id !== id)
+        .filter((f) => f.id !== id && !(isLinkedField(f) && f.linkedFrom.fieldKey === target.key))
         .map((f, i) => ({
           ...f,
           order: i + 1,
@@ -423,9 +530,10 @@ export const ExamFieldBuilder = ({
             </h2>
             {!editorOpen && (
               <p className="exams-field-header-sub">
-                {fields.length === 0
-                  ? 'Pick a type to add to the create form'
-                  : `${fields.length} custom field${fields.length === 1 ? '' : 's'}`}
+                {subtitle ??
+                  (fields.length === 0
+                    ? 'Pick a type to add to the create form'
+                    : `${fields.length} custom field${fields.length === 1 ? '' : 's'}`)}
               </p>
             )}
           </div>
@@ -441,7 +549,9 @@ export const ExamFieldBuilder = ({
         </div>
 
         {!editorOpen ? (
+          <>
           <div className="exams-drawer-body exams-field-list-body">
+            {topSlot}
             {fields.length > 0 && (
               <div className="exams-fields-panel">
                 <div className="exams-field-section-bar">
@@ -450,6 +560,10 @@ export const ExamFieldBuilder = ({
                     <button type="button" className="exams-text-add-btn" onClick={openBulk}>
                       <ListPlus size={13} />
                       Bulk add
+                    </button>
+                    <button type="button" className="exams-text-add-btn" onClick={() => setGroupsOpen(true)}>
+                      <Link2 size={13} />
+                      Groups
                     </button>
                     <button
                       type="button"
@@ -581,6 +695,8 @@ export const ExamFieldBuilder = ({
               </div>
             )}
           </div>
+          {footer && <div className="exams-drawer-footer exams-drawer-footer-compact">{footer}</div>}
+          </>
         ) : (
           <form className="exams-drawer-form" onSubmit={handleSave}>
             <div className="exams-drawer-body">
@@ -858,6 +974,18 @@ export const ExamFieldBuilder = ({
                         >
                           Config list
                         </button>
+                        {isChoiceField && (
+                          <button
+                            type="button"
+                            className={`exams-source-btn ${form.optionsSource === 'table' ? 'active' : ''}`}
+                            onClick={() => {
+                              setForm((p) => ({ ...p, optionsSource: 'table' }));
+                              if (error) setError('');
+                            }}
+                          >
+                            Table column
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -875,7 +1003,83 @@ export const ExamFieldBuilder = ({
                     </label>
                   )}
 
-                  {(form.optionsSource || 'manual') === 'manual' ? (
+                  {form.optionsSource === 'table' ? (
+                    <>
+                      <SearchableSelect
+                        id={`${formId}-lookup-table`}
+                        label="Read from table"
+                        value={form.lookupTable}
+                        options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
+                        placeholder={lookupSources.length ? 'Select a table…' : 'Loading tables…'}
+                        searchThreshold={8}
+                        onChange={(next) => {
+                          setForm((p) => ({ ...p, lookupTable: next, lookupColumn: '', lookupDetail: '' }));
+                          if (error) setError('');
+                        }}
+                      />
+                      {form.lookupTable && (
+                        <>
+                          <SearchableSelect
+                            id={`${formId}-lookup-column`}
+                            label="Show this column"
+                            value={form.lookupColumn}
+                            options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
+                            placeholder="Select a column…"
+                            searchPlaceholder="Search columns…"
+                            onChange={(next) => {
+                              setForm((p) => ({ ...p, lookupColumn: next }));
+                              if (error) setError('');
+                            }}
+                          />
+                          <SearchableSelect
+                            id={`${formId}-lookup-detail`}
+                            label="Also show (optional)"
+                            value={form.lookupDetail}
+                            options={[
+                              { value: '', label: 'None' },
+                              ...lookupColumns.filter((c) => c.key !== form.lookupColumn).map((c) => ({ value: c.key, label: c.label })),
+                            ]}
+                            placeholder="None"
+                            searchPlaceholder="Search columns…"
+                            onChange={(next) => setForm((p) => ({ ...p, lookupDetail: next }))}
+                          />
+                        </>
+                      )}
+                      {form.lookupTable && form.lookupColumn && (
+                        <div className="exams-fill-columns">
+                          <span className="exams-audit-label">Also fill from the same row</span>
+                          <p className="exams-config-empty-hint">
+                            Each ticked column becomes a read-only field that shows that column of the row picked here.
+                          </p>
+                          <div className="exams-fill-grid">
+                            {lookupColumns
+                              .filter((c) => c.key !== form.lookupColumn)
+                              .map((c) => (
+                                <label key={c.key} className="exams-check-row">
+                                  <input
+                                    type="checkbox"
+                                    checked={(form.fillColumns || []).includes(c.key)}
+                                    onChange={(e) =>
+                                      setForm((p) => ({
+                                        ...p,
+                                        fillColumns: e.target.checked
+                                          ? [...(p.fillColumns || []), c.key]
+                                          : (p.fillColumns || []).filter((k) => k !== c.key),
+                                      }))
+                                    }
+                                  />
+                                  <span>{c.label}</span>
+                                </label>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                      <p className="exams-config-empty-hint">
+                        Read live from that table each time the form opens. The field stores only the row, so a
+                        rename there shows up here. Nothing is copied.
+                      </p>
+                    </>
+                  ) : (form.optionsSource || 'manual') === 'manual' ? (
                     <div className="exams-form-group">
                       <label htmlFor={`${formId}-options`}>Options (one per line)</label>
                       <textarea
@@ -924,6 +1128,48 @@ export const ExamFieldBuilder = ({
                 </div>
               )}
 
+              {form.dataType === 'linked' && (
+                <div className="exams-options-block">
+                  {linkSourceFields.length === 0 ? (
+                    <p className="exams-config-empty-hint">
+                      Add a field that reads from a table (options source “Table column”) first, then link to it here.
+                    </p>
+                  ) : (
+                    <>
+                      <SearchableSelect
+                        id={`${formId}-linked-field`}
+                        label="Read from field"
+                        value={form.linkedFieldKey}
+                        options={linkSourceFields.map((f) => ({ value: f.key, label: f.label }))}
+                        placeholder="Select a field…"
+                        searchThreshold={8}
+                        onChange={(next) => {
+                          setForm((p) => ({ ...p, linkedFieldKey: next, linkedColumn: '' }));
+                          if (error) setError('');
+                        }}
+                      />
+                      {linkSource && (
+                        <SearchableSelect
+                          id={`${formId}-linked-column`}
+                          label="Show this column"
+                          value={form.linkedColumn}
+                          options={linkColumns.map((c) => ({ value: c.key, label: c.label }))}
+                          placeholder={linkColumns.length ? 'Select a column…' : 'Loading columns…'}
+                          searchPlaceholder="Search columns…"
+                          onChange={(next) => {
+                            setForm((p) => ({ ...p, linkedColumn: next }));
+                            if (error) setError('');
+                          }}
+                        />
+                      )}
+                      <p className="exams-config-empty-hint">
+                        Read-only. Shows that column of the row picked in the field above, and follows it live.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {needsFormula && (
                 <div className="exams-form-group">
                   <label htmlFor={`${formId}-formula`}>Formula</label>
@@ -954,6 +1200,13 @@ export const ExamFieldBuilder = ({
         )}
       </aside>
     </div>
+    {groupsOpen && (
+      <ColumnGroupsModal
+        fields={fields}
+        onClose={() => setGroupsOpen(false)}
+        onSave={(next) => onChange(next)}
+      />
+    )}
     {bulkOpen && (
       <BulkFieldsModal
         fields={fields}
