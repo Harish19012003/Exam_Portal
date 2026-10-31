@@ -16,6 +16,7 @@ import { NotificationSchema } from './Notification.js';
 import { AnnouncementSchema } from './Announcement.js';
 import { LegalDocumentSchema } from './LegalDocument.js';
 import { AuditLogSchema } from './AuditLog.js';
+import { ConfigDropdownListSchema } from './ConfigDropdownList.js';
 
 export const entities = [
   UserSchema,
@@ -36,6 +37,7 @@ export const entities = [
   AnnouncementSchema,
   LegalDocumentSchema,
   AuditLogSchema,
+  ConfigDropdownListSchema,
 ];
 
 export { User } from './User.js';
@@ -56,3 +58,4 @@ export { Notification } from './Notification.js';
 export { Announcement } from './Announcement.js';
 export { LegalDocument } from './LegalDocument.js';
 export { AuditLog } from './AuditLog.js';
+export { ConfigDropdownList } from './ConfigDropdownList.js';

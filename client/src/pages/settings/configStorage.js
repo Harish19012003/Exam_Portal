@@ -1,4 +1,7 @@
-/** Shared Config dropdown-list storage (Settings → Config) */
+/**
+ * Local cache of the Config dropdown lists (Settings → Config). MongoDB is the source of
+ * truth (see configListApi.js); this only lets exam field code read the lists synchronously.
+ */
 
 export const CONFIG_DROPDOWNS_KEY = 'portal_config_dropdowns_v1';
 
@@ -12,7 +15,7 @@ export const loadConfigDropdownLists = () => {
   }
 };
 
-export const saveConfigDropdownLists = (lists) => {
+export const cacheConfigDropdownLists = (lists) => {
   try {
     localStorage.setItem(CONFIG_DROPDOWNS_KEY, JSON.stringify(lists));
   } catch {

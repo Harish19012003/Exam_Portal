@@ -12,10 +12,15 @@ import {
   ListPlus,
   Upload,
 } from 'lucide-react';
+import { loadConfigDropdownLists } from './configStorage';
 import {
-  loadConfigDropdownLists,
-  saveConfigDropdownLists,
-} from './configStorage';
+  bulkSaveConfigLists,
+  createConfigList,
+  deleteConfigList,
+  fetchConfigLists,
+  loadConfigListsWithImport,
+  updateConfigList,
+} from './configListApi';
 import { FieldPresetsPanel } from './FieldPresetsPanel';
 
 export const parseBulkOptionsText = (
@@ -217,9 +222,24 @@ export const ConfigTab = () => {
   const SectionIcon = section.icon;
   const isEditing = Boolean(form.id);
 
+  const [listsError, setListsError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const apiMessage = (err, fallback) => err?.response?.data?.message || err?.message || fallback;
+
   useEffect(() => {
-    saveConfigDropdownLists(dropdowns);
-  }, [dropdowns]);
+    let cancelled = false;
+    loadConfigListsWithImport()
+      .then((lists) => {
+        if (!cancelled) setDropdowns(lists);
+      })
+      .catch((err) => {
+        if (!cancelled) setListsError(apiMessage(err, 'Could not load dropdown lists.'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isDrawerOpen) return undefined;
@@ -404,30 +424,29 @@ export const ConfigTab = () => {
     return parseMultipleBulkLists(bulkListsText);
   }, [bulkListsText]);
 
-  const handleApplyBulkLists = () => {
+  const handleApplyBulkLists = async () => {
     if (parsedBulkLists.length === 0) {
       setBulkListsError('No valid lists found. Format: "List Name:\nOption 1\nOption 2"');
       return;
     }
 
-    const now = new Date().toISOString();
-    const newLists = parsedBulkLists.map((l) => ({
-      id: `ddl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      name: l.name,
-      options: l.options.map((optLabel) => makeOption(optLabel)),
-      createdAt: now,
-      updatedAt: now,
-    }));
-
-    setDropdowns((prev) => {
-      const existingNames = new Set(newLists.map((n) => n.name.toLowerCase()));
-      const filteredOld = prev.filter((o) => !existingNames.has(o.name.toLowerCase()));
-      return [...newLists, ...filteredOld];
-    });
-
-    setIsBulkListsModalOpen(false);
-    setBulkListsText('');
-    setBulkListsError('');
+    setIsSaving(true);
+    try {
+      await bulkSaveConfigLists(
+        parsedBulkLists.map((l) => ({
+          name: l.name,
+          options: l.options.map((optLabel) => makeOption(optLabel)),
+        }))
+      );
+      setDropdowns(await fetchConfigLists());
+      setIsBulkListsModalOpen(false);
+      setBulkListsText('');
+      setBulkListsError('');
+    } catch (err) {
+      setBulkListsError(apiMessage(err, 'Could not save the lists.'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleNameChange = (e) => {
@@ -460,7 +479,7 @@ export const ConfigTab = () => {
     });
   };
 
-  const handleSaveDropdown = (e) => {
+  const handleSaveDropdown = async (e) => {
     e.preventDefault();
 
     const name = form.name.trim();
@@ -486,23 +505,20 @@ export const ConfigTab = () => {
       return;
     }
 
-    if (isEditing) {
-      setDropdowns((prev) =>
-        prev.map((d) =>
-          d.id === form.id
-            ? { ...d, name, options: cleanedOptions, updatedAt: new Date().toISOString() }
-            : d
-        )
-      );
-    } else {
-      const newList = {
-        id: `ddl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name,
-        options: cleanedOptions,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setDropdowns((prev) => [newList, ...prev]);
+    setIsSaving(true);
+    try {
+      const payload = { name, options: cleanedOptions };
+      if (isEditing) {
+        await updateConfigList(form.id, payload);
+      } else {
+        await createConfigList(payload);
+      }
+      setDropdowns(await fetchConfigLists());
+    } catch (err) {
+      setFormError(apiMessage(err, 'Could not save the dropdown list.'));
+      return;
+    } finally {
+      setIsSaving(false);
     }
 
     closeDrawer();
@@ -518,7 +534,13 @@ export const ConfigTab = () => {
       destructive: true,
     });
     if (!confirmed) return;
-    setDropdowns((prev) => prev.filter((d) => d.id !== listId));
+    try {
+      await deleteConfigList(listId);
+      setDropdowns((prev) => prev.filter((d) => d.id !== listId));
+      await fetchConfigLists();
+    } catch (err) {
+      setListsError(apiMessage(err, 'Could not delete the dropdown list.'));
+    }
   };
 
   const handleSectionAction = () => {
@@ -585,6 +607,7 @@ export const ConfigTab = () => {
       <div className="config-section-panel" role="tabpanel">
         {activeSection === 'dropdowns' && (
           <>
+            {listsError && <div className="config-form-error" role="alert">{listsError}</div>}
             {dropdowns.length === 0 ? (
               <div className="config-empty-state">
                 <SectionIcon size={22} />
@@ -919,7 +942,7 @@ export const ConfigTab = () => {
                 <button type="button" className="config-btn secondary" onClick={closeDrawer}>
                   Cancel
                 </button>
-                <button type="submit" className="config-btn primary">
+                <button type="submit" className="config-btn primary" disabled={isSaving}>
                   <Plus size={14} />
                   <span>{isEditing ? 'Save' : 'Create'}</span>
                 </button>
@@ -1015,7 +1038,7 @@ Evening`}
               <button
                 type="button"
                 className="config-btn primary"
-                disabled={parsedBulkLists.length === 0}
+                disabled={parsedBulkLists.length === 0 || isSaving}
                 onClick={handleApplyBulkLists}
               >
                 <Upload size={14} />
