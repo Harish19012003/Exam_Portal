@@ -22,9 +22,27 @@ export const listPresets = async () => {
   return rows.map(mapPreset);
 };
 
+export const findPresetEntity = async (em, id) => {
+  if (!id) return null;
+  const strId = String(id).trim();
+  try {
+    const byPk = await em.findOne(ExamFieldPreset, { _id: strId });
+    if (byPk) return byPk;
+  } catch {
+    // If strId is not an ObjectId format
+  }
+  try {
+    const byId = await em.findOne(ExamFieldPreset, { id: strId });
+    if (byId) return byId;
+  } catch {
+    // ignore
+  }
+  return null;
+};
+
 export const findById = async (id) => {
   const em = getEm();
-  const row = await em.findOne(ExamFieldPreset, { id: String(id) });
+  const row = await findPresetEntity(em, id);
   return row ? mapPreset(row) : null;
 };
 
@@ -49,7 +67,7 @@ export const insertPreset = async ({ name, serviceValue, fields, features, creat
 
 export const updatePreset = async (id, { name, serviceValue, fields, features }) => {
   const em = getEm();
-  const entity = await em.findOne(ExamFieldPreset, { id: String(id) });
+  const entity = await findPresetEntity(em, id);
   if (!entity) return false;
   em.assign(entity, {
     name,
@@ -64,7 +82,7 @@ export const updatePreset = async (id, { name, serviceValue, fields, features })
 
 export const deletePreset = async (id) => {
   const em = getEm();
-  const entity = await em.findOne(ExamFieldPreset, { id: String(id) });
+  const entity = await findPresetEntity(em, id);
   if (!entity) return false;
   await em.remove(entity).flush();
   return true;

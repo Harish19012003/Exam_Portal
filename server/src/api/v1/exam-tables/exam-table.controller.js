@@ -78,7 +78,7 @@ export const updateRow = handle(async (req) => {
   assertRowVisible(req, TABLE, { ...ruleValues(req, existing), ...(values || {}) });
   return forClient(
     req,
-    await service.updateRow(req.params.examId, Number(req.params.rowId), req.body, req.user?.id),
+    await service.updateRow(req.params.examId, req.params.rowId, req.body, req.user?.id),
   );
 });
 
