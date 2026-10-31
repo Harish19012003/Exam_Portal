@@ -42,7 +42,7 @@ export const updatePreset = (id, body) =>
   withTable(async () => {
     const payload = cleanPayload(body);
     const same = await repo.findByService(payload.serviceValue);
-    if (same && same.id !== id) throw duplicateService();
+    if (same && String(same.id) !== String(id)) throw duplicateService();
     if (!(await repo.updatePreset(id, payload))) throw notFound();
     return repo.findById(id);
   });
@@ -50,5 +50,5 @@ export const updatePreset = (id, body) =>
 export const deletePreset = (id) =>
   withTable(async () => {
     if (!(await repo.deletePreset(id))) throw notFound();
-    return { success: true, id };
+    return { success: true, id: String(id) };
   });

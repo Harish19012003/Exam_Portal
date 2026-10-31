@@ -22,7 +22,7 @@ const canConfigure = requireTable('exam_rows', 'configure');
 
 router.get('/', handle(() => service.listPresets()));
 router.post('/', canConfigure, handle((req) => service.createPreset(req.body, req.user?.id), 201));
-router.patch('/:id', canConfigure, handle((req) => service.updatePreset(Number(req.params.id), req.body)));
-router.delete('/:id', canConfigure, handle((req) => service.deletePreset(Number(req.params.id))));
+router.patch('/:id', canConfigure, handle((req) => service.updatePreset(req.params.id, req.body)));
+router.delete('/:id', canConfigure, handle((req) => service.deletePreset(req.params.id)));
 
 export default router;
