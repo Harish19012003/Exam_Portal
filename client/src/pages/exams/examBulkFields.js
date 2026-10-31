@@ -130,8 +130,9 @@ export const toFieldDefinition = (item, order) => {
     dataType: item.dataType,
     required: item.required,
     options: item.options,
-    optionsSource: 'manual',
-    configListId: '',
+    optionsSource: item.optionsSource || 'manual',
+    configListId: item.configListId || '',
+    ...(item.tableSource ? { tableSource: item.tableSource } : {}),
     allowMultiple: item.dataType === 'multiselect',
     autoFill: item.autoFill || 'none',
     layout: item.layout || 'full',
@@ -140,6 +141,7 @@ export const toFieldDefinition = (item, order) => {
     order,
   };
   if (item.unique) def.unique = true;
+  if (item.linkedFrom) def.linkedFrom = item.linkedFrom;
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }

@@ -23,6 +23,8 @@ import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import { DEFAULT_EXAM_TABLE_FEATURES } from './exams/examTableConfig';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
+import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
+import { groupSyncPatch, isLinkedField, isTableSourceField } from './exams/tableLookupApi';
 import { defaultValueForType, groupFieldsForLayout, buildSameAsFlags, DATE_LINK_TYPES } from './exams/examFieldTypes';
 import {
   buildEmptyForm,
@@ -44,7 +46,6 @@ const SKIP_DUPLICATE_KEYS = new Set([
 
 const tableFeaturesFor = (saved) => ({
   ...DEFAULT_EXAM_TABLE_FEATURES,
-  enableImport: false,
   ...(saved || {}),
   enableAddColumn: false,
   enableAddRow: false,
@@ -114,7 +115,9 @@ export const ExamExplorePage = () => {
   );
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(() => creatableFields(fields, 'exam_rows', access), [fields, access]);
-  const tableRows = useMemo(() => buildExamTableRows(rows), [rows]);
+  const savedTableRows = useMemo(() => buildExamTableRows(rows), [rows]);
+  // Table-column fields store a row id; the table shows that row's current label.
+  const tableRows = useLookupDisplayRows(savedTableRows, fields);
 
   const applySnapshot = useCallback((snap) => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
@@ -169,7 +172,10 @@ export const ExamExplorePage = () => {
       applySnapshot(snap);
       setStatus('ready');
       if (snap?.exists) await loadRows();
-      else listExamPresets().then((list) => !cancelled && setPresets(list)).catch(() => {});
+      // Presets are offered when there is no table yet, and also when the table exists but is empty.
+      if (!snap?.exists || !(Array.isArray(snap.fields) && snap.fields.length)) {
+        listExamPresets().then((list) => !cancelled && setPresets(list)).catch(() => {});
+      }
       window.setTimeout(() => {
         if (!cancelled) featuresSyncReadyRef.current = true;
       }, 1200);
@@ -301,7 +307,8 @@ export const ExamExplorePage = () => {
 
   const handleRowUpdate = async (rowId, values) => {
     try {
-      const next = await updateExamRow(examId, rowId, values);
+      const original = rows.find((r) => r.id === rowId);
+      const next = await updateExamRow(examId, rowId, restoreLookupIds(values, original?.values, fields));
       setRows((prev) => prev.map((r) => (r.id === rowId ? next : r)));
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not update the center'));
@@ -320,7 +327,7 @@ export const ExamExplorePage = () => {
   };
 
   const handleDuplicateRow = async (row) => {
-    const source = row?.values || {};
+    const source = row?.rawValues || row?.values || {};
     const values = {};
     fieldsRef.current.forEach((f) => {
       if (SKIP_DUPLICATE_KEYS.has(String(f.key).toLowerCase())) return;
@@ -351,7 +358,8 @@ export const ExamExplorePage = () => {
 
   const handleFieldChange = (key, value) => {
     setForm((prev) => {
-      const next = { ...prev, [key]: value };
+      // Column group: picking a row in one member sets the same row in the others.
+      const next = { ...prev, [key]: value, ...groupSyncPatch(fields, key, value) };
       fields.forEach((f) => {
         if (f.sameAsFieldKey === key && DATE_LINK_TYPES.has(f.dataType) && sameAsFlags[f.key]) {
           next[f.key] = value;
@@ -405,6 +413,82 @@ export const ExamExplorePage = () => {
     }
   };
 
+  /** Fill this exam's empty table with a preset's fields (and Feature Builder settings). */
+  const handleLoadPreset = async (preset) => {
+    if (!preset) return;
+    setCreating(true);
+    setTableError('');
+    try {
+      applySnapshot(await saveExamTableConfig(examId, { fields: preset.fields, features: preset.features ?? undefined }));
+      setMessage(`Loaded ${preset.fieldCount} fields from “${preset.name}”`);
+      await loadRows();
+    } catch (err) {
+      setTableError(apiErrorMessage(err, 'Could not load the preset'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  /** CSV import: columns are matched to fields by key or label, then each row is created. */
+  const handleImportRows = async (csvRows) => {
+    // Only columns this user may fill. Auto-filled, computed and table-lookup fields (they hold a
+    // row id, not text) are left out.
+    const importable = createFields.filter(
+      (f) =>
+        !(f.autoFill && f.autoFill !== 'none') &&
+        f.dataType !== 'formula' &&
+        f.dataType !== 'composite' &&
+        !isLinkedField(f) &&
+        !isTableSourceField(f),
+    );
+    const byKey = new Map(importable.map((f) => [String(f.key).trim().toLowerCase(), f]));
+    const byLabel = new Map(importable.map((f) => [String(f.label || f.key).trim().toLowerCase(), f]));
+
+    const prepared = (Array.isArray(csvRows) ? csvRows : [])
+      .map((row) => {
+        const values = {};
+        Object.entries(row || {}).forEach(([header, raw]) => {
+          const h = String(header || '').trim().toLowerCase();
+          const field = byKey.get(h) || byLabel.get(h);
+          if (!field || raw === '' || raw == null) return;
+          const multi = field.dataType === 'tags' || field.dataType === 'multiselect' || field.allowMultiple;
+          values[field.key] =
+            multi && typeof raw === 'string'
+              ? raw.split(',').map((x) => x.trim()).filter(Boolean)
+              : raw;
+        });
+        return Object.keys(values).length ? values : null;
+      })
+      .filter(Boolean);
+
+    if (!prepared.length) throw new Error('CSV columns did not match any field of this center list');
+
+    let done = 0;
+    const failures = [];
+    let next = 0;
+    const worker = async () => {
+      while (next < prepared.length) {
+        const index = next;
+        next += 1;
+        try {
+          await createExamRow(examId, prepared[index]);
+          done += 1;
+        } catch (err) {
+          failures.push(`row ${index + 1}: ${apiErrorMessage(err, 'could not be saved')}`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, prepared.length) }, worker));
+    await loadRows();
+
+    if (done === 0) throw new Error(`Nothing was imported. ${failures[0] || ''}`.trim());
+    setMessage(
+      failures.length
+        ? `Imported ${done} of ${prepared.length} centers. ${failures.length} failed (${failures[0]})`
+        : `Imported ${done} center${done === 1 ? '' : 's'}`,
+    );
+  };
+
   const fieldByKey = useMemo(() => Object.fromEntries(fields.map((f) => [f.key, f])), [fields]);
 
   const renderFieldInput = (field) => {
@@ -417,6 +501,8 @@ export const ExamExplorePage = () => {
         onChange={(val) => handleFieldChange(field.key, val)}
         sameAsChecked={Boolean(sameAsFlags[field.key])}
         sameAsSourceLabel={source?.label || ''}
+        linkedSourceField={field.linkedFrom ? fieldByKey[field.linkedFrom.fieldKey] : null}
+        linkedSourceValue={field.linkedFrom ? form[field.linkedFrom.fieldKey] : undefined}
         onSameAsToggle={field.sameAsFieldKey ? (checked) => handleSameAsToggle(field.key, checked) : undefined}
       />
     );
@@ -519,9 +605,17 @@ export const ExamExplorePage = () => {
             <p>No fields yet</p>
             <p className="exams-create-empty-hint">
               {isAdmin
-                ? 'Use the sliders icon to build fields, then add centers with +.'
+                ? matchedPreset
+                  ? `There is a field preset for ${matchedPreset.serviceValue}. Load its ${matchedPreset.fieldCount} fields, or use the sliders icon to build your own.`
+                  : 'Use the sliders icon to build fields, then add centers with +.'
                 : 'Ask an admin to build the fields for this exam’s center list.'}
             </p>
+            {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
+            {isAdmin && matchedPreset && (
+              <button type="button" className="exam-explore-create" onClick={() => handleLoadPreset(matchedPreset)} disabled={creating}>
+                {creating ? 'Loading…' : `Load preset “${matchedPreset.name}”`}
+              </button>
+            )}
           </div>
         ) : rowsLoading || !layoutReady ? (
           <div className="exams-list-empty">Loading…</div>
@@ -544,6 +638,7 @@ export const ExamExplorePage = () => {
               onRowUpdate={handleRowUpdate}
               onRowDelete={handleRowDelete}
               onDuplicateRow={handleDuplicateRow}
+              onImportRows={handleImportRows}
               showAddRow={false}
               permissions={tablePerms}
               enableFeatureBuilder={isAdmin}

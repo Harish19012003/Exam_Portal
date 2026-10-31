@@ -5,6 +5,7 @@ const toTableDataType = (field) => {
   const t = getEffectiveDataType(field);
   if (t === 'code' || t === 'mono') return 'text';
   if (t === 'dot') return 'boolean';
+  if (t === 'linked') return 'text';
   return t || 'text';
 };
 
@@ -61,7 +62,13 @@ export const buildFieldColumns = (fields = []) =>
       visible: true,
       pinned: null,
       width: dataType === 'date' || dataType === 'datetime' ? 150 : 180,
-      editable: !isAuto && dataType !== 'formula' && dataType !== 'composite',
+      // Table-column fields hold a row id: edit them in the form, where the picker is.
+      editable:
+        !isAuto &&
+        dataType !== 'formula' &&
+        dataType !== 'composite' &&
+        field.dataType !== 'linked' &&
+        field.optionsSource !== 'table',
       required: Boolean(field.required) && !isAuto,
       filterable: true,
       sortable: true,

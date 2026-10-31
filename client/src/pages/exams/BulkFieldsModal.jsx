@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Copy, Download, Info, ListPlus, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, Download, Info, ListPlus, Network, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
 import {
   EXAM_FIELD_TYPES,
   AUTO_FILL_OPTIONS,
   OPTIONS_FIELD_TYPES,
+  CHOICE_FIELD_TYPES,
   PHONE_VALIDATION_PRESETS,
   UNIQUE_FIELD_TYPES,
   emptyPhoneValidation,
@@ -14,9 +15,18 @@ import {
   isValidFieldKey,
 } from './examFieldTypes';
 import { SearchableSelect } from './SearchableSelect';
+import { getConfigListById, loadConfigDropdownLists } from '../settings/configStorage';
+import { fetchConfigLists } from '../settings/configListApi';
+import { listLookupSources } from './tableLookupApi';
 import { parseBulkFields, resolveType, toFieldDefinition, TYPE_ALIASES } from './examBulkFields';
 
-const BULK_TYPES = EXAM_FIELD_TYPES.filter((t) => t.value !== 'formula' && t.value !== 'composite');
+const OPTIONS_SOURCES = [
+  { value: 'manual', label: 'Typed' },
+  { value: 'config', label: 'Config list' },
+  { value: 'table', label: 'Table column' },
+];
+
+const BULK_TYPES = EXAM_FIELD_TYPES.filter((t) => t.value !== 'formula' && t.value !== 'composite' && t.value !== 'linked');
 const WIDTH_OPTIONS = [
   { value: 'full', label: 'Full width' },
   { value: 'half', label: 'Half (side by side)' },
@@ -37,6 +47,13 @@ const newRow = (dataType = 'text') => ({
   required: false,
   unique: false,
   optionsText: '',
+  optionsSource: 'manual', // 'manual' = typed, 'config' = Config list, 'table' = Vendor / SeqView column
+  configListId: '',
+  lookupTable: '',
+  lookupColumn: '',
+  lookupDetail: '',
+  linkedRid: '', // Linked value: the row (field) it depends on, and which of its table's columns to show
+  linkedColumn: '',
   phoneValidationMode: 'none',
   phonePattern: '',
   phoneMessage: '',
@@ -61,10 +78,42 @@ const rowFromField = (f) => {
     phoneValidationMode: pv.mode || 'none',
     phonePattern: pv.pattern || '',
     phoneMessage: pv.message || '',
+    optionsSource:
+      f.optionsSource === 'config' && f.configListId
+        ? 'config'
+        : f.optionsSource === 'table' && f.tableSource
+          ? 'table'
+          : 'manual',
+    configListId: f.optionsSource === 'config' ? f.configListId || '' : '',
+    lookupTable: f.tableSource?.table || '',
+    lookupColumn: f.tableSource?.column || '',
+    lookupDetail: f.tableSource?.detailColumn || '',
+    linkedKey: f.linkedFrom?.fieldKey || '',
+    linkedColumn: f.linkedFrom?.column || '',
     existingId: f.id,
     orig: f,
-    // Options linked to a shared list are managed in the single-field editor.
-    lockOptions: Boolean(f.configListId) || (f.optionsSource && f.optionsSource !== 'manual'),
+    // Any other options source is managed in the single-field editor.
+    lockOptions: Boolean(f.optionsSource) && !['manual', 'config', 'table'].includes(f.optionsSource),
+  };
+};
+
+/** Only choice types can read from a Config list or another table; Tags are always typed. */
+const effectiveSource = (r) => {
+  if (!OPTIONS_FIELD_TYPES.has(r.dataType)) return 'manual';
+  if (!CHOICE_FIELD_TYPES.has(r.dataType)) return 'manual';
+  return r.optionsSource || 'manual';
+};
+
+const optionsPart = (r) => {
+  const source = effectiveSource(r);
+  return {
+    options: OPTIONS_FIELD_TYPES.has(r.dataType) && source === 'manual' ? splitOptions(r.optionsText) : [],
+    optionsSource: source,
+    configListId: source === 'config' ? r.configListId : '',
+    tableSource:
+      source === 'table'
+        ? { table: r.lookupTable, column: r.lookupColumn, ...(r.lookupDetail ? { detailColumn: r.lookupDetail } : {}) }
+        : undefined,
   };
 };
 
@@ -72,9 +121,10 @@ const rowToItem = (r, allowUnique = false) => ({
   label: r.label.trim(),
   key: r.key.trim(),
   dataType: r.dataType,
-  required: r.autoFill === 'none' && r.required,
+  required: r.dataType !== 'linked' && r.autoFill === 'none' && r.required,
   unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
-  options: OPTIONS_FIELD_TYPES.has(r.dataType) ? splitOptions(r.optionsText) : [],
+  ...optionsPart(r),
+  ...(r.dataType === 'linked' ? { linkedFrom: { fieldKey: r.linkedFieldKey || '', column: r.linkedColumn } } : {}),
   autoFill: r.autoFill,
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
@@ -93,11 +143,19 @@ const changedField = (r, allowUnique = false) => {
     autoFill: item.autoFill,
     layout: item.layout,
     allowMultiple: item.dataType === 'multiselect',
-    ...(r.lockOptions ? {} : { options: item.options }),
+    ...(r.lockOptions
+      ? {}
+      : {
+          options: item.options,
+          optionsSource: item.optionsSource,
+          configListId: item.configListId,
+          tableSource: item.tableSource,
+        }),
     ...(item.dataType === 'phone' ? { phoneValidation: item.phoneValidation } : {}),
+    ...(item.dataType === 'linked' ? { linkedFrom: item.linkedFrom } : {}),
   };
   const sig = (f) =>
-    JSON.stringify([f.label, f.dataType, Boolean(f.required), Boolean(f.unique), f.autoFill || 'none', f.layout || 'full', f.options || [], f.phoneValidation || null]);
+    JSON.stringify([f.label, f.dataType, Boolean(f.required), Boolean(f.unique), f.autoFill || 'none', f.layout || 'full', f.options || [], f.optionsSource || 'manual', f.configListId || '', f.tableSource || null, f.linkedFrom || null, f.phoneValidation || null]);
   return sig(next) === sig(o) ? null : next;
 };
 
@@ -115,7 +173,8 @@ const buildPhoneValidation = (row) => {
   return { mode, pattern: '', message: String(row.phoneMessage || '').trim() };
 };
 
-const isBlank = (row) => !row.label.trim() && !row.key.trim() && !row.optionsText.trim();
+const isBlank = (row) =>
+  !row.label.trim() && !row.key.trim() && !row.optionsText.trim() && !row.configListId && !row.lookupColumn;
 
 const splitOptions = (text) => [...new Set(String(text).split(',').map((s) => s.trim()).filter(Boolean))];
 
@@ -141,8 +200,25 @@ const validateRows = (rows, existingFields, extraReserved) => {
     else if (!row.existingId && (RESERVED_KEYS.has(key) || extraReserved.has(key) || key.startsWith('sys_'))) errors.key = 'Reserved key';
     else if (takenKeys.has(key)) errors.key = 'Key already used';
 
-    if (!row.lockOptions && OPTIONS_FIELD_TYPES.has(row.dataType) && !splitOptions(row.optionsText).length) {
-      errors.optionsText = 'Add options';
+    if (!row.lockOptions && OPTIONS_FIELD_TYPES.has(row.dataType)) {
+      const source = effectiveSource(row);
+      if (source === 'config') {
+        if (!row.configListId) errors.optionsText = 'Select a list';
+        else if (!getConfigListById(row.configListId)?.options?.length) errors.optionsText = 'List missing or empty';
+      } else if (source === 'table') {
+        if (!row.lookupTable || !row.lookupColumn) errors.optionsText = 'Select a table and column';
+      } else if (!splitOptions(row.optionsText).length) {
+        errors.optionsText = 'Add options';
+      }
+    }
+
+    if (row.dataType === 'linked') {
+      const src = rows.find((x) => x.rid === row.linkedRid);
+      if (!src || src.rid === row.rid || effectiveSource(src) !== 'table' || !src.lookupColumn) {
+        errors.optionsText = 'Pick the field it depends on';
+      } else if (!row.linkedColumn) {
+        errors.optionsText = 'Pick a column';
+      }
     }
 
     if (row.dataType === 'phone' && row.phoneValidationMode === 'custom') {
@@ -228,8 +304,15 @@ const cellPatch = (colName, raw) => {
       const t = resolveType(v, BULK_TYPES);
       return t ? [{ dataType: t }, null] : [{}, `type "${v}"`];
     }
-    case 'options':
-      return [{ optionsText: v }, null];
+    case 'options': {
+      // A pasted cell that is exactly a Config list's name links the field to that list.
+      const list = v
+        ? loadConfigDropdownLists().find((l) => String(l.name).trim().toLowerCase() === v.toLowerCase())
+        : null;
+      return list
+        ? [{ optionsSource: 'config', configListId: list.id, optionsText: '' }, null]
+        : [{ optionsSource: 'manual', configListId: '', optionsText: v }, null];
+    }
     case 'autofill': {
       const a = matchAutoFill(v);
       return a ? [{ autoFill: a }, null] : [{}, `auto-fill "${v}"`];
@@ -291,28 +374,57 @@ export const BulkFieldsModal = ({
   saving = false,
   error = '',
 }) => {
-  const initialRows = () => [
-    ...fields.filter((f) => BULK_TYPES.some((t) => t.value === f.dataType)).map(rowFromField),
-    ...Array.from({ length: INITIAL_ROWS }, () => newRow()),
-  ];
+  const initialRows = () => {
+    const existing = fields.filter((f) => f.dataType === 'linked' || BULK_TYPES.some((t) => t.value === f.dataType)).map(rowFromField);
+    // A Linked value points at the row (field) it reads from.
+    existing.forEach((r) => {
+      if (r.linkedKey) r.linkedRid = existing.find((x) => x.key === r.linkedKey)?.rid || '';
+    });
+    return [...existing, ...Array.from({ length: INITIAL_ROWS }, () => newRow())];
+  };
   const [rows, setRows] = useState(initialRows);
   const existingCount = rows.filter((r) => r.existingId).length;
   const maxRows = MAX_ROWS + existingCount;
   const bodyRef = useRef(null);
+  const tableRef = useRef(null);
   const focusRidRef = useRef(null);
 
+  const [tab, setTab] = useState('fields'); // 'fields' | 'deps'
+  const [removedIds, setRemovedIds] = useState([]); // existing Linked value fields to delete on save
+  const [lookupSources, setLookupSources] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    listLookupSources()
+      .then((rows) => {
+        if (!cancelled) setLookupSources(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const reservedSet = useMemo(() => new Set(reservedKeys), [reservedKeys]);
   const validation = useMemo(() => validateRows(rows, fields, reservedSet), [rows, fields, reservedSet]);
   const filled = validation.filter((v) => !v.blank);
   const errorCount = filled.filter((v) => Object.keys(v.errors).length).length;
   const validCount = filled.length - errorCount;
+  // Linked rows point at their source by row id while editing; saving needs that field's key.
+  const resolvedRows = useMemo(
+    () =>
+      rows.map((r) =>
+        r.dataType === 'linked'
+          ? { ...r, linkedFieldKey: rows.find((x) => x.rid === r.linkedRid)?.key.trim() || '' }
+          : r,
+      ),
+    [rows],
+  );
   const changedIds = useMemo(
-    () => new Set(rows.filter((r) => r.existingId && changedField(r)).map((r) => r.rid)),
-    [rows]
+    () => new Set(resolvedRows.filter((r) => r.existingId && changedField(r)).map((r) => r.rid)),
+    [resolvedRows],
   );
   const newCount = rows.filter((r, i) => !r.existingId && !validation[i].blank).length;
   const updateCount = changedIds.size;
-  const pending = newCount + updateCount;
+  const pending = newCount + updateCount + removedIds.length;
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -371,6 +483,30 @@ export const BulkFieldsModal = ({
       return next.some((r) => !r.existingId) ? next : [...next, newRow()];
     });
 
+  // Auto-fill and Width are rarely changed, so they stay hidden until asked for (or already in use).
+  const [showMore, setShowMore] = useState(() =>
+    rows.some((r) => (r.autoFill || 'none') !== 'none' || (r.layout || 'full') !== 'full'),
+  );
+  // Column pinning: columns 0..pinCount (# / Label / Key / Type) stay put while scrolling sideways; null = none.
+  const [pinCount, setPinCount] = useState(null);
+  const [pinLefts, setPinLefts] = useState([]);
+  // Config lists for the Options cell. Start from the local cache, then refresh from the server.
+  const [configLists, setConfigLists] = useState(loadConfigDropdownLists);
+  useEffect(() => {
+    let cancelled = false;
+    fetchConfigLists()
+      .then((lists) => {
+        if (!cancelled) setConfigLists(lists);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const configListChoices = useMemo(
+    () => configLists.map((l) => ({ value: l.id, label: `${l.name} (${(l.options || []).length})` })),
+    [configLists],
+  );
   const [notice, setNotice] = useState('');
   // Type help tooltip: opens on hover/focus, or stays open after a click until dismissed.
   const [tip, setTip] = useState(null); // { top, left, maxHeight, pinned }
@@ -509,6 +645,7 @@ export const BulkFieldsModal = ({
     });
 
   const clearAll = () => {
+    setRemovedIds([]);
     setRows(initialRows());
     setNotice('');
   };
@@ -537,9 +674,100 @@ export const BulkFieldsModal = ({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (errorCount || !pending) return;
-    const items = rows.filter((r, i) => !r.existingId && !validation[i].blank).map((r) => rowToItem(r, allowUnique));
-    const updated = rows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
-    onAdd(items.map((item, i) => toFieldDefinition(item, fields.length + i + 1)), updated);
+    const items = resolvedRows.filter((r, i) => !r.existingId && !validation[i].blank).map((r) => rowToItem(r, allowUnique));
+    const updated = resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
+    onAdd(items.map((item, i) => toFieldDefinition(item, fields.length + i + 1)), updated, removedIds);
+  };
+
+  /* ---------- Dependencies: lookup fields and the Linked values that follow them ---------- */
+  const columnsOf = (tableKey) => lookupSources.find((t) => t.table === tableKey)?.columns || [];
+  const columnLabel = (tableKey, column) => columnsOf(tableKey).find((c) => c.key === column)?.label || column;
+  const tableLabelOf = (tableKey) => lookupSources.find((t) => t.table === tableKey)?.label || tableKey;
+
+  const linkedRows = rows.filter((r) => r.dataType === 'linked');
+  const sourceRows = rows.filter((r) => r.dataType !== 'linked' && effectiveSource(r) === 'table' && r.lookupColumn);
+  const orphanRows = linkedRows.filter((l) => !sourceRows.some((s) => s.rid === l.linkedRid));
+
+  const removeLinked = (row) => {
+    if (row.existingId) setRemovedIds((prev) => (prev.includes(row.existingId) ? prev : [...prev, row.existingId]));
+    setRows((prev) => prev.filter((r) => r.rid !== row.rid));
+  };
+
+  /** Tick / untick one column of a lookup field's table as a Linked value. */
+  const toggleLinked = (source, column) => {
+    const existing = rows.find((r) => r.dataType === 'linked' && r.linkedRid === source.rid && r.linkedColumn === column);
+    if (existing) {
+      removeLinked(existing);
+      return;
+    }
+    const label = columnLabel(source.lookupTable, column);
+    const taken = new Set([...rows.map((r) => r.key), ...fields.map((f) => f.key)].filter(Boolean));
+    const row = {
+      ...newRow('linked'),
+      label,
+      key: suggestKey(label, taken),
+      keyTouched: true,
+      linkedRid: source.rid,
+      linkedColumn: column,
+    };
+    setRows((prev) => {
+      const at = prev.findIndex((r) => r.rid === source.rid);
+      if (at < 0) return prev;
+      let end = at;
+      prev.forEach((r, i) => {
+        if (r.dataType === 'linked' && r.linkedRid === source.rid) end = Math.max(end, i);
+      });
+      const next = [...prev];
+      next.splice(end + 1, 0, row);
+      return next;
+    });
+  };
+
+  // Pinned columns need real widths for their `left` offsets (fixed table layout stretches them).
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table || pinCount == null) return undefined;
+    const measure = () => {
+      const ths = Array.from(table.querySelectorAll('thead th')).slice(0, 4);
+      let left = 0;
+      const lefts = ths.map((th) => {
+        const at = left;
+        left += th.getBoundingClientRect().width;
+        return at;
+      });
+      setPinLefts((prev) =>
+        prev.length === lefts.length && prev.every((v, i) => Math.abs(v - lefts[i]) < 0.5) ? prev : lefts,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, [pinCount, showMore]);
+
+  // colIdx: 0 = #, 1 = Label, 2 = Key, 3 = Type
+  const pinned = (colIdx, base = '') => {
+    if (pinCount == null || colIdx > pinCount) return { className: base || undefined };
+    return {
+      className: `${base} is-pinned${colIdx === pinCount ? ' pin-edge' : ''}`.trim(),
+      style: { left: pinLefts[colIdx] ?? 0 },
+    };
+  };
+
+  const pinButton = (colIdx, label) => {
+    const active = pinCount === colIdx;
+    return (
+      <button
+        type="button"
+        className={`exams-bulk-info-btn exams-bulk-pin-btn${active ? ' is-open' : ''}`}
+        onClick={() => setPinCount(active ? null : colIdx)}
+        aria-pressed={active}
+        aria-label={active ? 'Unpin columns' : `Pin columns up to ${label}`}
+        title={active ? 'Unpin columns' : `Pin columns up to ${label}`}
+      >
+        {active ? <PinOff size={13} /> : <Pin size={13} />}
+      </button>
+    );
   };
 
   const cellError = (i, col) => validation[i].errors[col];
@@ -559,22 +787,56 @@ export const BulkFieldsModal = ({
             <h2 className="exams-bulk-title">
               <ListPlus size={16} /> {title}
             </h2>
-            <p className="exams-bulk-sub">
-              Existing fields are listed first and can be edited in place. Add one row per new field; its key fills in from the label.
-            </p>
           </div>
           <button type="button" className="exams-drawer-close compact" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>
 
+        <div className="exams-bulk-tabs" role="tablist" aria-label="Bulk add sections">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'fields'}
+            className={`exams-bulk-tab${tab === 'fields' ? ' active' : ''}`}
+            onClick={() => setTab('fields')}
+          >
+            <ListPlus size={14} /> Fields
+            <span className="exams-bulk-tab-count">{rows.filter((r, i) => !validation[i].blank).length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'deps'}
+            className={`exams-bulk-tab${tab === 'deps' ? ' active' : ''}`}
+            onClick={() => setTab('deps')}
+          >
+            <Network size={14} /> Dependencies
+            <span className="exams-bulk-tab-count">{linkedRows.length}</span>
+            {orphanRows.length > 0 && <span className="exams-bulk-tab-warn" title="Needs attention" aria-label="Needs attention" />}
+          </button>
+        </div>
+
+        {tab === 'fields' && (
         <div className="exams-bulk-toolbar">
-          <span className="exams-bulk-tip">
-            <strong>Paste from Excel / Sheets:</strong> click any cell and paste. Columns are Label · Key · Type · Options · Auto-fill · Width · Required{allowUnique ? ' · Unique' : ''}, and rows are added automatically.
+          <span
+            className="exams-bulk-tip"
+            title={`Columns: Label · Key · Type · Options · Auto-fill · Width · Required${allowUnique ? ' · Unique' : ''}. Existing fields are listed first and can be edited in place; a new row's key fills in from its label.`}
+          >
+            Paste rows from Excel or Sheets into any cell.
           </span>
           <span className="exams-bulk-toolbar-actions">
             <button type="button" className="exams-text-add-btn" onClick={() => addRow()} disabled={rows.length >= maxRows}>
               <Plus size={14} /> Add row
+            </button>
+            <button
+              type="button"
+              className="exams-text-add-btn"
+              onClick={() => setShowMore((v) => !v)}
+              aria-pressed={showMore}
+              title="Auto-fill and Width columns"
+            >
+              {showMore ? 'Hide' : 'Show'} auto-fill &amp; width
             </button>
             <button type="button" className="exams-text-add-btn" onClick={downloadSample}>
               <Download size={14} /> Sample file
@@ -584,33 +846,173 @@ export const BulkFieldsModal = ({
             </button>
           </span>
         </div>
+        )}
         {notice && (
           <div className="exams-bulk-notice" role="status">
             {notice}
           </div>
         )}
 
+        {tab === 'deps' && (
+          <div className="exams-bulk-body exams-bulk-deps">
+            <p className="exams-bulk-deps-intro">
+              A lookup field stores the row you pick from another table. Tick columns to also show them as read-only
+              fields that follow that row.
+            </p>
+
+            {sourceRows.length === 0 && orphanRows.length === 0 && (
+              <div className="exams-bulk-deps-empty">
+                <Network size={22} aria-hidden="true" />
+                <strong>No lookup fields yet</strong>
+                <span>
+                  In the Fields tab, set a field’s <em>Options from</em> to <em>Table column</em> and choose a table and
+                  column. It will appear here.
+                </span>
+                <button type="button" className="exams-btn secondary compact" onClick={() => setTab('fields')}>
+                  Go to Fields
+                </button>
+              </div>
+            )}
+
+            <div className="exams-bulk-deps-grid">
+              {sourceRows.map((src) => {
+                const linkedOf = linkedRows.filter((l) => l.linkedRid === src.rid);
+                return (
+                  <section key={src.rid} className="exams-dep-card" aria-label={`Dependencies of ${src.label || 'field'}`}>
+                    <header className="exams-dep-head">
+                      <strong>{src.label.trim() || 'Untitled field'}</strong>
+                      <span className="exams-dep-source">
+                        {tableLabelOf(src.lookupTable)} › {columnLabel(src.lookupTable, src.lookupColumn)}
+                      </span>
+                    </header>
+
+                    <span className="exams-dep-sub">Also show these columns</span>
+                    <div className="exams-dep-chips" role="group" aria-label="Columns to show">
+                      {columnsOf(src.lookupTable)
+                        .filter((c) => c.key !== src.lookupColumn)
+                        .map((c) => {
+                          const on = linkedOf.some((l) => l.linkedColumn === c.key);
+                          return (
+                            <button
+                              key={c.key}
+                              type="button"
+                              aria-pressed={on}
+                              className={`exams-dep-chip${on ? ' on' : ''}`}
+                              onClick={() => toggleLinked(src, c.key)}
+                            >
+                              {on ? <Check size={13} /> : <Plus size={13} />} {c.label}
+                            </button>
+                          );
+                        })}
+                    </div>
+
+                    {linkedOf.length > 0 && (
+                      <ul className="exams-dep-list">
+                        {linkedOf.map((l) => (
+                          <li key={l.rid} className="exams-dep-item">
+                            <CornerDownRight size={14} aria-hidden="true" />
+                            <input
+                              type="text"
+                              value={l.label}
+                              onChange={(e) => update(l.rid, { label: e.target.value })}
+                              aria-label={`Name of the field showing ${columnLabel(src.lookupTable, l.linkedColumn)}`}
+                              className={cellError(rows.indexOf(l), 'label') ? 'invalid' : ''}
+                            />
+                            <span className="exams-dep-col">shows {columnLabel(src.lookupTable, l.linkedColumn)}</span>
+                            <button
+                              type="button"
+                              className="exams-bulk-remove"
+                              onClick={() => removeLinked(l)}
+                              aria-label={`Remove ${l.label || 'linked value'}`}
+                              title="Remove this linked value"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                );
+              })}
+
+              {orphanRows.length > 0 && (
+                <section className="exams-dep-card exams-dep-warn" aria-label="Linked values that need attention">
+                  <header className="exams-dep-head">
+                    <strong>Needs attention</strong>
+                    <span className="exams-dep-source">Their lookup field is missing</span>
+                  </header>
+                  <ul className="exams-dep-list">
+                    {orphanRows.map((l) => (
+                      <li key={l.rid} className="exams-dep-item exams-dep-item-stack">
+                        <span className="exams-dep-orphan-name">{l.label || 'Linked value'}</span>
+                        <SearchableSelect
+                          className="exams-bulk-select"
+                          portal
+                          value=""
+                          options={sourceRows.map((r) => ({ value: r.rid, label: r.label.trim() || r.key || 'Untitled field' }))}
+                          placeholder="Move to field…"
+                          searchThreshold={8}
+                          disabled={sourceRows.length === 0}
+                          ariaLabel={`Move ${l.label || 'linked value'} to another lookup field`}
+                          onChange={(next) => update(l.rid, { linkedRid: next, linkedColumn: '' })}
+                        />
+                        <button type="button" className="exams-bulk-remove" onClick={() => removeLinked(l)} aria-label={`Remove ${l.label || 'linked value'}`}>
+                          <Trash2 size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'fields' && (
         <div className="exams-bulk-body" ref={bodyRef} onScroll={() => tip && setTip(null)}>
-          <table className="exams-bulk-table" style={allowUnique ? { width: 'max(100%, 1640px)' } : undefined}>
+          <table
+            ref={tableRef}
+            className="exams-bulk-table"
+            style={{ width: `max(100%, ${(showMore ? 2080 : 1720) + (allowUnique ? 90 : 0)}px)` }}
+          >
             <colgroup>
               <col style={{ width: 44 }} />
               <col />
               <col style={{ width: 180 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 220 }} />
-              <col style={{ width: 200 }} />
-              <col style={{ width: 210 }} />
+              <col style={{ width: 140 }} />
               <col style={{ width: 150 }} />
+              <col style={{ width: 180 }} />
+              <col style={{ width: 280 }} />
+              {showMore && <col style={{ width: 210 }} />}
+              {showMore && <col style={{ width: 150 }} />}
               <col style={{ width: 90 }} />
               {allowUnique && <col style={{ width: 90 }} />}
               <col style={{ width: 96 }} />
             </colgroup>
             <thead>
               <tr>
-                <th className="col-num">#</th>
-                <th>Label</th>
-                <th>Key</th>
-                <th>
+                <th {...pinned(0, 'col-num')}>
+                  <span className="exams-bulk-th-info">
+                    #
+                    {pinButton(0, '#')}
+                  </span>
+                </th>
+                <th {...pinned(1)}>
+                  <span className="exams-bulk-th-info">
+                    Label
+                    {pinButton(1, 'Label')}
+                  </span>
+                </th>
+                <th {...pinned(2)}>
+                  <span className="exams-bulk-th-info">
+                    Key
+                    {pinButton(2, 'Key')}
+                  </span>
+                </th>
+                <th {...pinned(3)}>
                   <span className="exams-bulk-th-info">
                     Type
                     <button
@@ -626,12 +1028,16 @@ export const BulkFieldsModal = ({
                     >
                       <Info size={14} />
                     </button>
+                    {pinButton(3, 'Type')}
                   </span>
                 </th>
                 <th>Validation</th>
+                <th>Options from</th>
+                <th>Table</th>
+                <th>Column</th>
                 <th>Options</th>
-                <th>Auto-fill</th>
-                <th>Width</th>
+                {showMore && <th>Auto-fill</th>}
+                {showMore && <th>Width</th>}
                 <th className="col-req">Required</th>
                 {allowUnique && (
                   <th className="col-req" title="No two records can share a value in this field">
@@ -648,7 +1054,7 @@ export const BulkFieldsModal = ({
                 const isLast = i === rows.length - 1;
                 return (
                   <tr key={row.rid} data-rid={row.rid} className={Object.keys(validation[i].errors).length ? 'has-error' : ''}>
-                    <td className="col-num" data-label="#">
+                    <td {...pinned(0, 'col-num')} data-label="#">
                       <span className="exams-bulk-rownum">
                         {validation[i].blank ? (
                           i + 1
@@ -661,7 +1067,7 @@ export const BulkFieldsModal = ({
                         )}
                       </span>
                     </td>
-                    <td data-label="Label">
+                    <td {...pinned(1)} data-label="Label">
                       <input
                         type="text"
                         data-col="label"
@@ -676,7 +1082,7 @@ export const BulkFieldsModal = ({
                       />
                       {cellError(i, 'label') && <span className="exams-bulk-err">{cellError(i, 'label')}</span>}
                     </td>
-                    <td data-label="Key">
+                    <td {...pinned(2)} data-label="Key">
                       <input
                         type="text"
                         data-col="key"
@@ -694,7 +1100,10 @@ export const BulkFieldsModal = ({
                       />
                       {cellError(i, 'key') && <span className="exams-bulk-err">{cellError(i, 'key')}</span>}
                     </td>
-                    <td data-label="Type">
+                    <td {...pinned(3)} data-label="Type">
+                      {row.dataType === 'linked' ? (
+                        <span className="exams-bulk-static-chip">Linked value</span>
+                      ) : (
                       <SearchableSelect
                         className="exams-bulk-select"
                         portal
@@ -705,6 +1114,7 @@ export const BulkFieldsModal = ({
                         onChange={(next) =>
                           update(row.rid, {
                             dataType: next,
+                            ...(CHOICE_FIELD_TYPES.has(next) ? {} : { optionsSource: 'manual' }),
                             ...(next !== 'phone'
                               ? {
                                   phoneValidationMode: 'none',
@@ -715,6 +1125,7 @@ export const BulkFieldsModal = ({
                           })
                         }
                       />
+                      )}
                     </td>
                     <td data-label="Validation" className="exams-bulk-validation-cell">
                       {isPhone ? (
@@ -765,22 +1176,124 @@ export const BulkFieldsModal = ({
                         <input type="text" disabled placeholder="—" aria-hidden="true" tabIndex={-1} />
                       )}
                     </td>
-                    <td data-label="Options">
-                      <input
-                        type="text"
-                        data-col="options"
-                        onPaste={(e) => handlePaste(e, row.rid, 'options')}
-                        value={row.optionsText}
-                        disabled={!needsOptions || row.lockOptions}
-                        title={row.lockOptions ? 'Options come from a shared list; edit them in the single-field editor' : undefined}
-                        placeholder={needsOptions ? 'A, B, C' : '—'}
-                        className={cellError(i, 'optionsText') ? 'invalid' : ''}
-                        onChange={(e) => update(row.rid, { optionsText: e.target.value })}
-                        onKeyDown={(e) => handleKeyDown(e, row, isLast)}
-                        aria-label={`Row ${i + 1} options`}
-                      />
+                    <td data-label="Options from">
+                      {row.dataType === 'linked' ? (
+                        <button
+                          type="button"
+                          className="exams-bulk-dep-link"
+                          onClick={() => setTab('deps')}
+                          title="Manage in the Dependencies tab"
+                        >
+                          <CornerDownRight size={13} aria-hidden="true" />
+                          {rows.find((r) => r.rid === row.linkedRid)?.label.trim() || 'Pick a field'}
+                        </button>
+                      ) : needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions ? (
+                        <SearchableSelect
+                          className="exams-bulk-select"
+                          portal
+                          value={row.optionsSource || 'manual'}
+                          options={OPTIONS_SOURCES}
+                          searchThreshold={8}
+                          ariaLabel={`Row ${i + 1} options source`}
+                          onChange={(next) => update(row.rid, { optionsSource: next })}
+                        />
+                      ) : (
+                        <input type="text" disabled placeholder={needsOptions ? 'Typed' : '—'} aria-hidden="true" tabIndex={-1} />
+                      )}
+                    </td>
+                    <td data-label="Table">
+                      {needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions && effectiveSource(row) === 'table' ? (
+                        <SearchableSelect
+                          className="exams-bulk-select"
+                          portal
+                          value={row.lookupTable}
+                          options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
+                          placeholder={lookupSources.length ? 'Select table…' : 'No tables'}
+                          searchThreshold={8}
+                          disabled={lookupSources.length === 0}
+                          ariaLabel={`Row ${i + 1} source table`}
+                          onChange={(next) => update(row.rid, { lookupTable: next, lookupColumn: '', lookupDetail: '' })}
+                        />
+                      ) : (
+                        <input type="text" disabled placeholder="—" aria-hidden="true" tabIndex={-1} />
+                      )}
+                    </td>
+                    <td data-label="Column">
+                      {needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions && effectiveSource(row) === 'table' ? (
+                        <SearchableSelect
+                          className="exams-bulk-select"
+                          portal
+                          value={row.lookupColumn}
+                          options={(lookupSources.find((t) => t.table === row.lookupTable)?.columns || []).map((c) => ({
+                            value: c.key,
+                            label: c.label,
+                          }))}
+                          placeholder={row.lookupTable ? 'Select column…' : '—'}
+                          searchPlaceholder="Search columns…"
+                          searchThreshold={6}
+                          disabled={!row.lookupTable}
+                          ariaLabel={`Row ${i + 1} source column`}
+                          onChange={(next) => update(row.rid, { lookupColumn: next })}
+                        />
+                      ) : (
+                        <input type="text" disabled placeholder="—" aria-hidden="true" tabIndex={-1} />
+                      )}
+                    </td>
+                    <td data-label="Options" className="exams-bulk-options-cell">
+                      {row.dataType === 'linked' ? (
+                        <button
+                          type="button"
+                          className={`exams-bulk-dep-link${cellError(i, 'optionsText') ? ' invalid' : ''}`}
+                          onClick={() => setTab('deps')}
+                          title="Manage in the Dependencies tab"
+                        >
+                          {row.linkedColumn
+                            ? columnLabel(rows.find((r) => r.rid === row.linkedRid)?.lookupTable, row.linkedColumn)
+                            : 'Pick a column'}
+                        </button>
+                      ) : needsOptions && !row.lockOptions && effectiveSource(row) === 'config' ? (
+                        <>
+                          <SearchableSelect
+                            className="exams-bulk-select"
+                            portal
+                            value={row.configListId}
+                            options={configListChoices}
+                            placeholder={configListChoices.length ? 'Pick a Config list…' : 'No Config lists yet'}
+                            searchPlaceholder="Search lists…"
+                            searchThreshold={6}
+                            disabled={configListChoices.length === 0}
+                            ariaLabel={`Row ${i + 1} Config list`}
+                            onChange={(next) => update(row.rid, { configListId: next })}
+                          />
+                          {row.configListId && (
+                            <span className="exams-bulk-hint" title={(getConfigListById(row.configListId)?.options || []).map((o) => o.label).join(', ')}>
+                              Live: {(getConfigListById(row.configListId)?.options || []).map((o) => o.label).join(', ') || 'list missing'}
+                            </span>
+                          )}
+                        </>
+                      ) : needsOptions && !row.lockOptions && effectiveSource(row) === 'table' ? (
+                        <>
+                          <input type="text" disabled placeholder="Read from the table" aria-hidden="true" tabIndex={-1} />
+                          {cellError(i, 'optionsText') && <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>}
+                        </>
+                      ) : (
+                        <input
+                          type="text"
+                          data-col="options"
+                          onPaste={(e) => handlePaste(e, row.rid, 'options')}
+                          value={row.optionsText}
+                          disabled={!needsOptions || row.lockOptions}
+                          title={row.lockOptions ? 'Options come from another source; edit them in the single-field editor' : undefined}
+                          placeholder={needsOptions ? 'A, B, C' : '—'}
+                          className={cellError(i, 'optionsText') ? 'invalid' : ''}
+                          onChange={(e) => update(row.rid, { optionsText: e.target.value })}
+                          onKeyDown={(e) => handleKeyDown(e, row, isLast)}
+                          aria-label={`Row ${i + 1} options`}
+                        />
+                      )}
                       {cellError(i, 'optionsText') && <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>}
                     </td>
+                    {showMore && (
                     <td data-label="Auto-fill">
                       <SearchableSelect
                         className="exams-bulk-select"
@@ -792,6 +1305,8 @@ export const BulkFieldsModal = ({
                         onChange={(next) => update(row.rid, { autoFill: next })}
                       />
                     </td>
+                    )}
+                    {showMore && (
                     <td data-label="Width">
                       <SearchableSelect
                         className="exams-bulk-select"
@@ -802,6 +1317,7 @@ export const BulkFieldsModal = ({
                         onChange={(next) => update(row.rid, { layout: next })}
                       />
                     </td>
+                    )}
                     <td className="col-req" data-label="Required">
                       <input
                         type="checkbox"
@@ -850,6 +1366,7 @@ export const BulkFieldsModal = ({
             </tbody>
           </table>
         </div>
+        )}
 
         {tip && (
           <div

@@ -23,7 +23,9 @@
   border-bottom: 1px solid var(--border-color);
   padding: 0 24px;
   flex-shrink: 0;
-  z-index: 10;
+  /* Above the table's sticky header cells (z-index 12), so the exam switcher menu is not covered.
+     Still below the mobile sidebar (50) and modals. */
+  z-index: 30;
 }
 
 .topbar-left {

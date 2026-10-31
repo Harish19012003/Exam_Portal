@@ -523,7 +523,7 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
   enableRefresh: false,
   enableDensity: false,
   enableExport: false,
-  enableImport: false,
+  enableImport: true,
   enableSavedViews: true,
   enableFullScreen: false,
   enableTranspose: true,

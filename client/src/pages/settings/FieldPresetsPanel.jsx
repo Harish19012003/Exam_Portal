@@ -1,6 +1,6 @@
 import { useConfirm } from '../../feedback';
 import React, { useCallback, useEffect, useId, useState } from 'react';
-import { LayoutTemplate, Pencil, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react';
+import { LayoutTemplate, Pencil, Plus, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { resolveFieldOptions } from '../exams/examFieldTypes';
@@ -38,7 +38,6 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
   const [form, setForm] = useState(null); // null = editor closed
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [isFieldsOpen, setIsFieldsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,7 +72,6 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
 
   const closeEditor = () => {
     setForm(null);
-    setIsFieldsOpen(false);
     setFormError('');
   };
 
@@ -82,8 +80,7 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
     if (formError) setFormError('');
   };
 
-  const handleSave = async (e) => {
-    e.preventDefault();
+  const handleSave = async () => {
     if (!form.name.trim()) return setFormError('Preset name is required.');
     if (!form.serviceValue.trim()) return setFormError('Choose the service this preset is for.');
     setSaving(true);
@@ -180,106 +177,72 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
         </p>
       )}
 
-      {form && (
-        <div className="config-drawer-overlay" onClick={() => !saving && closeEditor()}>
-          <aside
-            className="config-drawer"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={form.id ? 'Edit field preset' : 'New field preset'}
-          >
-            <div className="config-drawer-header">
-              <h2 className="config-drawer-title">
-                <LayoutTemplate size={16} className="config-drawer-title-icon" />
-                <span>{form.id ? 'Edit preset' : 'New preset'}</span>
-              </h2>
-              <button type="button" className="config-drawer-close" onClick={closeEditor} title="Close" aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-
-            <form className="config-drawer-form" onSubmit={handleSave}>
-              <div className="config-drawer-body">
-                {formError && <div className="config-form-error">{formError}</div>}
-
-                <div className="config-form-group">
-                  <label htmlFor={`${formId}-name`}>Preset name</label>
-                  <input
-                    id={`${formId}-name`}
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => patchForm({ name: e.target.value })}
-                    placeholder="e.g. Frisking fields"
-                    maxLength={120}
-                    autoFocus
-                    required
-                  />
-                </div>
-
-                <div className="config-form-group">
-                  <label htmlFor={`${formId}-service`}>Service</label>
-                  {serviceOptions.length > 0 ? (
-                    <select
-                      id={`${formId}-service`}
-                      value={form.serviceValue}
-                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
-                      required
-                    >
-                      <option value="">Select a service…</option>
-                      {!hasCurrentInChoices && <option value={form.serviceValue}>{form.serviceValue}</option>}
-                      {serviceChoices.map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      id={`${formId}-service`}
-                      type="text"
-                      value={form.serviceValue}
-                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
-                      placeholder="Must match the exam's Service value"
-                      maxLength={191}
-                      required
-                    />
-                  )}
-                  <p className="fpp-muted">
-                    Exams created with this service get these fields. Each service can have one preset.
-                  </p>
-                </div>
-
-                <div className="fpp-fields-card">
-                  <div>
-                    <strong>{form.fields.length} field{form.fields.length === 1 ? '' : 's'}</strong>
-                    <p className="fpp-muted">
-                      {form.fields.length
-                        ? form.fields.slice(0, 5).map((f) => f.label).join(', ') + (form.fields.length > 5 ? '…' : '')
-                        : 'No fields yet'}
-                    </p>
-                  </div>
-                  <button type="button" className="config-btn secondary" onClick={() => setIsFieldsOpen(true)}>
-                    <SlidersHorizontal size={14} />
-                    <span>Edit fields</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="config-drawer-footer">
-                <button type="button" className="config-btn secondary" onClick={closeEditor} disabled={saving}>
-                  Cancel
-                </button>
-                <button type="submit" className="config-btn primary" disabled={saving}>
-                  <span>{saving ? 'Saving…' : form.id ? 'Save' : 'Create'}</span>
-                </button>
-              </div>
-            </form>
-          </aside>
-        </div>
-      )}
-
       <ExamFieldBuilder
-        open={isFieldsOpen}
+        open={Boolean(form)}
         fields={form?.fields || []}
-        onClose={() => setIsFieldsOpen(false)}
+        title={form?.id ? 'Edit preset' : 'New preset'}
+        subtitle={
+          form
+            ? `${form.fields.length} field${form.fields.length === 1 ? '' : 's'} · new exams of this service start with them`
+            : undefined
+        }
+        onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
+        topSlot={
+          form && (
+            <div className="fpp-meta">
+              {formError && <div className="config-form-error" role="alert">{formError}</div>}
+
+              <div className="config-form-group">
+                <label htmlFor={`${formId}-name`}>Preset name</label>
+                <input
+                  id={`${formId}-name`}
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => patchForm({ name: e.target.value })}
+                  placeholder="e.g. Frisking fields"
+                  maxLength={120}
+                  autoFocus
+                />
+              </div>
+
+              <div className="config-form-group">
+                <label htmlFor={`${formId}-service`}>Service</label>
+                {serviceOptions.length > 0 ? (
+                  <select
+                    id={`${formId}-service`}
+                    value={form.serviceValue}
+                    onChange={(e) => patchForm({ serviceValue: e.target.value })}
+                  >
+                    <option value="">Select a service…</option>
+                    {!hasCurrentInChoices && <option value={form.serviceValue}>{form.serviceValue}</option>}
+                    {serviceChoices.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    id={`${formId}-service`}
+                    type="text"
+                    value={form.serviceValue}
+                    onChange={(e) => patchForm({ serviceValue: e.target.value })}
+                    placeholder="Must match the exam's Service value"
+                    maxLength={191}
+                  />
+                )}
+                <p className="fpp-muted">Each service can have one preset.</p>
+              </div>
+            </div>
+          )
+        }
+        footer={
+          <>
+            <button type="button" className="exams-btn secondary compact" onClick={closeEditor} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" className="exams-btn primary compact" onClick={handleSave} disabled={saving}>
+              <span>{saving ? 'Saving…' : form?.id ? 'Save' : 'Create'}</span>
+            </button>
+          </>
+        }
       />
     </div>
   );

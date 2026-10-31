@@ -121,7 +121,7 @@ const USER_TABLE_DEFAULTS = {
   enableSearch: true,
   enableRefresh: true,
   enableExport: true,
-  enableImport: false,
+  enableImport: true,
   enableFullScreen: true,
   enableDensity: true,
   enableSettings: true,

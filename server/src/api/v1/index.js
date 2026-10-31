@@ -12,6 +12,7 @@ import examRoutes from './exams/exam.routes.js';
 import examTableRoutes from './exam-tables/exam-table.routes.js';
 import examPresetRoutes from './exam-presets/exam-preset.routes.js';
 import configListRoutes from './config-lists/config-list.routes.js';
+import tableLookupRoutes from './table-lookup/table-lookup.routes.js';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.use('/seq-views', seqViewRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/exam-presets', examPresetRoutes);
 router.use('/config-lists', configListRoutes);
+router.use('/table-lookup', tableLookupRoutes);
 router.use('/exams', examTableRoutes);
 router.use('/exams', examRoutes);
 
