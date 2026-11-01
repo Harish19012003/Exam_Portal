@@ -6,6 +6,7 @@ import {
   AUTO_FILL_OPTIONS,
   OPTIONS_FIELD_TYPES,
   CHOICE_FIELD_TYPES,
+  DATE_LINK_TYPES,
   PHONE_VALIDATION_PRESETS,
   UNIQUE_FIELD_TYPES,
   emptyPhoneValidation,
@@ -19,6 +20,7 @@ import { getConfigListById, loadConfigDropdownLists } from '../settings/configSt
 import { fetchConfigLists } from '../settings/configListApi';
 import { listLookupSources } from './tableLookupApi';
 import { parseBulkFields, resolveType, toFieldDefinition, TYPE_ALIASES } from './examBulkFields';
+import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 
@@ -61,6 +63,7 @@ const newRow = (dataType = 'text') => ({
   linkedRid: '', // Linked value: the row (field) it depends on, and which of its table's columns to show
   linkedColumn: '',
   examFieldKey: '', // From exam: parent exam.values key to mirror
+  scheduleRole: '', // Date chips: '' | 'start' | 'end'
   phoneValidationMode: 'none',
   phonePattern: '',
   phoneMessage: '',
@@ -101,6 +104,7 @@ const rowFromField = (f) => {
     linkedKey: f.linkedFrom?.fieldKey || '',
     linkedColumn: f.linkedFrom?.column || '',
     examFieldKey: f.examFieldKey || '',
+    scheduleRole: f.scheduleRole === 'start' || f.scheduleRole === 'end' ? f.scheduleRole : '',
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
@@ -139,6 +143,10 @@ const rowToItem = (r, allowUnique = false) => ({
   ...optionsPart(r),
   ...(r.dataType === 'linked' ? { linkedFrom: { fieldKey: r.linkedFieldKey || '', column: r.linkedColumn } } : {}),
   ...(r.dataType === 'fromExam' ? { examFieldKey: r.examFieldKey || '' } : {}),
+  ...((r.dataType === 'date' || r.dataType === 'datetime') &&
+  (r.scheduleRole === 'start' || r.scheduleRole === 'end')
+    ? { scheduleRole: r.scheduleRole }
+    : {}),
   autoFill: r.autoFill,
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
@@ -169,6 +177,12 @@ const changedField = (r, allowUnique = false) => {
     ...(item.dataType === 'phone' ? { phoneValidation: item.phoneValidation } : {}),
     ...(item.dataType === 'linked' ? { linkedFrom: item.linkedFrom } : {}),
     ...(item.dataType === 'fromExam' ? { examFieldKey: item.examFieldKey } : { examFieldKey: undefined }),
+    scheduleRole:
+      item.dataType === 'date' || item.dataType === 'datetime'
+        ? item.scheduleRole === 'start' || item.scheduleRole === 'end'
+          ? item.scheduleRole
+          : undefined
+        : undefined,
   };
   const sig = (f) =>
     JSON.stringify([
@@ -185,6 +199,7 @@ const changedField = (r, allowUnique = false) => {
       f.tableSource || null,
       f.linkedFrom || null,
       f.examFieldKey || '',
+      f.scheduleRole || '',
       f.phoneValidation || null,
     ]);
   return sig(next) === sig(o) ? null : next;
@@ -502,7 +517,16 @@ export const BulkFieldsModal = ({
   }, [rows.length]);
 
   const update = (rid, patch) =>
-    setRows((prev) => prev.map((r) => (r.rid === rid ? { ...r, ...patch } : r)));
+    setRows((prev) => {
+      const role = patch.scheduleRole;
+      const exclusive = role === 'start' || role === 'end';
+      return prev.map((r) => {
+        if (r.rid === rid) return { ...r, ...patch };
+        // Only one field can be Schedule start / Schedule end.
+        if (exclusive && r.scheduleRole === role) return { ...r, scheduleRole: '' };
+        return r;
+      });
+    });
 
   const setLabel = (rid, label) =>
     setRows((prev) =>
@@ -1167,6 +1191,7 @@ export const BulkFieldsModal = ({
                           update(row.rid, {
                             dataType: next,
                             ...(CHOICE_FIELD_TYPES.has(next) ? {} : { optionsSource: 'manual' }),
+                            ...(DATE_LINK_TYPES.has(next) ? {} : { scheduleRole: '' }),
                             ...(next !== 'phone'
                               ? {
                                   phoneValidationMode: 'none',
@@ -1246,6 +1271,16 @@ export const BulkFieldsModal = ({
                             No exam fields
                           </span>
                         )
+                      ) : DATE_LINK_TYPES.has(row.dataType) ? (
+                        <SearchableSelect
+                          className="exams-bulk-select"
+                          portal
+                          value={row.scheduleRole || ''}
+                          options={SCHEDULE_ROLE_OPTIONS}
+                          searchThreshold={8}
+                          ariaLabel={`Row ${i + 1} date chip role (Upcoming / Today / Last 7 days)`}
+                          onChange={(next) => update(row.rid, { scheduleRole: next })}
+                        />
                       ) : row.dataType === 'linked' ? (
                         <button
                           type="button"

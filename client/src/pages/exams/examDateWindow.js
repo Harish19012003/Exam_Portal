@@ -7,49 +7,30 @@ export const EXAM_DATE_WINDOWS = [
   { id: 'last7', label: 'Last 7 days' },
 ];
 
-const normText = (field) =>
-  `${field?.key || ''} ${field?.label || ''}`.toLowerCase().replace(/[_-]+/g, ' ');
+export const SCHEDULE_ROLE_OPTIONS = [
+  { value: '', label: 'Not used for chips' },
+  { value: 'start', label: 'Schedule start' },
+  { value: 'end', label: 'Schedule end' },
+];
 
 const isDateField = (field) => DATE_LINK_TYPES.has(field?.dataType);
 
-const looksLikeStart = (field) => {
-  const t = normText(field);
-  return (
-    /\bstart\s*date\b/.test(t) ||
-    /\bstart\b/.test(t) ||
-    /\bfrom\s*date\b/.test(t) ||
-    (/\bfrom\b/.test(t) && /\bdate\b/.test(t))
-  );
-};
-
-const looksLikeEnd = (field) => {
-  const t = normText(field);
-  return (
-    /\bend\s*date\b/.test(t) ||
-    /\bend\b/.test(t) ||
-    /\bto\s*date\b/.test(t) ||
-    (/\bto\b/.test(t) && /\bdate\b/.test(t))
-  );
-};
-
 /**
- * Resolve schedule start/end field keys from builder fields (no hardcoded keys).
+ * Resolve schedule start/end from fields the user marked (scheduleRole).
+ * No name/key heuristics — chips stay inactive until mapped.
  * @returns {{ startKey: string, endKey: string } | null}
  */
 export const resolveExamScheduleFields = (fields = []) => {
   const dateFields = (fields || []).filter(isDateField);
   if (dateFields.length === 0) return null;
 
-  const start = dateFields.find(looksLikeStart);
-  const end = dateFields.find(looksLikeEnd);
+  const start = dateFields.find((f) => f.scheduleRole === 'start');
+  const end = dateFields.find((f) => f.scheduleRole === 'end');
 
   if (start && end) return { startKey: start.key, endKey: end.key };
   if (start) return { startKey: start.key, endKey: start.key };
   if (end) return { startKey: end.key, endKey: end.key };
-
-  // Single (or first) date field stands in for the whole span.
-  const only = dateFields[0];
-  return { startKey: only.key, endKey: only.key };
+  return null;
 };
 
 /** Parse a cell value to local calendar day as yyyy-mm-dd, or ''. */
@@ -82,7 +63,7 @@ const cellDay = (row, key) => {
 
 /**
  * Filter DynamicTable exam rows by date window.
- * When no schedule fields resolve, non-All windows are a no-op (show all).
+ * When no schedule roles are set, non-All windows are a no-op (show all).
  * Rows with no usable dates are hidden on non-All windows.
  */
 export const filterRowsByDateWindow = (rows = [], fields = [], window = 'all') => {
@@ -107,9 +88,12 @@ export const filterRowsByDateWindow = (rows = [], fields = [], window = 'all') =
       end = tmp;
     }
 
-    if (window === 'upcoming') return end >= today;
+    // Upcoming: has not started yet (or starts today). Ongoing exams stay under Today / All.
+    if (window === 'upcoming') return start >= today;
+    // Today: schedule span covers today.
     if (window === 'today') return start <= today && today <= end;
-    if (window === 'last7') return start <= today && end >= last7Start;
+    // Last 7 days: start date falls in [today−6 … today] (not “any overlap with a long span”).
+    if (window === 'last7') return start >= last7Start && start <= today;
     return true;
   });
 };

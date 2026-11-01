@@ -35,6 +35,7 @@ const SETTINGS_KEYS = [
   'lookupGroup',
   'linkedFrom',
   'examFieldKey',
+  'scheduleRole',
   'allowMultiple',
   'phoneValidation',
   'formula',
