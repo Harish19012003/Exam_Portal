@@ -325,13 +325,17 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
       );
 
     case 'number':
+      // Keep the value visible: sit the copy control beside the digits (not over them).
       return (
-        <div className={`group relative flex items-center gap-1.5 min-w-0 text-[13px] font-medium tabular-nums ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-          <span className="min-w-0 flex-1 truncate">{value !== null && value !== undefined ? formatNumber(value) : <span className="text-gray-400">—</span>}</span>
+        <div className={`group flex items-center gap-1 min-w-0 w-full text-[13px] font-medium tabular-nums ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+          <span className="min-w-0 truncate">
+            {value !== null && value !== undefined ? formatNumber(value) : <span className="text-gray-400">—</span>}
+          </span>
           {value !== null && value !== undefined && (
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(value)); }}
-              className={`absolute right-0 top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1 rounded-md transition-opacity flex-shrink-0 ${isDarkMode ? 'bg-[#122420]/95 hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'bg-white/95 hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
+              className={`flex-shrink-0 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1 -mr-1 rounded-md transition-opacity ${isDarkMode ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
               title="Copy"
             >
               <Icon icon="hugeicons:copy-01" className="w-3.5 h-3.5" />

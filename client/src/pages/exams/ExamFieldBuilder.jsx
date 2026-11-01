@@ -28,6 +28,7 @@ import {
   BadgeCheck,
   SquareCheck,
   ListPlus,
+  Search,
 } from 'lucide-react';
 import {
   EXAM_FIELD_TYPES,
@@ -148,6 +149,7 @@ export const ExamFieldBuilder = ({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [lookupSources, setLookupSources] = useState([]);
+  const [fieldSearch, setFieldSearch] = useState('');
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -183,6 +185,7 @@ export const ExamFieldBuilder = ({
       setError('');
       setTypesOpen(false);
       setBulkOpen(false);
+      setFieldSearch('');
     }
   }, [open]);
 
@@ -255,6 +258,23 @@ export const ExamFieldBuilder = ({
     if (field.layout === 'half') parts.push('Half');
     return parts.join(' · ');
   };
+
+  const searchQuery = fieldSearch.trim().toLowerCase();
+  const visibleFields = searchQuery
+    ? fields.filter((field) => {
+        const haystack = [
+          field.label,
+          field.key,
+          typeLabel(field.dataType),
+          field.dataType,
+          fieldMeta(field),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(searchQuery);
+      })
+    : fields;
 
   const openCreate = (dataType = 'text') => {
     setForm({
@@ -555,7 +575,12 @@ export const ExamFieldBuilder = ({
             {fields.length > 0 && (
               <div className="exams-fields-panel">
                 <div className="exams-field-section-bar">
-                  <span>Fields · {fields.length}</span>
+                  <span>
+                    Fields ·{' '}
+                    {searchQuery && visibleFields.length !== fields.length
+                      ? `${visibleFields.length} of ${fields.length}`
+                      : fields.length}
+                  </span>
                   <span className="exams-field-section-actions">
                     <button type="button" className="exams-text-add-btn" onClick={openBulk}>
                       <ListPlus size={13} />
@@ -577,42 +602,86 @@ export const ExamFieldBuilder = ({
                   </span>
                 </div>
 
+                <div className="exams-field-list-search">
+                  <Search size={14} strokeWidth={2.2} aria-hidden="true" />
+                  <input
+                    type="search"
+                    value={fieldSearch}
+                    onChange={(e) => setFieldSearch(e.target.value)}
+                    placeholder="Search fields…"
+                    aria-label="Search fields"
+                    autoComplete="off"
+                  />
+                  {fieldSearch && (
+                    <button
+                      type="button"
+                      className="exams-field-list-search-clear"
+                      onClick={() => setFieldSearch('')}
+                      aria-label="Clear search"
+                      title="Clear"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {visibleFields.length === 0 ? (
+                  <p className="exams-field-list-empty">No fields match “{fieldSearch.trim()}”.</p>
+                ) : (
                 <ul className="exams-field-list">
-                  {fields.map((field) => {
+                  {visibleFields.map((field) => {
                     const Icon = TYPE_ICONS[field.dataType] || Type;
                     const isDragging = dragFieldId === field.id;
                     const isDragOver = dragOverFieldId === field.id && dragFieldId !== field.id;
+                    const canReorder = !searchQuery;
                     return (
                       <li
                         key={field.id}
                         className={`exams-field-row${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = 'move';
-                          if (dragOverFieldId !== field.id) setDragOverFieldId(field.id);
-                        }}
-                        onDragLeave={() => {
-                          if (dragOverFieldId === field.id) setDragOverFieldId(null);
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const fromId = e.dataTransfer.getData('text/plain') || dragFieldId;
-                          reorderFields(fromId, field.id);
-                          setDragFieldId(null);
-                          setDragOverFieldId(null);
-                        }}
+                        onDragOver={
+                          canReorder
+                            ? (e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (dragOverFieldId !== field.id) setDragOverFieldId(field.id);
+                              }
+                            : undefined
+                        }
+                        onDragLeave={
+                          canReorder
+                            ? () => {
+                                if (dragOverFieldId === field.id) setDragOverFieldId(null);
+                              }
+                            : undefined
+                        }
+                        onDrop={
+                          canReorder
+                            ? (e) => {
+                                e.preventDefault();
+                                const fromId = e.dataTransfer.getData('text/plain') || dragFieldId;
+                                reorderFields(fromId, field.id);
+                                setDragFieldId(null);
+                                setDragOverFieldId(null);
+                              }
+                            : undefined
+                        }
                       >
                         <button
                           type="button"
                           className="exams-field-drag-handle"
-                          draggable
-                          title="Drag to reorder"
+                          draggable={canReorder}
+                          disabled={!canReorder}
+                          title={canReorder ? 'Drag to reorder' : 'Clear search to reorder'}
                           aria-label={`Drag to reorder ${field.label}`}
-                          onDragStart={(e) => {
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', field.id);
-                            setDragFieldId(field.id);
-                          }}
+                          onDragStart={
+                            canReorder
+                              ? (e) => {
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  e.dataTransfer.setData('text/plain', field.id);
+                                  setDragFieldId(field.id);
+                                }
+                              : undefined
+                          }
                           onDragEnd={() => {
                             setDragFieldId(null);
                             setDragOverFieldId(null);
@@ -661,6 +730,7 @@ export const ExamFieldBuilder = ({
                     );
                   })}
                 </ul>
+                )}
               </div>
             )}
 

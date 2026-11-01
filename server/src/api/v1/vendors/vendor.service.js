@@ -4,8 +4,6 @@ import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 import { decodeVendor, getCustomFields, pickCustomValues } from './vendor-fields.service.js';
 
-const MAX_IMPORT_ROWS = 1000;
-
 const validationError = (message) => new AppError(message, 400, ERROR_CODES.VALIDATION_ERROR);
 
 // Vendor ids are MongoDB ObjectIds (24 hex characters), kept as strings end to end.
@@ -78,7 +76,6 @@ export async function importVendors(rows, { ignoreExisting = false } = {}) {
   const fields = await getCustomFields();
   requireFields(fields);
   if (!Array.isArray(rows) || !rows.length) throw validationError('No rows to import');
-  if (rows.length > MAX_IMPORT_ROWS) throw validationError(`Import at most ${MAX_IMPORT_ROWS} rows at a time`);
 
   const prepared = rows.map((row, i) => prepare(fields, row, { prefix: `Row ${i + 1}: ` }));
   assertUniqueBatch(fields, prepared, await vendorRepository.findAll(), { ignoreExisting });

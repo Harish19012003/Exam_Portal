@@ -1,4 +1,5 @@
 import { getEffectiveDataType, resolveFieldOptions } from './examFieldTypes';
+import { isTableSourceField } from './tableLookupApi';
 
 /** Map builder field types onto DynamicTable DataType */
 const toTableDataType = (field) => {
@@ -62,13 +63,16 @@ export const buildFieldColumns = (fields = []) =>
       visible: true,
       pinned: null,
       width: dataType === 'date' || dataType === 'datetime' ? 150 : 180,
-      // Table-column fields hold a row id: edit them in the form, where the picker is.
-      editable:
-        !isAuto &&
-        dataType !== 'formula' &&
-        dataType !== 'composite' &&
-        field.dataType !== 'linked' &&
-        field.optionsSource !== 'table',
+      // Linked values follow another field, so they are read-only. Table-column fields are edited
+      // by searching their source table (the cell stores that row's id).
+      editable: !isAuto && dataType !== 'formula' && dataType !== 'composite' && field.dataType !== 'linked',
+      lookup: isTableSourceField(field)
+        ? {
+            table: field.tableSource.table,
+            column: field.tableSource.column,
+            detailColumn: field.tableSource.detailColumn,
+          }
+        : undefined,
       required: Boolean(field.required) && !isAuto,
       filterable: true,
       sortable: true,

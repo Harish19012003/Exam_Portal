@@ -15,9 +15,15 @@ export const loadConfigDropdownLists = () => {
   }
 };
 
+export const CONFIG_LISTS_CHANGED = 'config-lists-changed';
+
 export const cacheConfigDropdownLists = (lists) => {
   try {
-    localStorage.setItem(CONFIG_DROPDOWNS_KEY, JSON.stringify(lists));
+    const next = JSON.stringify(lists);
+    const changed = localStorage.getItem(CONFIG_DROPDOWNS_KEY) !== next;
+    localStorage.setItem(CONFIG_DROPDOWNS_KEY, next);
+    // Pages that show Config-list options re-render when the lists actually changed.
+    if (changed) window.dispatchEvent(new Event(CONFIG_LISTS_CHANGED));
   } catch {
     // ignore
   }

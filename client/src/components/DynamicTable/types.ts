@@ -93,6 +93,11 @@ export interface FieldColumn extends BaseColumn {
   aggregation?: AggregationType;
   formula?: string;
   resultType?: DataType;
+  /**
+   * Cell reads its choices live from a column of another table (rows are picked by search, and the
+   * cell stores that row's id). The editor looks rows up through /table-lookup.
+   */
+  lookup?: { table: string; column: string; detailColumn?: string };
   parentColumnKey?: string; // Key of parent column in same row for dependent dropdowns
   dependentOptionsMap?: Record<string, string[]>; // Map parent values -> dependent choices
 }

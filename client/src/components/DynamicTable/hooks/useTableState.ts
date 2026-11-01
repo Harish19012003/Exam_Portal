@@ -34,6 +34,7 @@ const resolveLayoutSeed = (
   cols: ColumnConfig[],
   serverLayout?: TablePrefs | null,
   tableId?: string,
+  defaultDensity: Density = 'standard',
 ): {
   columnOrder: string[];
   columnVisibility: Record<string, boolean>;
@@ -53,14 +54,23 @@ const resolveLayoutSeed = (
     columnOrder: layout.columnOrder ?? fromLocal.columnOrder,
     columnVisibility: layout.columnVisibility ?? fromLocal.columnVisibility,
     columnWidths: layout.columnWidths ?? fromLocal.columnWidths,
-    density: layout.density ?? fromLocal.density,
   };
+
+  // Server density always wins. A page-level default (e.g. center list → compact)
+  // also wins over a stale localStorage "standard" left by the old global default.
+  let density = (layout.density as Density) || null;
+  if (!density && fromLocal.density) {
+    const localDensity = fromLocal.density as Density;
+    if (defaultDensity !== 'standard' && localDensity === 'standard') density = defaultDensity;
+    else density = localDensity;
+  }
+  if (!density) density = defaultDensity;
 
   return {
     columnOrder: mergeColumnOrder(keys, preferred.columnOrder),
     columnVisibility: mergeColumnVisibility(keys, schemaVisibility, preferred.columnVisibility),
     columnWidths: { ...(preferred.columnWidths || {}) },
-    density: (preferred.density as Density) || 'standard',
+    density,
   };
 };
 
@@ -80,6 +90,8 @@ export type UseTableStateOptions = {
   shareState?: boolean;
   /** Resolved layout from API (user override or org default). */
   layoutPrefs?: TablePrefs | null;
+  /** Used when neither server nor local layout has a density yet. */
+  defaultDensity?: Density;
   /** Debounced personal layout save. */
   onLayoutPrefsChange?: (prefs: TablePrefs) => void;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
@@ -103,6 +115,7 @@ export function useTableState(
     tableId,
     shareState = true,
     layoutPrefs = null,
+    defaultDensity = 'standard',
     onLayoutPrefsChange,
     onRowUpdate,
     onRowDelete,
@@ -133,7 +146,7 @@ export function useTableState(
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
 
-  const initialSeed = resolveLayoutSeed(sanitizeColumns(initialColumns), layoutPrefs, tableId);
+  const initialSeed = resolveLayoutSeed(sanitizeColumns(initialColumns), layoutPrefs, tableId, defaultDensity);
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => initialSeed.columnWidths);
 
@@ -175,7 +188,7 @@ export function useTableState(
 
   useEffect(() => {
     const cleanCols = sanitizeColumns(initialColumns);
-    const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId);
+    const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId, defaultDensity);
     setColumns(cleanCols);
     setColumnOrder(seed.columnOrder);
     setColumnVisibility(seed.columnVisibility);
@@ -190,7 +203,7 @@ export function useTableState(
       return;
     }
     setRows(sanitizeRows(initialRows));
-  }, [initialColumns, initialRows, tableId]);
+  }, [initialColumns, initialRows, tableId, defaultDensity]);
 
   useEffect(() => {
     saveTablePrefs({

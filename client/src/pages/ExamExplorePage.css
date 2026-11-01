@@ -59,38 +59,62 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: clamp(32px, 8vw, 72px) 16px;
+  gap: 8px;
+  padding: clamp(28px, 6vw, 64px) clamp(14px, 3vw, 24px);
   text-align: center;
   color: var(--text-secondary, #64748b);
 }
 
+.exam-explore-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(92, 67, 250, 0.08);
+  color: var(--primary-color, #5c43fa);
+  margin-bottom: 4px;
+}
+
+[data-theme='dark'] .exam-explore-empty-icon {
+  background: rgba(124, 58, 237, 0.16);
+}
+
 .exam-explore-empty-title {
-  margin: 4px 0 0;
-  font-weight: 600;
+  margin: 0;
+  font-size: clamp(1.05rem, 2.2vw, 1.2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text-primary, #0f172a);
 }
 
 .exam-explore-empty-hint {
   margin: 0;
-  max-width: 420px;
+  max-width: 380px;
   font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 .exam-explore-create {
-  margin-top: 12px;
   min-height: 44px;
-  padding: 0 20px;
+  padding: 0 18px;
   border: 0;
   border-radius: 10px;
-  background: var(--primary-color, #4f46e5);
+  background: var(--primary-color, #5c43fa);
   color: #fff;
   font-weight: 600;
+  font-size: 0.9rem;
   cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.exam-explore-create:hover:not(:disabled) {
+  filter: brightness(1.05);
 }
 
 .exam-explore-create:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
@@ -117,9 +141,208 @@
   color: var(--text-primary, #0f172a);
 }
 
+.exam-explore-create.secondary:hover:not(:disabled) {
+  filter: none;
+  background: rgba(92, 67, 250, 0.05);
+  border-color: rgba(92, 67, 250, 0.35);
+}
+
 @media (max-width: 480px) {
   .exam-explore-create-row,
   .exam-explore-create-row .exam-explore-create {
+    width: 100%;
+  }
+}
+
+.exam-explore-preset-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(92, 67, 250, 0.3);
+  border-left: 3px solid var(--primary-color, #5c43fa);
+  border-radius: 10px;
+  background: rgba(92, 67, 250, 0.06);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.exam-explore-preset-banner > span {
+  flex: 1 1 280px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exam-explore-preset-banner .exam-explore-create {
+  margin-top: 0;
+  min-height: 40px;
+}
+
+.exam-explore-preset-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: min(100%, 420px);
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.exam-explore-preset-rec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(92, 67, 250, 0.28);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(92, 67, 250, 0.08), rgba(92, 67, 250, 0.02));
+  box-sizing: border-box;
+}
+
+[data-theme='dark'] .exam-explore-preset-rec {
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.18), rgba(15, 23, 42, 0.2));
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.exam-explore-preset-rec-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exam-explore-preset-rec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--primary-color, #5c43fa);
+}
+
+.exam-explore-preset-rec-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+[data-theme='dark'] .exam-explore-preset-rec-count {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.exam-explore-preset-rec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.exam-explore-preset-rec-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  overflow-wrap: anywhere;
+}
+
+.exam-explore-preset-rec-meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.4;
+}
+
+.exam-explore-preset-rec .exam-explore-create {
+  width: 100%;
+}
+
+.exam-explore-preset-other {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.exam-explore-preset-other-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+}
+
+.exam-explore-preset-other-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.exam-explore-preset-other-row .exam-explore-preset-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.exam-explore-preset-other-row .exam-explore-preset-select .exams-search-select-trigger {
+  min-height: 44px;
+  width: 100%;
+}
+
+.exam-explore-preset-other-row .exam-explore-create.secondary {
+  flex: 0 0 auto;
+  min-width: 72px;
+  padding: 0 14px;
+}
+
+.exam-explore-start-blank {
+  align-self: center;
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: transparent;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease, background 0.15s ease;
+}
+
+.exam-explore-start-blank:hover:not(:disabled) {
+  color: var(--primary-color, #5c43fa);
+  text-decoration-color: currentColor;
+  background: rgba(92, 67, 250, 0.05);
+}
+
+.exam-explore-start-blank:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .exam-explore-preset-other-row {
+    flex-direction: column;
+  }
+
+  .exam-explore-preset-other-row .exam-explore-create.secondary {
     width: 100%;
   }
 }

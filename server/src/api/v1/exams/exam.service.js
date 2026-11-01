@@ -3,8 +3,7 @@ import * as examRepository from './exam.repository.js';
 import * as settingsService from '../settings/settings.service.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
-import { dropTableForExam, createTableFromServicePreset } from '../exam-tables/exam-table.service.js';
-import { logger } from '../../../core/logger.js';
+import { dropTableForExam } from '../exam-tables/exam-table.service.js';
 
 const snapshotFields = (fields = []) =>
   (Array.isArray(fields) ? fields : []).map((f, index) => ({
@@ -67,13 +66,8 @@ export const createExam = async ({ values, fields, id }, userId) => {
     createdBy: userId || null,
   });
 
-  // Give the exam its own table pre-filled from its service's preset. Never blocks exam creation;
-  // the Explore page can still create the table by hand.
-  try {
-    await createTableFromServicePreset(examId, userId, exam?.values?.service ?? values?.service);
-  } catch (error) {
-    logger.warn('Could not create the exam table from a preset', { examId, reason: error?.message });
-  }
+  // The exam's center list is not created here. An admin loads it from the Center list page,
+  // either from the exam's service preset or one they choose, or starts blank.
   return exam;
 };
 

@@ -12,6 +12,7 @@ import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { buildFieldColumns } from './exams/examTableAdapter';
+import { useConfigLists } from './settings/useConfigLists';
 import './ExamsPage.css';
 
 /** `vendors` keeps only these fixed columns; no custom field may use them. */
@@ -19,6 +20,7 @@ const RESERVED_VENDOR_KEYS = ['id', 'version', 'created_at', 'updated_at'];
 const SYSTEM_VALUE_KEYS = new Set(RESERVED_VENDOR_KEYS);
 
 export const VendorsPage = () => {
+  const configVersion = useConfigLists();
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.documentElement.getAttribute('data-theme') === 'dark' ||
            localStorage.getItem('theme') === 'dark';
@@ -72,7 +74,8 @@ export const VendorsPage = () => {
 
   const columns = useMemo(
     () => applyColumnAccess(buildFieldColumns(customFields), 'vendors', access),
-    [customFields, access],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [customFields, access, configVersion],
   );
 
   const fetchConfig = async () => {
@@ -241,8 +244,8 @@ export const VendorsPage = () => {
     }
   };
 
-  // ── CSV import (table toolbar) ──────────────────────────────────────────────
-  const handleImportRows = async (csvRows) => {
+  // ── CSV import (table toolbar) — chunked so large files don't blow request bodies ──
+  const handleImportRows = async (csvRows, handlers) => {
     const byHeader = new Map();
     customFields.forEach((f) => {
       byHeader.set(String(f.key).toLowerCase(), f.key);
@@ -261,17 +264,26 @@ export const VendorsPage = () => {
       .filter((v) => Object.values(v).some((x) => String(x ?? '').trim() !== ''));
 
     if (importRows.length === 0) {
-      setErrorMsg('No rows matched your vendor fields. CSV headers must be a field label or key.');
-      return;
+      const msg = 'No rows matched your vendor fields. CSV headers must be a field label or key.';
+      setErrorMsg(msg);
+      throw new Error(msg);
     }
 
     try {
-      await apiClient.post('/vendors/import', { rows: importRows });
+      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
+      await importRowsInChunks(
+        importRows,
+        async (batch) => {
+          await apiClient.post('/vendors/import', { rows: batch });
+        },
+        { chunkSize: 400, onProgress: handlers?.onProgress },
+      );
       setErrorMsg('');
       setSuccessMsg(`Successfully imported ${importRows.length} vendor${importRows.length === 1 ? '' : 's'}.`);
       await fetchVendorsFromBackend();
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to import vendors.');
+      throw err;
     }
   };
 
@@ -327,7 +339,7 @@ export const VendorsPage = () => {
           </div>
         ) : (
           <DynamicTable
-            key={`vendors_layout_${layoutEpoch}_${customFields.map((f) => f.key).join(',')}`}
+            key={`vendors_layout_${layoutEpoch}_${configVersion}_${customFields.map((f) => f.key).join(',')}`}
             tableId={TABLE_IDS.VENDORS}
             shareState={false}
             initialColumns={columns}

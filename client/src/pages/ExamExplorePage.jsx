@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Table2, X } from 'lucide-react';
+import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
 import { DynamicTable } from '../components/DynamicTable';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { useAccess, applyColumnAccess, creatableFields, tablePermissions } from '../hooks/useAccess';
@@ -18,13 +18,19 @@ import {
   saveExamTableConfig,
   updateExamRow,
 } from './exams/examTableApi';
-import { listExamPresets, findPresetForService } from './exams/examPresetApi';
+import {
+  listExamPresets,
+  findPresetForService,
+  diffPresetAgainstFields,
+  mergePresetIntoFields,
+} from './exams/examPresetApi';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import { DEFAULT_EXAM_TABLE_FEATURES } from './exams/examTableConfig';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
 import { groupSyncPatch, isLinkedField, isTableSourceField } from './exams/tableLookupApi';
+import { useConfigLists } from './settings/useConfigLists';
 import { defaultValueForType, groupFieldsForLayout, buildSameAsFlags, DATE_LINK_TYPES } from './exams/examFieldTypes';
 import {
   buildEmptyForm,
@@ -35,6 +41,7 @@ import {
   validateFormFields,
 } from './exams/examTableHelpers';
 import { buildExamLabel } from './exams/examLabel';
+import { SearchableSelect } from './exams/SearchableSelect';
 import './ExamsPage.css';
 import './ExamExplorePage.css';
 
@@ -54,10 +61,96 @@ const tableFeaturesFor = (saved) => ({
   rowActions: { ...DEFAULT_EXAM_TABLE_FEATURES.rowActions, ...(saved?.rowActions || {}), showExplore: false },
 });
 
+/**
+ * How an admin gives a center list its fields: the preset for the exam's service, any other preset,
+ * or (when `onStartBlank` is given) an empty list. Nothing is loaded until one of these is pressed.
+ */
+const PresetActions = ({ presets, matched, busy, onLoad, onStartBlank }) => {
+  const [picked, setPicked] = useState('');
+  const otherPresets = matched ? presets.filter((p) => p.id !== matched.id) : presets;
+  const chosen = otherPresets.find((p) => p.id === picked);
+  const presetOptions = otherPresets.map((p) => ({
+    value: p.id,
+    label: `${p.name} · ${p.serviceValue} (${p.fieldCount} fields)`,
+  }));
+
+  return (
+    <div className="exam-explore-preset-actions">
+      {matched && (
+        <div className="exam-explore-preset-rec">
+          <div className="exam-explore-preset-rec-top">
+            <span className="exam-explore-preset-rec-badge">
+              <Sparkles size={12} strokeWidth={2.25} aria-hidden="true" />
+              Recommended
+            </span>
+            <span className="exam-explore-preset-rec-count">{matched.fieldCount} fields</span>
+          </div>
+          <div className="exam-explore-preset-rec-body">
+            <p className="exam-explore-preset-rec-name">{matched.name || matched.serviceValue}</p>
+            <p className="exam-explore-preset-rec-meta">
+              Matches this exam’s service “{matched.serviceValue}”
+            </p>
+          </div>
+          <button
+            type="button"
+            className="exam-explore-create"
+            onClick={() => onLoad(matched)}
+            disabled={busy}
+          >
+            {busy ? 'Loading…' : `Load “${matched.serviceValue}” preset`}
+          </button>
+        </div>
+      )}
+
+      {otherPresets.length > 0 && (
+        <div className="exam-explore-preset-other">
+          <p className="exam-explore-preset-other-label">
+            {matched ? 'Or choose another preset' : 'Choose a preset'}
+          </p>
+          <div className="exam-explore-preset-other-row">
+            <SearchableSelect
+              className="exam-explore-preset-select"
+              value={picked}
+              options={presetOptions}
+              onChange={setPicked}
+              placeholder={matched ? 'Search presets…' : 'Search or select a preset…'}
+              searchPlaceholder="Search by name or service…"
+              searchThreshold={1}
+              portal
+              disabled={busy}
+              ariaLabel="Choose a preset to load"
+            />
+            <button
+              type="button"
+              className="exam-explore-create secondary"
+              onClick={() => chosen && onLoad(chosen)}
+              disabled={busy || !chosen}
+            >
+              Load
+            </button>
+          </div>
+        </div>
+      )}
+
+      {onStartBlank && (
+        <button
+          type="button"
+          className="exam-explore-start-blank"
+          onClick={onStartBlank}
+          disabled={busy}
+        >
+          Start blank — build fields yourself
+        </button>
+      )}
+    </div>
+  );
+};
+
 export const ExamExplorePage = () => {
   const confirm = useConfirm();
   const { examId } = useParams();
   const navigate = useNavigate();
+  const configVersion = useConfigLists();
   const { setBreadcrumbTail } = useOutletContext() || {};
   const { access, can } = useAccess();
   /** Creating the table / changing its columns needs the explore table's configure right. */
@@ -111,7 +204,8 @@ export const ExamExplorePage = () => {
   const label = exam ? buildExamLabel(exam) : '';
   const tableColumns = useMemo(
     () => applyColumnAccess(buildExamTableColumns(fields), 'exam_rows', access),
-    [fields, access],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fields, access, configVersion],
   );
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(() => creatableFields(fields, 'exam_rows', access), [fields, access]);
@@ -172,10 +266,9 @@ export const ExamExplorePage = () => {
       applySnapshot(snap);
       setStatus('ready');
       if (snap?.exists) await loadRows();
-      // Presets are offered when there is no table yet, and also when the table exists but is empty.
-      if (!snap?.exists || !(Array.isArray(snap.fields) && snap.fields.length)) {
-        listExamPresets().then((list) => !cancelled && setPresets(list)).catch(() => {});
-      }
+      // Presets are offered when there is no table yet, when it is empty, and to spot a preset that
+      // has newer field settings than this list's copy.
+      listExamPresets().then((list) => !cancelled && setPresets(list)).catch(() => {});
       window.setTimeout(() => {
         if (!cancelled) featuresSyncReadyRef.current = true;
       }, 1200);
@@ -308,7 +401,7 @@ export const ExamExplorePage = () => {
   const handleRowUpdate = async (rowId, values) => {
     try {
       const original = rows.find((r) => r.id === rowId);
-      const next = await updateExamRow(examId, rowId, restoreLookupIds(values, original?.values, fields));
+      const next = await updateExamRow(examId, rowId, restoreLookupIds(values, original?.values, fields, rowId));
       setRows((prev) => prev.map((r) => (r.id === rowId ? next : r)));
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not update the center'));
@@ -413,6 +506,29 @@ export const ExamExplorePage = () => {
     }
   };
 
+  /** Bring this list's fields up to date with its preset: types, options and new fields. Nothing is removed. */
+  const handleUpdateFromPreset = async (preset) => {
+    const ok = await confirm({
+      title: 'Update fields from preset?',
+      message: `Apply the current “${preset.name}” field settings to this center list?`,
+      tertiary: 'Fields follow the preset’s order, matching fields take its type and options, and missing fields are added. Centers and their values are kept, and no field is removed.',
+      confirmLabel: 'Update fields',
+    });
+    if (!ok) return;
+    setCreating(true);
+    setTableError('');
+    try {
+      const snap = await saveExamTableConfig(examId, { fields: mergePresetIntoFields(preset.fields, fields) });
+      applySnapshot(snap);
+      setMessage('Fields updated from the preset');
+      await loadRows();
+    } catch (err) {
+      setTableError(apiErrorMessage(err, 'Could not update the fields'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   /** Fill this exam's empty table with a preset's fields (and Feature Builder settings). */
   const handleLoadPreset = async (preset) => {
     if (!preset) return;
@@ -430,7 +546,7 @@ export const ExamExplorePage = () => {
   };
 
   /** CSV import: columns are matched to fields by key or label, then each row is created. */
-  const handleImportRows = async (csvRows) => {
+  const handleImportRows = async (csvRows, handlers) => {
     // Only columns this user may fill. Auto-filled, computed and table-lookup fields (they hold a
     // row id, not text) are left out.
     const importable = createFields.filter(
@@ -466,6 +582,7 @@ export const ExamExplorePage = () => {
     let done = 0;
     const failures = [];
     let next = 0;
+    const report = () => handlers?.onProgress?.(done, prepared.length);
     const worker = async () => {
       while (next < prepared.length) {
         const index = next;
@@ -473,6 +590,7 @@ export const ExamExplorePage = () => {
         try {
           await createExamRow(examId, prepared[index]);
           done += 1;
+          report();
         } catch (err) {
           failures.push(`row ${index + 1}: ${apiErrorMessage(err, 'could not be saved')}`);
         }
@@ -537,6 +655,9 @@ export const ExamExplorePage = () => {
 
   const hasTable = Boolean(tableInfo);
   const matchedPreset = findPresetForService(presets, exam?.values?.service);
+  // Plain computation (not a hook): this runs after the early returns above.
+  const presetDiff = matchedPreset && fields.length ? diffPresetAgainstFields(matchedPreset.fields, fields) : null;
+  const presetOutdated = Boolean(presetDiff && (presetDiff.changed.length || presetDiff.added.length || presetDiff.reordered));
 
   return (
     <div className="exams-page exams-page--table exam-explore-page">
@@ -568,53 +689,76 @@ export const ExamExplorePage = () => {
         </div>
       )}
 
+      {isAdmin && hasTable && presetOutdated && matchedPreset && (
+        <div className="exam-explore-preset-banner" role="status">
+          <span>
+            The “{matchedPreset.name}” preset has newer field settings
+            {presetDiff.changed.length > 0 && (
+              <>
+                : {presetDiff.changed.length} field{presetDiff.changed.length === 1 ? '' : 's'} change
+                {presetDiff.changed.length === 1 ? 's' : ''} (e.g. {presetDiff.changed[0].label}: {presetDiff.changed[0].from} → {presetDiff.changed[0].to})
+              </>
+            )}
+            {presetDiff.added.length > 0 && (
+              <>
+                {presetDiff.changed.length > 0 ? ' and ' : ': '}
+                {presetDiff.added.length} new field{presetDiff.added.length === 1 ? '' : 's'}
+              </>
+            )}
+            {presetDiff.reordered && (
+              <>
+                {presetDiff.changed.length > 0 || presetDiff.added.length > 0 ? '. The fields are also in a different order' : ': the fields are in a different order'}
+              </>
+            )}
+            .
+          </span>
+          <button type="button" className="exam-explore-create" onClick={() => handleUpdateFromPreset(matchedPreset)} disabled={creating}>
+            {creating ? 'Updating…' : 'Update from preset'}
+          </button>
+        </div>
+      )}
+
       <div className="exams-table-panel">
         {!hasTable ? (
           <div className="exam-explore-state">
-            <Table2 size={22} strokeWidth={1.75} />
-            <p className="exam-explore-empty-title">No center list created for this exam yet</p>
+            <div className="exam-explore-empty-icon" aria-hidden="true">
+              <Table2 size={22} strokeWidth={1.75} />
+            </div>
+            <p className="exam-explore-empty-title">No center list yet</p>
             <p className="exam-explore-empty-hint">
               {!isAdmin
                 ? 'An admin needs to create this exam’s center list first.'
                 : matchedPreset
-                  ? `There is a field preset for ${matchedPreset.serviceValue}. Create the table from it to start with those ${matchedPreset.fieldCount} fields.`
-                  : 'Each exam gets its own center list with its own fields. Create the list, then build its fields.'}
+                  ? 'Use the recommended preset for this exam’s service, pick another, or start blank.'
+                  : `${exam?.values?.service ? `No preset matches “${exam.values.service}”. ` : ''}Pick a preset to start from, or build the fields yourself.`}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
             {isAdmin && (
-              <div className="exam-explore-create-row">
-                {matchedPreset && (
-                  <button type="button" className="exam-explore-create" onClick={() => handleCreateTable(matchedPreset.id)} disabled={creating}>
-                    {creating ? 'Creating…' : `Create from “${matchedPreset.name}”`}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={matchedPreset ? 'exam-explore-create secondary' : 'exam-explore-create'}
-                  onClick={() => handleCreateTable()}
-                  disabled={creating}
-                >
-                  {creating && !matchedPreset ? 'Creating…' : matchedPreset ? 'Start blank' : 'Create center list'}
-                </button>
-              </div>
+              <PresetActions
+                presets={presets}
+                matched={matchedPreset}
+                busy={creating}
+                onLoad={(preset) => handleCreateTable(preset.id)}
+                onStartBlank={() => handleCreateTable()}
+              />
             )}
           </div>
         ) : fields.length === 0 ? (
-          <div className="exams-list-empty">
-            <Table2 size={22} strokeWidth={1.75} />
-            <p>No fields yet</p>
-            <p className="exams-create-empty-hint">
+          <div className="exams-list-empty exam-explore-state">
+            <div className="exam-explore-empty-icon" aria-hidden="true">
+              <Table2 size={22} strokeWidth={1.75} />
+            </div>
+            <p className="exam-explore-empty-title">No fields yet</p>
+            <p className="exam-explore-empty-hint">
               {isAdmin
                 ? matchedPreset
-                  ? `There is a field preset for ${matchedPreset.serviceValue}. Load its ${matchedPreset.fieldCount} fields, or use the sliders icon to build your own.`
-                  : 'Use the sliders icon to build fields, then add centers with +.'
+                  ? 'Load the recommended preset, choose another, or use the sliders icon to build your own fields.'
+                  : 'Load a preset, or use the sliders icon to build fields, then add centers with +.'
                 : 'Ask an admin to build the fields for this exam’s center list.'}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
-            {isAdmin && matchedPreset && (
-              <button type="button" className="exam-explore-create" onClick={() => handleLoadPreset(matchedPreset)} disabled={creating}>
-                {creating ? 'Loading…' : `Load preset “${matchedPreset.name}”`}
-              </button>
+            {isAdmin && (
+              <PresetActions presets={presets} matched={matchedPreset} busy={creating} onLoad={handleLoadPreset} />
             )}
           </div>
         ) : rowsLoading || !layoutReady ? (
@@ -622,7 +766,7 @@ export const ExamExplorePage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exam_table_${layoutEpoch}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              key={`exam_table_${layoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={layoutTableId}
               shareState={false}
               usePortalFeatures
@@ -630,6 +774,7 @@ export const ExamExplorePage = () => {
               initialColumns={tableColumns}
               initialRows={tableRows}
               layoutPrefs={layoutPrefs}
+              defaultDensity="compact"
               onLayoutPrefsChange={onLayoutPrefsChange}
               canSaveLayoutAsDefault={canSaveLayoutAsDefault}
               hasUserLayoutOverride={hasUserLayoutOverride}
