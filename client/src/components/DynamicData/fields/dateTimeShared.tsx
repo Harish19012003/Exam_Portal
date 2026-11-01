@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronDown } from 'lucide-react';
 import { fieldInputClass } from '../../../shared/fields/fieldStyles';
@@ -103,15 +103,24 @@ export function computePortalPlacement(
 
 export function useDateTimePortal(defaultOpen: boolean) {
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Never start open without a measured rect — portal renders only when `isOpen && rect`.
+  const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const ignoreBackdropUntilRef = useRef(0);
+  const didAutoOpenRef = useRef(false);
 
   const openMenu = () => {
     if (containerRef.current) setRect(containerRef.current.getBoundingClientRect());
     ignoreBackdropUntilRef.current = Date.now();
     setIsOpen(true);
   };
+
+  // Double-click / autoFocus editors pass defaultOpen — open after layout so rect exists.
+  useLayoutEffect(() => {
+    if (!defaultOpen || didAutoOpenRef.current) return;
+    didAutoOpenRef.current = true;
+    openMenu();
+  }, [defaultOpen]);
 
   const toggleMenu = () => {
     if (isOpen) {
