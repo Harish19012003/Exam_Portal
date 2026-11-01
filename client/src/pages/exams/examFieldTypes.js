@@ -294,6 +294,8 @@ export const emptyFieldForm = () => ({
   linkedColumn: '',
   /** Parent exam.values key to mirror on every center row (dataType fromExam). */
   examFieldKey: '',
+  /** Date chips on Exam management: 'start' | 'end' | '' (user-mapped, not inferred). */
+  scheduleRole: '',
   allowMultiple: false,
   sameAsFieldKey: '',
   sameAsDefaultOn: true,

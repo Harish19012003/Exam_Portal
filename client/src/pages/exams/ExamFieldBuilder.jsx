@@ -50,6 +50,7 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { TagMultiPicker } from './TagMultiPicker';
+import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
 import { SearchableSelect } from './SearchableSelect';
 import { BulkFieldsModal } from './BulkFieldsModal';
@@ -266,6 +267,8 @@ export const ExamFieldBuilder = ({
     }
     if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
     if (field.dataType === 'fromExam' && field.examFieldKey) parts.push(`exam.${field.examFieldKey}`);
+    if (field.scheduleRole === 'start') parts.push('Schedule start');
+    if (field.scheduleRole === 'end') parts.push('Schedule end');
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
     if (field.sameAsFieldKey) parts.push('Same-as');
     if (field.required) parts.push('Required');
@@ -326,6 +329,7 @@ export const ExamFieldBuilder = ({
       linkedFieldKey: field.linkedFrom?.fieldKey || '',
       linkedColumn: field.linkedFrom?.column || '',
       examFieldKey: field.examFieldKey || '',
+      scheduleRole: field.scheduleRole === 'start' || field.scheduleRole === 'end' ? field.scheduleRole : '',
       allowMultiple:
         field.optionsSource === 'userTags'
           ? true
@@ -506,6 +510,10 @@ export const ExamFieldBuilder = ({
       linkedFrom:
         form.dataType === 'linked' ? { fieldKey: form.linkedFieldKey, column: form.linkedColumn } : undefined,
       examFieldKey: form.dataType === 'fromExam' ? form.examFieldKey : undefined,
+      scheduleRole:
+        DATE_LINK_TYPES.has(form.dataType) && (form.scheduleRole === 'start' || form.scheduleRole === 'end')
+          ? form.scheduleRole
+          : undefined,
       ...(allowUnique ? { unique: UNIQUE_FIELD_TYPES.has(form.dataType) && Boolean(form.unique) } : {}),
       options: optionsSource === 'manual' ? options : [],
       optionsSource,
@@ -536,7 +544,15 @@ export const ExamFieldBuilder = ({
           ...payload,
           order: fields.length + 1,
         };
-    const base = isEditing ? fields.map((f) => (f.id === form.id ? savedField : f)) : [...fields, savedField];
+    let base = isEditing ? fields.map((f) => (f.id === form.id ? savedField : f)) : [...fields, savedField];
+    // Only one Schedule start / Schedule end across the field list.
+    if (payload.scheduleRole === 'start' || payload.scheduleRole === 'end') {
+      base = base.map((f) =>
+        f.id !== savedField.id && f.scheduleRole === payload.scheduleRole
+          ? { ...f, scheduleRole: undefined }
+          : f,
+      );
+    }
     // A table-column field can also fill other fields from the same row (Linked values).
     const columnLabels = Object.fromEntries(lookupColumns.map((c) => [c.key, c.label]));
     onChange(
@@ -1029,6 +1045,18 @@ export const ExamFieldBuilder = ({
 
               {isDateLinkable && (
                 <div className="exams-options-block">
+                  <SearchableSelect
+                    id={`${formId}-schedule-role`}
+                    label="Date chips (Exam management)"
+                    value={form.scheduleRole || ''}
+                    options={SCHEDULE_ROLE_OPTIONS}
+                    placeholder="Not used for chips"
+                    searchThreshold={8}
+                    onChange={(next) => setForm((p) => ({ ...p, scheduleRole: next }))}
+                  />
+                  <p className="exams-config-empty-hint">
+                    Map this field as Schedule start or Schedule end for Upcoming / Today / Last 7 days. One of each.
+                  </p>
                   <SearchableSelect
                     id={`${formId}-same-as`}
                     label="Same as date field"

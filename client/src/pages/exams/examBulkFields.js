@@ -144,6 +144,12 @@ export const toFieldDefinition = (item, order) => {
   if (item.unique) def.unique = true;
   if (item.linkedFrom) def.linkedFrom = item.linkedFrom;
   if (item.dataType === 'fromExam' && item.examFieldKey) def.examFieldKey = item.examFieldKey;
+  if (
+    (item.dataType === 'date' || item.dataType === 'datetime') &&
+    (item.scheduleRole === 'start' || item.scheduleRole === 'end')
+  ) {
+    def.scheduleRole = item.scheduleRole;
+  }
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }
