@@ -40,7 +40,7 @@ const DEFAULT_CUSTOM_FEATURES: TableFeaturesConfig = {
   enableFullScreen: false,
   enableTranspose: true,
   enableSettings: false,
-  enableBulkActions: false,
+  enableBulkActions: true,
   enableFooter: false,
   enableSummaryChips: false,
   enableQuickFilters: false,

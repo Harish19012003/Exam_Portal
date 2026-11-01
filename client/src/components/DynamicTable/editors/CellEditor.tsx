@@ -1,5 +1,5 @@
 import type { CellEditorProps } from '../types';
-import { isCompositeColumn } from '../types';
+import { isCompositeColumn, isFieldColumn } from '../types';
 import { TextEditor } from './TextEditor';
 import { NumberEditor } from './NumberEditor';
 import { DropdownEditor } from './DropdownEditor';
@@ -12,12 +12,18 @@ import { ProgressEditor } from './ProgressEditor';
 import { RatingEditor } from './RatingEditor';
 import { TagsEditor } from './TagsEditor';
 import { AttachmentEditor } from './AttachmentEditor';
+import { LookupEditor } from './LookupEditor';
 
 
 export function CellEditor(props: CellEditorProps) {
   const { column } = props;
   if (isCompositeColumn(column)) {
     return <CompositeEditor {...props} />;
+  }
+
+  // A column that reads its choices from another table is edited by searching that table.
+  if (isFieldColumn(column) && column.lookup) {
+    return <LookupEditor {...props} />;
   }
 
   switch (column.dataType) {

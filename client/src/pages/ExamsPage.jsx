@@ -32,6 +32,7 @@ import {
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
 import { groupSyncPatch } from './exams/tableLookupApi';
+import { useConfigLists } from './settings/useConfigLists';
 import {
   fetchExamTableConfig,
   publishExamTableConfig,
@@ -69,6 +70,7 @@ import './ExamsPage.css';
 
 export const ExamsPage = () => {
   const navigate = useNavigate();
+  const configVersion = useConfigLists();
   const confirm = useConfirm();
   const { access, can } = useAccess();
   const canConfigure = can('exams', 'configure');
@@ -127,7 +129,8 @@ export const ExamsPage = () => {
 
   const tableColumns = useMemo(
     () => applyColumnAccess(buildExamTableColumns(formFields), 'exams', access),
-    [formFields, access],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [formFields, access, configVersion],
   );
   const tablePerms = useMemo(() => tablePermissions(access, 'exams'), [access]);
   /** Create form shows only the fields this user may fill. */
@@ -485,7 +488,7 @@ export const ExamsPage = () => {
   const handleRowUpdate = async (rowId, updatedValues) => {
     const original = exams.find((exam) => exam.id === rowId);
     const next = await updateExam(rowId, {
-      values: restoreLookupIds(updatedValues, original?.values, formFields),
+      values: restoreLookupIds(updatedValues, original?.values, formFields, rowId),
     });
     if (!next) {
       setPageMessage('Could not update exam');
@@ -593,7 +596,7 @@ export const ExamsPage = () => {
 
   /** Map CSV row objects (keyed by column label or field key) → exam values */
   const handleImportRows = useCallback(
-    async (csvRows) => {
+    async (csvRows, handlers) => {
       const fields = formFieldsRef.current || [];
       const byLabel = new Map(
         fields.map((f) => [String(f.label || f.key).trim().toLowerCase(), f.key]),
@@ -646,7 +649,14 @@ export const ExamsPage = () => {
         throw new Error('CSV columns did not match any exam fields');
       }
 
-      await importExams(exams);
+      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
+      await importRowsInChunks(
+        exams,
+        async (batch) => {
+          await importExams(batch);
+        },
+        { chunkSize: 400, onProgress: handlers?.onProgress },
+      );
       const rows = await listExams();
       setExams(rows);
       setPageMessage(`Imported ${exams.length} exam${exams.length === 1 ? '' : 's'}`);
@@ -722,7 +732,7 @@ export const ExamsPage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exams_schema_${layoutEpoch}_${formFields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              key={`exams_schema_${layoutEpoch}_${configVersion}_${formFields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={TABLE_IDS.EXAMS}
               shareState={false}
               usePortalFeatures

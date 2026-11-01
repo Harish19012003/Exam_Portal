@@ -20,10 +20,15 @@ import {
   Loader2,
   Eraser,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { isFieldColumn, type ColumnConfig } from '../types';
-import { parseCsv } from '../export/parseCsv';
-import { parseImportFile, type ImportFileKind } from '../export/parseImportFile';
+import { type ImportFileKind } from '../export/parseImportFile';
+import {
+  parseClipboardGridInWorker,
+  parseImportFileInWorker,
+} from '../export/parseImportInWorker';
 
 export type ImportColumn = {
   key: string;
@@ -32,7 +37,14 @@ export type ImportColumn = {
   dataType?: string;
 };
 
+/** Rows shown per preview page (paste grid + upload preview). All rows still import. */
+const PREVIEW_PAGE_SIZE = 100;
+
 type TabId = 'upload' | 'paste';
+
+export type ImportProgressHandlers = {
+  onProgress?: (done: number, total: number) => void;
+};
 
 interface ImportDataModalProps {
   columns: ColumnConfig[];
@@ -40,7 +52,10 @@ interface ImportDataModalProps {
   title?: string;
   subtitle?: string;
   onClose: () => void;
-  onImport: (rows: Record<string, string>[]) => Promise<void> | void;
+  onImport: (
+    rows: Record<string, string>[],
+    handlers?: ImportProgressHandlers,
+  ) => Promise<void> | void;
   /** Stable id (the table id). When set, pasted rows survive closing the dialog as a local draft. */
   draftKey?: string;
 }
@@ -191,18 +206,6 @@ function rowHasData(row: Record<string, string>): boolean {
   return Object.values(row).some((v) => String(v || '').trim() !== '');
 }
 
-function parseTsvOrCsv(text: string): string[][] {
-  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  if (!normalized) return [];
-  // Prefer tab (Excel paste); fall back to CSV parse
-  if (normalized.includes('\t')) {
-    return normalized.split('\n').map((line) => line.split('\t').map((c) => c.trim()));
-  }
-  const { headers, rows } = parseCsv(normalized);
-  if (!headers.length) return [];
-  return [headers, ...rows.map((r) => headers.map((h) => r[h] ?? ''))];
-}
-
 export function ImportDataModal({
   columns,
   isDarkMode,
@@ -219,13 +222,16 @@ export function ImportDataModal({
   const [fileName, setFileName] = useState('');
   const [fileKind, setFileKind] = useState<ImportFileKind | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [pasting, setPasting] = useState(false);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [pasteRows, setPasteRows] = useState<Record<string, string>[]>(
     () =>
       readDraft(draftKey, importCols) ?? [emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)],
   );
+  const [pastePage, setPastePage] = useState(1);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteTableRef = useRef<HTMLDivElement>(null);
 
@@ -233,6 +239,7 @@ export function ImportDataModal({
     const draft = readDraft(draftKey, importCols);
     setDraftRestored(Boolean(draft));
     setPasteRows(draft ?? [emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
+    setPastePage(1);
     setPreviewRows([]);
     setFileName('');
     setFileKind(null);
@@ -247,6 +254,7 @@ export function ImportDataModal({
 
   const clearPasteRows = () => {
     setPasteRows([emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
+    setPastePage(1);
     setDraftRestored(false);
     setError('');
     writeDraft(draftKey, []);
@@ -265,17 +273,14 @@ export function ImportDataModal({
       setError('');
       setParsing(true);
       try {
-        const { kind, rows } = await parseImportFile(file);
+        const { kind, rows } = await parseImportFileInWorker(
+          file,
+          importCols.map((c) => ({ key: c.key, label: c.label })),
+        );
         if (!rows.length) {
-          setError(`No data rows found in the ${kind.toUpperCase()} file.`);
-          setPreviewRows([]);
-          setFileName('');
-          setFileKind(null);
-          return;
-        }
-        const normalized = rows.map((r) => normalizeRow(r, importCols)).filter(rowHasData);
-        if (!normalized.length) {
-          setError('File headers/keys did not match any importable columns.');
+          setError(
+            `No data rows matched importable columns in the ${kind.toUpperCase()} file.`,
+          );
           setPreviewRows([]);
           setFileName('');
           setFileKind(null);
@@ -283,7 +288,7 @@ export function ImportDataModal({
         }
         setFileName(file.name);
         setFileKind(kind);
-        setPreviewRows(normalized);
+        setPreviewRows(rows);
       } catch (err) {
         setPreviewRows([]);
         setFileName('');
@@ -303,64 +308,106 @@ export function ImportDataModal({
     if (file) await applyFile(file);
   };
 
-  const handlePasteOnGrid = (e: ClipboardEvent) => {
+  /**
+   * Spreadsheet-style paste: clipboard text is parsed in a Web Worker, then the
+   * block lands at the focused cell and spreads right/down (extra rows added).
+   */
+  const handlePasteOnGrid = (
+    e: ClipboardEvent,
+    startRow = 0,
+    startColKey?: string,
+  ) => {
     const text = e.clipboardData.getData('text/plain');
-    if (!text || !text.includes('\t') && !text.includes('\n')) return;
+    if (!text || (!text.includes('\t') && !text.includes('\n'))) return;
     e.preventDefault();
+    e.stopPropagation();
     setError('');
-    const grid = parseTsvOrCsv(text);
-    if (!grid.length) return;
+    setPasting(true);
 
-    const first = grid[0].map((c) => c.trim().toLowerCase());
-    const looksLikeHeader = first.some(
-      (h) =>
-        importCols.some(
-          (c) => c.label.toLowerCase() === h || c.key.toLowerCase() === h,
-        ),
+    const startColIdx = Math.max(
+      0,
+      startColKey ? importCols.findIndex((c) => c.key === startColKey) : 0,
     );
+    const startRowIdx = Math.max(0, startRow);
+    const colsSnapshot = importCols;
 
-    let dataLines = grid;
-    let headerMap: (string | null)[] = importCols.map((c) => c.key);
+    void (async () => {
+      try {
+        const grid = await parseClipboardGridInWorker(text);
+        if (!grid.length) {
+          setError('Nothing to paste — copy cells from Excel/Sheets and try again.');
+          return;
+        }
 
-    if (looksLikeHeader) {
-      dataLines = grid.slice(1);
-      headerMap = first.map((h) => {
-        const col = importCols.find(
-          (c) => c.label.toLowerCase() === h || c.key.toLowerCase() === h,
-        );
-        return col?.key ?? null;
-      });
-    } else {
-      // No header — map by column order
-      headerMap = importCols.map((c) => c.key);
-    }
+        const first = grid[0].map((c) => c.trim().toLowerCase());
+        const looksLikeHeader =
+          startColIdx === 0 &&
+          first.some((h) =>
+            colsSnapshot.some(
+              (c) => c.label.toLowerCase() === h || c.key.toLowerCase() === h,
+            ),
+          );
 
-    const next = dataLines
-      .map((cells) => {
-        const row = emptyRow(importCols);
+        let dataLines = grid;
+        let headerMap: (string | null)[] | null = null;
+
         if (looksLikeHeader) {
-          headerMap.forEach((key, i) => {
-            if (!key) return;
-            row[key] = cells[i] ?? '';
-          });
-        } else {
-          importCols.forEach((c, i) => {
-            row[c.key] = cells[i] ?? '';
+          dataLines = grid.slice(1);
+          headerMap = first.map((h) => {
+            const col = colsSnapshot.find(
+              (c) => c.label.toLowerCase() === h || c.key.toLowerCase() === h,
+            );
+            return col?.key ?? null;
           });
         }
-        return row;
-      })
-      .filter(rowHasData);
 
-    if (!next.length) {
-      setError('Nothing to paste — copy cells from Excel/Sheets and try again.');
-      return;
-    }
-    // Keep rows already typed or pasted; drop only the blank placeholder rows.
-    setPasteRows((prev) => {
-      const kept = prev.filter(rowHasData);
-      return [...kept, ...next];
-    });
+        if (!dataLines.length) {
+          setError('Nothing to paste — copy cells from Excel/Sheets and try again.');
+          return;
+        }
+
+        const canWrite = headerMap
+          ? headerMap.some(Boolean)
+          : dataLines.some((cells) =>
+              cells.some((_, ci) => Boolean(colsSnapshot[startColIdx + ci])),
+            );
+        if (!canWrite) {
+          setError('Nothing to paste — copy cells from Excel/Sheets and try again.');
+          return;
+        }
+
+        setPasteRows((prev) => {
+          const next = prev.map((r) => ({ ...r }));
+
+          dataLines.forEach((cells, ri) => {
+            const rowIdx = startRowIdx + ri;
+            while (next.length <= rowIdx) next.push(emptyRow(colsSnapshot));
+            const row = { ...next[rowIdx] };
+
+            if (headerMap) {
+              headerMap.forEach((key, i) => {
+                if (!key) return;
+                row[key] = cells[i] ?? '';
+              });
+            } else {
+              cells.forEach((val, ci) => {
+                const col = colsSnapshot[startColIdx + ci];
+                if (!col) return;
+                row[col.key] = val ?? '';
+              });
+            }
+
+            next[rowIdx] = row;
+          });
+
+          return next;
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not parse pasted data');
+      } finally {
+        setPasting(false);
+      }
+    })();
   };
 
   const updatePasteCell = (rowIndex: number, key: string, value: string) => {
@@ -371,6 +418,7 @@ export function ImportDataModal({
 
   const addPasteRow = () => {
     setPasteRows((prev) => [...prev, emptyRow(importCols)]);
+    setPastePage(Math.max(1, Math.ceil((pasteRows.length + 1) / PREVIEW_PAGE_SIZE)));
   };
 
   const removePasteRow = (index: number) => {
@@ -381,6 +429,17 @@ export function ImportDataModal({
   };
 
   const activeRows = tab === 'upload' ? previewRows : pasteRows.filter(rowHasData);
+  const pastePageCount = Math.max(1, Math.ceil(pasteRows.length / PREVIEW_PAGE_SIZE));
+  const safePastePage = Math.min(pastePage, pastePageCount);
+  const pastePageOffset = (safePastePage - 1) * PREVIEW_PAGE_SIZE;
+  const visiblePasteRows = useMemo(
+    () => pasteRows.slice(pastePageOffset, pastePageOffset + PREVIEW_PAGE_SIZE),
+    [pasteRows, pastePageOffset],
+  );
+
+  useEffect(() => {
+    if (pastePage !== safePastePage) setPastePage(safePastePage);
+  }, [pastePage, safePastePage]);
   const requiredMissing = useMemo(() => {
     const req = importCols.filter((c) => c.required);
     if (!req.length || !activeRows.length) return 0;
@@ -391,6 +450,7 @@ export function ImportDataModal({
 
   const handleSubmit = async () => {
     setError('');
+    setImportProgress(null);
     if (!importCols.length) {
       setError('No importable columns configured.');
       return;
@@ -421,14 +481,18 @@ export function ImportDataModal({
     });
 
     setSubmitting(true);
+    setImportProgress({ done: 0, total: payload.length });
     try {
-      await onImport(payload);
+      await onImport(payload, {
+        onProgress: (done, total) => setImportProgress({ done, total }),
+      });
       if (tab === 'paste') writeDraft(draftKey, []);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
     } finally {
       setSubmitting(false);
+      setImportProgress(null);
     }
   };
 
@@ -612,7 +676,7 @@ export function ImportDataModal({
                   <p className={`flex items-center gap-1.5 text-[12.5px] ${muted}`}>
                     <ClipboardPaste className="h-4 w-4 flex-shrink-0 text-[#13C296]" />
                     <span>
-                      Copy cells from Excel / Sheets, click the table, then press{' '}
+                      Copy cells from Excel / Sheets, click the starting cell, then press{' '}
                       <kbd className={`rounded border px-1 py-px font-sans text-[10.5px] font-semibold ${border}`}>⌘/Ctrl</kbd>
                       {' + '}
                       <kbd className={`rounded border px-1 py-px font-sans text-[10.5px] font-semibold ${border}`}>V</kbd>
@@ -628,7 +692,9 @@ export function ImportDataModal({
 
                 <div className="flex flex-shrink-0 items-center gap-1.5">
                   <span className={`px-1.5 text-[12px] font-semibold tabular-nums ${muted}`} aria-live="polite">
-                    {pasteRows.filter(rowHasData).length} row{pasteRows.filter(rowHasData).length === 1 ? '' : 's'}
+                    {pasting
+                      ? 'Parsing…'
+                      : `${pasteRows.filter(rowHasData).length} row${pasteRows.filter(rowHasData).length === 1 ? '' : 's'}`}
                   </span>
                   <button
                     type="button"
@@ -654,13 +720,32 @@ export function ImportDataModal({
 
               <div
                 ref={pasteTableRef}
-                onPaste={handlePasteOnGrid}
-                className={`rounded-xl border overflow-auto max-h-[min(420px,50vh)] ${border}`}
+                onPaste={(e) => {
+                  // Cell inputs handle paste with their own row/col; this is the fallback
+                  // when the table wrapper itself is focused.
+                  if ((e.target as HTMLElement).tagName === 'INPUT') return;
+                  handlePasteOnGrid(e, pastePageOffset, importCols[0]?.key);
+                }}
+                className={`rounded-xl border overflow-auto max-h-[min(420px,50vh)] relative ${border}`}
                 tabIndex={0}
               >
+                {pasting && (
+                  <div className={`absolute inset-0 z-[3] flex items-center justify-center ${isDarkMode ? 'bg-[#0f1c18]/70' : 'bg-white/70'}`}>
+                    <span className={`inline-flex items-center gap-2 text-sm font-semibold ${muted}`}>
+                      <Loader2 className="h-4 w-4 animate-spin text-[#13C296]" />
+                      Parsing paste in background…
+                    </span>
+                  </div>
+                )}
                 <table className="w-full text-left border-collapse min-w-[640px]">
                   <thead className={isDarkMode ? 'bg-[#1a2e28]' : 'bg-[#eefaf5]'}>
                     <tr>
+                      <th
+                        className={`sticky top-0 z-[1] px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide border-b w-12 ${border}
+                          ${isDarkMode ? 'bg-[#1a2e28] text-gray-400' : 'bg-[#eefaf5] text-gray-500'}`}
+                      >
+                        #
+                      </th>
                       {importCols.map((c) => (
                         <th
                           key={c.key}
@@ -680,13 +765,19 @@ export function ImportDataModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {pasteRows.map((row, ri) => (
+                    {visiblePasteRows.map((row, localIdx) => {
+                      const ri = pastePageOffset + localIdx;
+                      return (
                       <tr key={ri} className={isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-gray-50/80'}>
+                        <td className={`px-2 py-1 border-b text-[11px] tabular-nums ${border} ${muted}`}>
+                          {ri + 1}
+                        </td>
                         {importCols.map((c) => (
                           <td key={c.key} className={`px-1.5 py-1 border-b ${border}`}>
                             <input
                               value={row[c.key] ?? ''}
                               onChange={(e) => updatePasteCell(ri, c.key, e.target.value)}
+                              onPaste={(e) => handlePasteOnGrid(e, ri, c.key)}
                               className={`w-full min-w-[100px] px-2 py-2 text-[13px] rounded-lg border-0 outline-none bg-transparent
                                 focus:ring-2 focus:ring-[#13C296]/35 ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}
                               placeholder={c.label}
@@ -709,10 +800,24 @@ export function ImportDataModal({
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
+
+              {pastePageCount > 1 && (
+                <ImportPreviewPager
+                  page={safePastePage}
+                  pageCount={pastePageCount}
+                  pageSize={PREVIEW_PAGE_SIZE}
+                  totalRows={pasteRows.length}
+                  isDarkMode={isDarkMode}
+                  muted={muted}
+                  border={border}
+                  onPageChange={setPastePage}
+                />
+              )}
             </>
           )}
 
@@ -763,7 +868,9 @@ export function ImportDataModal({
               {submitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Importing…
+                  {importProgress && importProgress.total > 0
+                    ? `Importing ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}…`
+                    : 'Importing…'}
                 </>
               ) : (
                 `Import ${activeRows.length || ''}`.trim()
@@ -774,6 +881,65 @@ export function ImportDataModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+function ImportPreviewPager({
+  page,
+  pageCount,
+  pageSize,
+  totalRows,
+  isDarkMode,
+  muted,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  totalRows: number;
+  isDarkMode: boolean;
+  muted: string;
+  border?: string;
+  onPageChange: (page: number) => void;
+}) {
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalRows);
+  const btn = `inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-[36px] sm:min-w-[36px] ${
+    isDarkMode
+      ? 'border-gray-600 text-gray-200 hover:bg-white/5'
+      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+  }`;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className={`text-[12px] font-medium tabular-nums ${muted}`}>
+        Rows {from.toLocaleString()}–{to.toLocaleString()} of {totalRows.toLocaleString()}
+        <span className="mx-1.5 opacity-50">·</span>
+        Page {page} of {pageCount}
+        <span className="mx-1.5 opacity-50">·</span>
+        {pageSize}/page
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          className={btn}
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          className={btn}
+          disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+          aria-label="Next page"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -792,16 +958,28 @@ function PreviewTable({
   muted: string;
   fileKind?: ImportFileKind | null;
 }) {
-  const shown = rows.slice(0, 12);
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const offset = (safePage - 1) * PREVIEW_PAGE_SIZE;
+  const shown = rows.slice(offset, offset + PREVIEW_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className={`text-[13px] font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-800'}`}>
           Data preview
           <span className={`ml-2 text-[12px] font-medium ${muted}`}>
-            {rows.length} row{rows.length === 1 ? '' : 's'}
+            {rows.length.toLocaleString()} row{rows.length === 1 ? '' : 's'}
             {fileKind ? ` · ${fileKind.toUpperCase()}` : ''}
-            {rows.length > 12 ? ' · showing first 12' : ''}
           </span>
         </p>
       </div>
@@ -829,12 +1007,14 @@ function PreviewTable({
             </tr>
           </thead>
           <tbody>
-            {shown.map((row, i) => (
+            {shown.map((row, i) => {
+              const abs = offset + i;
+              return (
               <tr
-                key={i}
+                key={abs}
                 className={`border-t ${border} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-gray-50/80'}`}
               >
-                <td className={`px-3 py-2 text-[11px] tabular-nums ${muted}`}>{i + 1}</td>
+                <td className={`px-3 py-2 text-[11px] tabular-nums ${muted}`}>{abs + 1}</td>
                 {cols.map((c) => (
                   <td
                     key={c.key}
@@ -845,10 +1025,23 @@ function PreviewTable({
                   </td>
                 ))}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
+      {pageCount > 1 && (
+        <ImportPreviewPager
+          page={safePage}
+          pageCount={pageCount}
+          pageSize={PREVIEW_PAGE_SIZE}
+          totalRows={rows.length}
+          isDarkMode={isDarkMode}
+          muted={muted}
+          border={border}
+          onPageChange={setPage}
+        />
+      )}
     </div>
   );
 }

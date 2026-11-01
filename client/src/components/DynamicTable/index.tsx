@@ -86,6 +86,8 @@ interface DynamicTableProps {
   featuresDirty?: boolean;
   /** Resolved SQL layout (user → org default). */
   layoutPrefs?: import('./utils/prefsStorage').TablePrefs | null;
+  /** Fallback density when no saved layout density exists (e.g. center list → compact). */
+  defaultDensity?: import('./types').Density;
   /** Debounced personal layout persist. */
   onLayoutPrefsChange?: (prefs: import('./utils/prefsStorage').TablePrefs) => void;
   /** Super admin: publish current layout as org default. */
@@ -102,8 +104,12 @@ interface DynamicTableProps {
   /**
    * CSV import: receives parsed objects keyed by column label/key.
    * Feature Builder `enableImport` controls toolbar visibility.
+   * Optional handlers.onProgress supports chunked uploads without freezing the UI.
    */
-  onImportRows?: (rows: Record<string, string>[]) => Promise<void> | void;
+  onImportRows?: (
+    rows: Record<string, string>[],
+    handlers?: { onProgress?: (done: number, total: number) => void },
+  ) => Promise<void> | void;
   /** Actions column Explore — page defines destination. */
   onExploreRow?: (row: DataRow) => void;
   /** Actions column Duplicate — page creates a copy of the row. */
@@ -148,6 +154,7 @@ export function DynamicTable({
   isSavingFeatures = false,
   featuresDirty = false,
   layoutPrefs = null,
+  defaultDensity,
   onLayoutPrefsChange,
   onSaveLayoutAsDefault,
   onResetLayoutToDefault,
@@ -179,7 +186,7 @@ export function DynamicTable({
   const state = useTableState(
     initialColumns ?? COLUMN_CONFIG,
     (initialRows as DataRow[]) ?? MOCK_ROWS,
-    { tableId, shareState, layoutPrefs, onLayoutPrefsChange, onRowUpdate, onRowDelete, onDeleteRowRequest, onBulkUpdate, onRefresh },
+    { tableId, shareState, layoutPrefs, defaultDensity, onLayoutPrefsChange, onRowUpdate, onRowDelete, onDeleteRowRequest, onBulkUpdate, onRefresh },
   );
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
@@ -1374,8 +1381,8 @@ export function DynamicTable({
           draftKey={tableId}
           subtitle="Upload CSV, Excel, or JSON — or paste table data to add multiple rows."
           onClose={() => setImportModalOpen(false)}
-          onImport={async (rows) => {
-            await onImportRows(rows);
+          onImport={async (rows, handlers) => {
+            await onImportRows(rows, handlers);
             showSuccess(`Imported ${rows.length} row${rows.length === 1 ? '' : 's'}`);
           }}
         />

@@ -61,21 +61,6 @@ export const createTable = (examId, userId, { presetId } = {}) =>
     return snapshot(examId);
   });
 
-/**
- * Called when an exam is created: if a preset exists for its service, give the exam its own table
- * pre-filled with those fields. Returns null (and does nothing) when there is no matching preset.
- */
-export const createTableFromServicePreset = (examId, userId, serviceValue) =>
-  withMeta(async () => {
-    const service = String(serviceValue ?? '').trim();
-    if (!service) return null;
-    await presetRepo.ensurePresetTable();
-    const preset = await presetRepo.findByService(service);
-    if (!preset) return null;
-    await createTable(examId, userId, { presetId: preset.id });
-    return preset;
-  });
-
 /** Keep the builder's definition, but only plain JSON of a sane size. */
 const cleanFieldDefinition = (raw) => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validationError('Invalid field');

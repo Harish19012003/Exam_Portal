@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { takeLookupPick } from '../../components/DynamicTable/editors/lookupPicks';
 import {
   MISSING_LABEL,
+  groupSyncPatch,
   isLinkedField,
   isTableSourceField,
   linkedFieldsOf,
@@ -84,12 +86,27 @@ export const useLookupDisplayRows = (rows, fields) => {
   }, [rows, sourceFields, fields, resolved]);
 };
 
-/** `updatedValues` from an inline edit carry display labels; put the saved values back for lookup fields. */
-export const restoreLookupIds = (updatedValues, originalValues, fields) => {
+/**
+ * `updatedValues` from an inline edit carry display labels. Put the saved ids back: a lookup cell the
+ * user just picked takes its new row id (and the other members of its column group follow); every
+ * other lookup or linked cell keeps what was saved.
+ */
+export const restoreLookupIds = (updatedValues, originalValues, fields, rowId) => {
   const next = { ...updatedValues };
-  (fields || []).filter((f) => isTableSourceField(f) || isLinkedField(f)).forEach((f) => {
-    if (originalValues && f.key in originalValues) next[f.key] = originalValues[f.key];
-    else delete next[f.key];
+  const keep = (key) => {
+    if (originalValues && key in originalValues) next[key] = originalValues[key];
+    else delete next[key];
+  };
+  (fields || []).filter(isLinkedField).forEach((f) => keep(f.key));
+  const picked = [];
+  (fields || []).filter(isTableSourceField).forEach((f) => {
+    const id = rowId ? takeLookupPick(String(rowId), f.key) : undefined;
+    if (id === undefined) keep(f.key);
+    else picked.push([f.key, id]);
+  });
+  picked.forEach(([key, id]) => {
+    next[key] = id;
+    Object.assign(next, groupSyncPatch(fields, key, id));
   });
   return next;
 };

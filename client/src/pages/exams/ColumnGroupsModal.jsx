@@ -43,7 +43,7 @@ const deriveGroups = (fields) => {
 const memberFromField = (f, mode) => ({
   id: f.id,
   label: f.label,
-  column: mode === 'edit' ? f.tableSource.column : f.linkedFrom.column,
+  column: mode === 'edit' ? f.tableSource?.column || '' : f.linkedFrom?.column || '',
   mode,
 });
 
@@ -87,6 +87,9 @@ const applyGroup = (fields, group, draft) => {
             tableSource: { table: draft.table, column: m.column, ...(detailFor(m) ? { detailColumn: detailFor(m) } : {}) },
             lookupGroup: groupKey,
             linkedFrom: undefined,
+            // A plain field (e.g. a phone number) becomes a lookup, so its old input rules no longer apply.
+            phoneValidation: undefined,
+            formula: undefined,
           }
         : {
             ...common,
@@ -200,9 +203,16 @@ export const ColumnGroupsModal = ({ fields, onClose, onSave }) => {
   const removeMember = (index) =>
     setEditing((prev) => ({ ...prev, draft: { ...prev.draft, members: prev.draft.members.filter((_, i) => i !== index) } }));
 
-  // Existing lookup fields not in a group yet can be pulled in instead of creating a new field.
+  // Any existing field can join the group: a plain field (say a phone number) becomes a lookup, and
+  // a lookup that is not in a group yet keeps its table. Linked values and fields already in another
+  // group are left out.
   const adoptable = fields.filter(
-    (f) => isTableSourceField(f) && !f.lookupGroup && !draft?.members.some((m) => m.id === f.id) && (!draft?.table || f.tableSource.table === draft.table),
+    (f) =>
+      !isLinkedField(f) &&
+      !['formula', 'composite'].includes(f.dataType) &&
+      !(f.autoFill && f.autoFill !== 'none') &&
+      !draft?.members.some((m) => m.id === f.id) &&
+      (isTableSourceField(f) ? !f.lookupGroup && (!draft?.table || f.tableSource.table === draft.table) : true),
   );
 
   const errors = useMemo(() => {
@@ -366,7 +376,13 @@ export const ColumnGroupsModal = ({ fields, onClose, onSave }) => {
                         aria-label={`Field ${i + 1} name`}
                         onChange={(e) => patchMember(i, { label: e.target.value })}
                       />
-                      {m.id && <span className="exams-cg-existing">existing field</span>}
+                      {m.id && (
+                        <span className="exams-cg-existing">
+                          {isTableSourceField(fields.find((f) => f.id === m.id) || {})
+                            ? 'existing field'
+                            : 'existing field · becomes a lookup, its old values are not kept'}
+                        </span>
+                      )}
                     </div>
                     <SearchableSelect
                       portal
@@ -405,10 +421,13 @@ export const ColumnGroupsModal = ({ fields, onClose, onSave }) => {
                       portal
                       className="exams-cg-adopt"
                       value=""
-                      options={adoptable.map((f) => ({ value: f.id, label: f.label }))}
-                      placeholder="Add an existing lookup field…"
+                      options={adoptable.map((f) => ({
+                        value: f.id,
+                        label: isTableSourceField(f) ? f.label : `${f.label} (${f.dataType})`,
+                      }))}
+                      placeholder="Add an existing field…"
                       searchThreshold={6}
-                      ariaLabel="Add an existing lookup field to the group"
+                      ariaLabel="Add an existing field to the group"
                       onChange={(id) => {
                         const f = fields.find((x) => x.id === id);
                         if (!f) return;
@@ -416,7 +435,7 @@ export const ColumnGroupsModal = ({ fields, onClose, onSave }) => {
                           ...prev,
                           draft: {
                             ...prev.draft,
-                            table: prev.draft.table || f.tableSource.table,
+                            table: prev.draft.table || f.tableSource?.table || '',
                             members: [...prev.draft.members, memberFromField(f, 'edit')],
                           },
                         }));

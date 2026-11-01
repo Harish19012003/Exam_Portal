@@ -15,7 +15,7 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
   enableSummaryChips: true,
   enableActionsColumn: true,
   enableRowSelection: true,
-  enableBulkActions: false,
+  enableBulkActions: true,
   enableCellEditing: true,
   enableFooter: false,
   enableSavedViews: false,
@@ -37,7 +37,7 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
     showEdit: true,
     showDelete: true,
     showExplore: true,
-    showDuplicate: true,
+    showDuplicate: false,
     width: 168,
   },
 };

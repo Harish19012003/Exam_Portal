@@ -12,6 +12,7 @@ import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { buildFieldColumns } from './exams/examTableAdapter';
+import { useConfigLists } from './settings/useConfigLists';
 import { SeqViewApiModal } from './SeqViewApiModal';
 import './ExamsPage.css';
 
@@ -20,6 +21,7 @@ const RESERVED_SEQ_VIEW_KEYS = ['id', 'version', 'created_at', 'updated_at'];
 const SYSTEM_VALUE_KEYS = new Set(RESERVED_SEQ_VIEW_KEYS);
 
 export const SeqViewPage = () => {
+  const configVersion = useConfigLists();
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.documentElement.getAttribute('data-theme') === 'dark' ||
            localStorage.getItem('theme') === 'dark';
@@ -76,7 +78,8 @@ export const SeqViewPage = () => {
 
   const columns = useMemo(
     () => applyColumnAccess(buildFieldColumns(customFields), 'seq_views', access),
-    [customFields, access],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [customFields, access, configVersion],
   );
 
   const fetchConfig = async () => {
@@ -247,8 +250,8 @@ export const SeqViewPage = () => {
     }
   };
 
-  // ── CSV import (table toolbar) ──────────────────────────────────────────────
-  const handleImportRows = async (csvRows) => {
+  // ── CSV import (table toolbar) — chunked so large files don't blow request bodies ──
+  const handleImportRows = async (csvRows, handlers) => {
     const byHeader = new Map();
     customFields.forEach((f) => {
       byHeader.set(String(f.key).toLowerCase(), f.key);
@@ -267,17 +270,26 @@ export const SeqViewPage = () => {
       .filter((v) => Object.values(v).some((x) => String(x ?? '').trim() !== ''));
 
     if (importRows.length === 0) {
-      setErrorMsg('No rows matched your SeqView fields. CSV headers must be a field label or key.');
-      return;
+      const msg = 'No rows matched your SeqView fields. CSV headers must be a field label or key.';
+      setErrorMsg(msg);
+      throw new Error(msg);
     }
 
     try {
-      await apiClient.post('/seq-views/import', { rows: importRows });
+      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
+      await importRowsInChunks(
+        importRows,
+        async (batch) => {
+          await apiClient.post('/seq-views/import', { rows: batch });
+        },
+        { chunkSize: 400, onProgress: handlers?.onProgress },
+      );
       setErrorMsg('');
       setSuccessMsg(`Successfully imported ${importRows.length} SeqView${importRows.length === 1 ? '' : 's'}.`);
       await fetchSeqViewsFromBackend();
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to import SeqViews.');
+      throw err;
     }
   };
 
@@ -338,7 +350,7 @@ export const SeqViewPage = () => {
           </div>
         ) : (
           <DynamicTable
-            key={`seq_views_layout_${layoutEpoch}_${customFields.map((f) => f.key).join(',')}`}
+            key={`seq_views_layout_${layoutEpoch}_${configVersion}_${customFields.map((f) => f.key).join(',')}`}
             tableId={TABLE_IDS.SEQ_VIEW}
             shareState={false}
             initialColumns={columns}
