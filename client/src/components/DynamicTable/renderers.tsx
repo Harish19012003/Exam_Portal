@@ -4,6 +4,7 @@ import type { CellRendererProps, ColumnConfig, CompositeColumnDef, AttachmentIte
 import { STATUS_COLORS, avatarColor, countryToFlag, formatCurrency, formatDate, formatDatetime, formatTime, formatNumber, getInitials } from './utils';
 import { evaluateFormulaHelper, normalizeFormulaResult } from './utils/evaluateFormula';
 import { Icon } from '@iconify/react';
+import { getAssigneeLabel } from './editors/assigneeLabels';
 
 export { evaluateFormulaHelper } from './utils/evaluateFormula';
 
@@ -416,12 +417,27 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
       ) : null;
 
     case 'multiselect': {
-      const tags = Array.isArray(value) ? value as string[] : str ? [str] : [];
+      const tags = Array.isArray(value) ? (value as string[]) : str ? [str] : [];
+      const isAssigneeCol = Boolean(isFieldColumn(column) && column.userTags);
+      const looksLikeUserId = (s: string) =>
+        /^[a-f0-9]{24}$/i.test(s) ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+      // Assignee cells store user ids — resolve to names; keep plain option labels as-is.
+      const labels = tags.map((raw) => {
+        const s = String(raw);
+        if (!isAssigneeCol && !looksLikeUserId(s)) return s;
+        if (!looksLikeUserId(s)) return s; // already a display name from useAssigneeDisplayRows
+        return getAssigneeLabel(s) || '…';
+      });
       return (
-        <div className="flex flex-wrap gap-1">
-          {tags.map(t => (
-            <span key={t} className={`px-1.5 py-0.5 rounded text-[11px] font-medium
-              ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}>
+        <div className="flex flex-wrap gap-1 items-center min-w-0">
+          {labels.map((t, i) => (
+            <span
+              key={`${tags[i] || t}-${i}`}
+              className={`max-w-full truncate px-1.5 py-0.5 rounded text-[11px] font-medium
+              ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}
+              title={String(t)}
+            >
               {t}
             </span>
           ))}

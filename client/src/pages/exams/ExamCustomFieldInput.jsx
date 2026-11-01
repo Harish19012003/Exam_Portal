@@ -10,7 +10,101 @@ import {
 import { SearchableSelect } from './SearchableSelect';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { TableLookupSelect } from './TableLookupSelect';
-import { MISSING_LABEL, isLinkedField, isTableSourceField, resolveLookupRows } from './tableLookupApi';
+import { listAssignableUsers } from './assigneeApi';
+import {
+  MISSING_LABEL,
+  isFromExamField,
+  isLinkedField,
+  isTableSourceField,
+  isUserTagsField,
+  resolveLookupRows,
+} from './tableLookupApi';
+
+/** Multi-assign people filtered by the field's user tags (create / edit form). */
+const UserAssigneeField = ({ field, value, onChange }) => {
+  const [people, setPeople] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const selected = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+  const tagIds = field.userTagIds || [];
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!tagIds.length) {
+      setPeople([]);
+      return undefined;
+    }
+    setLoading(true);
+    listAssignableUsers(tagIds)
+      .then((rows) => {
+        if (!cancelled) setPeople(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setPeople([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(tagIds)]);
+
+  const toggle = (id) => {
+    const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
+    onChange(next);
+  };
+
+  return (
+    <div className="exams-form-group">
+      <span className="exams-audit-label">
+        {field.label}
+        {field.required ? ' *' : ''}
+      </span>
+      <p className="exams-config-empty-hint">Assign one or more people with the tags configured on this field.</p>
+      {loading && <p className="exams-config-empty-hint">Loading people…</p>}
+      {!loading && people.length === 0 && (
+        <p className="exams-config-empty-hint">No people match the selected tags.</p>
+      )}
+      <div className="exams-fill-grid" style={{ maxHeight: 220, overflowY: 'auto' }}>
+        {people.map((p) => (
+          <label key={p.id} className="exams-check-row" style={{ minHeight: 40 }}>
+            <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} />
+            <span>
+              {p.name}
+              {p.email ? ` · ${p.email}` : ''}
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="exams-config-empty-hint">{selected.length} selected</p>
+    </div>
+  );
+};
+
+/** Read-only value mirrored from the parent exam record. */
+const FromExamValueField = ({ field, examValue, examSourceDataType }) => {
+  let text = '—';
+  if (examValue != null && examValue !== '') {
+    if (Array.isArray(examValue)) {
+      text = examValue.map(String).filter(Boolean).join(', ') || '—';
+    } else if (examSourceDataType === 'date' || examSourceDataType === 'datetime') {
+      text = formatLinkedDateValue(examValue, examSourceDataType, '—');
+    } else if (typeof examValue === 'boolean') {
+      text = examValue ? 'Yes' : 'No';
+    } else {
+      text = String(examValue);
+    }
+  }
+  return (
+    <div className="exams-form-group">
+      <span className="exams-audit-label">{field.label}</span>
+      <div className="exams-audit-value" title="Copied from the exam (read-only)">
+        {text}
+      </div>
+    </div>
+  );
+};
 
 /** Read-only value of a column from the row picked in another (table column) field. */
 const LinkedValueField = ({ field, sourceField, sourceValue }) => {
@@ -70,6 +164,8 @@ export const ExamCustomFieldInput = ({
   sameAsChecked = false,
   linkedSourceField = null,
   linkedSourceValue = undefined,
+  examValue = undefined,
+  examSourceDataType = undefined,
   sameAsSourceLabel = '',
   onSameAsToggle,
 }) => {
@@ -129,6 +225,16 @@ export const ExamCustomFieldInput = ({
     </div>
   );
 
+  if (isFromExamField(field)) {
+    return (
+      <FromExamValueField
+        field={field}
+        examValue={examValue}
+        examSourceDataType={examSourceDataType}
+      />
+    );
+  }
+
   if (isLinkedField(field)) {
     return <LinkedValueField field={field} sourceField={linkedSourceField} sourceValue={linkedSourceValue} />;
   }
@@ -163,6 +269,10 @@ export const ExamCustomFieldInput = ({
         </span>
       </label>
     );
+  }
+
+  if (isUserTagsField(field)) {
+    return <UserAssigneeField field={field} value={value} onChange={onChange} />;
   }
 
   // Options read live from a column of the Vendor / SeqView table; the value is that row's id.

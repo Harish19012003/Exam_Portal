@@ -14,9 +14,9 @@
   box-sizing: border-box;
   text-align: left;
   font: inherit;
-  color: var(--text-primary, #0f172a);
-  background: var(--bg-primary, #f8fafc);
-  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-primary, #030712);
+  background: var(--bg-primary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   cursor: pointer;
 }
@@ -36,7 +36,7 @@
 }
 
 .tls-placeholder {
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .tls-missing {
@@ -46,7 +46,7 @@
 
 .tls-caret {
   flex-shrink: 0;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .tls-chips {
@@ -92,14 +92,14 @@
   flex-direction: column;
   max-height: min(340px, 50vh);
   background: var(--bg-card, #ffffff);
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 10px 30px rgba(3, 7, 18, 0.18);
   overflow: hidden;
 }
 
 [data-theme='dark'] .tls-menu {
-  background: var(--bg-card, #1e293b);
+  background: var(--bg-card, #111827);
 }
 
 .tls-search {
@@ -111,7 +111,7 @@
   color: inherit;
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
   outline: none;
 }
 
@@ -120,6 +120,8 @@
   padding: 4px;
   list-style: none;
   overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .tls-option {
@@ -164,7 +166,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.75rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .tls-clear,
@@ -179,7 +181,7 @@
   gap: 6px;
   padding: 10px;
   font-size: 0.85rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .tls-error {

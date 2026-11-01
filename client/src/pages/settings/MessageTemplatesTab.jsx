@@ -33,23 +33,23 @@ const INITIAL_TEMPLATES = [
     },
     body: `<!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
       <div style="width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: #ffffff; font-weight: bold; font-size: 18px; line-height: 36px; text-align: center;">E</div>
-      <span style="font-size: 18px; font-weight: 700; color: #0f172a;">Exam View</span>
+      <span style="font-size: 18px; font-weight: 700; color: #030712;">Exam View</span>
     </div>
-    <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 12px;">Sign-in Verification Code</h2>
-    <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">We received a login request for your Exam View account. Use the one-time code below to complete your sign in:</p>
+    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0; margin-bottom: 12px;">Sign-in Verification Code</h2>
+    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Hello <strong>{first_name}</strong>,</p>
+    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">We received a login request for your Exam View account. Use the one-time code below to complete your sign in:</p>
     
-    <div style="background-color: #f1f5f9; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 24px;">
-      <span style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #1e293b;">{otp_code}</span>
+    <div style="background-color: #f3f4f6; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 24px;">
+      <span style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #111827;">{otp_code}</span>
     </div>
 
-    <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">This code is valid for <strong>{expiry_minutes} minutes</strong>. If you did not attempt to sign in, you can safely ignore this message.</p>
-    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-    <p style="color: #94a3b8; font-size: 12px; margin: 0; text-align: center;">Exam View Portal • Secure Authentication</p>
+    <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">This code is valid for <strong>{expiry_minutes} minutes</strong>. If you did not attempt to sign in, you can safely ignore this message.</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+    <p style="color: #9ca3af; font-size: 12px; margin: 0; text-align: center;">Exam View Portal • Secure Authentication</p>
   </div>
 </body>
 </html>`,
@@ -69,23 +69,23 @@ const INITIAL_TEMPLATES = [
     },
     body: `<!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
       <div style="width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: #ffffff; font-weight: bold; font-size: 18px; line-height: 36px; text-align: center;">E</div>
-      <span style="font-size: 18px; font-weight: 700; color: #0f172a;">Exam View</span>
+      <span style="font-size: 18px; font-weight: 700; color: #030712;">Exam View</span>
     </div>
-    <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 12px;">Password Reset Request</h2>
-    <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">We received a request to reset the password for your Exam View account. Click the button below to choose a new password:</p>
+    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0; margin-bottom: 12px;">Password Reset Request</h2>
+    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Hello <strong>{first_name}</strong>,</p>
+    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">We received a request to reset the password for your Exam View account. Click the button below to choose a new password:</p>
     
     <div style="text-align: center; margin: 28px 0;">
       <a href="{reset_url}" style="background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Reset Password</a>
     </div>
 
-    <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">This link will expire in <strong>{expiry_minutes} minutes</strong>. If you did not request a password change, please contact <strong>{support_email}</strong> immediately.</p>
-    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-    <p style="color: #94a3b8; font-size: 12px; margin: 0; text-align: center;">Exam View Portal • Secure Authentication</p>
+    <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">This link will expire in <strong>{expiry_minutes} minutes</strong>. If you did not request a password change, please contact <strong>{support_email}</strong> immediately.</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+    <p style="color: #9ca3af; font-size: 12px; margin: 0; text-align: center;">Exam View Portal • Secure Authentication</p>
   </div>
 </body>
 </html>`,
@@ -107,17 +107,17 @@ const INITIAL_TEMPLATES = [
     },
     body: `<!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px;">Upcoming Exam Schedule</h2>
-    <p style="color: #475569; font-size: 14px; line-height: 1.6;">Dear <strong>{student_name}</strong>,</p>
-    <p style="color: #475569; font-size: 14px; line-height: 1.6;">You have been enrolled in the following examination:</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0; margin-bottom: 8px;">Upcoming Exam Schedule</h2>
+    <p style="color: #4b5563; font-size: 14px; line-height: 1.6;">Dear <strong>{student_name}</strong>,</p>
+    <p style="color: #4b5563; font-size: 14px; line-height: 1.6;">You have been enrolled in the following examination:</p>
     
-    <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 16px; border-radius: 4px; margin: 20px 0;">
-      <h3 style="margin: 0 0 10px 0; color: #1e293b; font-size: 16px;">{exam_title}</h3>
-      <p style="margin: 4px 0; font-size: 13.5px; color: #475569;">📅 <strong>Date:</strong> {exam_date}</p>
-      <p style="margin: 4px 0; font-size: 13.5px; color: #475569;">⏰ <strong>Start Time:</strong> {start_time}</p>
-      <p style="margin: 4px 0; font-size: 13.5px; color: #475569;">⏳ <strong>Duration:</strong> {duration}</p>
+    <div style="background-color: #f9fafb; border-left: 4px solid #2563eb; padding: 16px; border-radius: 4px; margin: 20px 0;">
+      <h3 style="margin: 0 0 10px 0; color: #111827; font-size: 16px;">{exam_title}</h3>
+      <p style="margin: 4px 0; font-size: 13.5px; color: #4b5563;">📅 <strong>Date:</strong> {exam_date}</p>
+      <p style="margin: 4px 0; font-size: 13.5px; color: #4b5563;">⏰ <strong>Start Time:</strong> {start_time}</p>
+      <p style="margin: 4px 0; font-size: 13.5px; color: #4b5563;">⏳ <strong>Duration:</strong> {duration}</p>
     </div>
 
     <div style="text-align: center; margin: 24px 0;">
@@ -143,15 +143,15 @@ const INITIAL_TEMPLATES = [
     },
     body: `<!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0;">Official Examination Results</h2>
-    <p style="color: #475569; font-size: 14px;">Hello <strong>{student_name}</strong>,</p>
-    <p style="color: #475569; font-size: 14px;">The evaluation for <strong>{exam_title}</strong> has been finalized. Your results are now available:</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0;">Official Examination Results</h2>
+    <p style="color: #4b5563; font-size: 14px;">Hello <strong>{student_name}</strong>,</p>
+    <p style="color: #4b5563; font-size: 14px;">The evaluation for <strong>{exam_title}</strong> has been finalized. Your results are now available:</p>
     
     <div style="background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(99,102,241,0.08)); border-radius: 10px; padding: 20px; text-align: center; margin: 24px 0;">
       <span style="font-size: 13px; font-weight: 600; text-transform: uppercase; color: #2563eb; letter-spacing: 0.5px;">Your Final Score</span>
-      <div style="font-size: 38px; font-weight: 800; color: #0f172a; margin-top: 4px;">{score} / {total_marks}</div>
+      <div style="font-size: 38px; font-weight: 800; color: #030712; margin-top: 4px;">{score} / {total_marks}</div>
     </div>
 
     <div style="text-align: center; margin: 20px 0;">
@@ -174,12 +174,12 @@ const INITIAL_TEMPLATES = [
     },
     body: `<!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0;">Two-Factor Authentication Active</h2>
-    <p style="color: #475569; font-size: 14px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #475569; font-size: 14px;">This is a security confirmation that Two-Factor Authentication (TOTP Authenticator App) has been successfully activated on your Exam View account.</p>
-    <p style="color: #475569; font-size: 14px;">From now on, you will be prompted for a 6-digit verification code from your authenticator app whenever you sign in.</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0;">Two-Factor Authentication Active</h2>
+    <p style="color: #4b5563; font-size: 14px;">Hello <strong>{first_name}</strong>,</p>
+    <p style="color: #4b5563; font-size: 14px;">This is a security confirmation that Two-Factor Authentication (TOTP Authenticator App) has been successfully activated on your Exam View account.</p>
+    <p style="color: #4b5563; font-size: 14px;">From now on, you will be prompted for a 6-digit verification code from your authenticator app whenever you sign in.</p>
   </div>
 </body>
 </html>`,
@@ -198,11 +198,11 @@ const INITIAL_TEMPLATES = [
     },
     body: `<!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0;">Welcome to Exam View</h2>
-    <p style="color: #475569; font-size: 14px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #475569; font-size: 14px;">Your account has been created on the Exam View portal with username <strong>{email}</strong>.</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0;">Welcome to Exam View</h2>
+    <p style="color: #4b5563; font-size: 14px;">Hello <strong>{first_name}</strong>,</p>
+    <p style="color: #4b5563; font-size: 14px;">Your account has been created on the Exam View portal with username <strong>{email}</strong>.</p>
     <div style="text-align: center; margin: 24px 0;">
       <a href="{login_url}" style="background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 11px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Access Your Account</a>
     </div>

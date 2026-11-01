@@ -58,7 +58,7 @@ export const ExamTableConfigTab = () => {
         </div>
         <div style={{ minWidth: 0 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Exam table configuration</h3>
-          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-secondary, #64748b)', lineHeight: 1.45 }}>
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-secondary, #6b7280)', lineHeight: 1.45 }}>
             Super admins configure fields and Feature Builder on the Exams page. That config is
             saved here and loaded for every portal member.
           </p>
@@ -80,7 +80,7 @@ export const ExamTableConfigTab = () => {
         >
           <div
             style={{
-              border: '1px solid var(--border-color, #e2e8f0)',
+              border: '1px solid var(--border-color, #e5e7eb)',
               borderRadius: 12,
               padding: '14px 16px',
               background: 'var(--bg-card, #fff)',
@@ -93,7 +93,7 @@ export const ExamTableConfigTab = () => {
           </div>
           <div
             style={{
-              border: '1px solid var(--border-color, #e2e8f0)',
+              border: '1px solid var(--border-color, #e5e7eb)',
               borderRadius: 12,
               padding: '14px 16px',
               background: 'var(--bg-card, #fff)',
@@ -106,7 +106,7 @@ export const ExamTableConfigTab = () => {
           </div>
           <div
             style={{
-              border: '1px solid var(--border-color, #e2e8f0)',
+              border: '1px solid var(--border-color, #e5e7eb)',
               borderRadius: 12,
               padding: '14px 16px',
               background: 'var(--bg-card, #fff)',
@@ -159,9 +159,9 @@ export const ExamTableConfigTab = () => {
             minHeight: 44,
             padding: '0 14px',
             borderRadius: 10,
-            border: '1px solid var(--border-color, #e2e8f0)',
+            border: '1px solid var(--border-color, #e5e7eb)',
             background: 'var(--bg-card, #fff)',
-            color: 'var(--text-primary, #0f172a)',
+            color: 'var(--text-primary, #030712)',
             fontWeight: 600,
             fontSize: 13,
             cursor: 'pointer',

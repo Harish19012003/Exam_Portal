@@ -236,7 +236,7 @@
   background: var(--bg-card, #ffffff);
   border-radius: 26px;
   padding: 24px 28px 28px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  box-shadow: 0 18px 40px rgba(3, 7, 18, 0.16);
   color: #111827;
   z-index: 2;
 }
@@ -460,7 +460,7 @@
   right: 12px;
   background: none;
   border: none;
-  color: #94a3b8;
+  color: #9ca3af;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -470,12 +470,12 @@
 }
 
 .login-eye-btn:hover {
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
 }
 
 .login-helper-text {
   font-size: 12px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   line-height: 1.4;
   margin-top: 2px;
 }
@@ -485,15 +485,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
 }
 
 .login-otp-sent-text {
-  color: #475569;
+  color: #4b5563;
   word-break: break-all;
 }
 
@@ -533,7 +533,7 @@
 
 .login-otp-countdown {
   font-size: 12px;
-  color: #94a3b8;
+  color: #9ca3af;
 }
 
 .login-otp-resend-btn {
@@ -607,8 +607,8 @@
   width: 100%;
   margin-top: 10px;
   background: transparent;
-  border: 1px solid var(--border-color, #e2e8f0);
-  color: var(--text-secondary, #64748b);
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: var(--text-secondary, #6b7280);
   font-size: 14px;
   font-weight: 500;
   padding: 11px;
@@ -623,7 +623,7 @@
 
 .login-2fa-cancel-btn:hover {
   background: rgba(0, 0, 0, 0.03);
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
 }
 
 [data-theme="dark"] .login-2fa-shield-badge {
@@ -634,12 +634,12 @@
 
 [data-theme="dark"] .login-2fa-cancel-btn {
   border-color: rgba(255, 255, 255, 0.12);
-  color: #94a3b8;
+  color: #9ca3af;
 }
 
 [data-theme="dark"] .login-2fa-cancel-btn:hover {
   background: rgba(255, 255, 255, 0.06);
-  color: #f1f5f9;
+  color: #f3f4f6;
 }
 
 /* Responsive */
@@ -679,17 +679,17 @@
   .login-forgot-link { min-height: 32px; display: inline-flex; align-items: center; font-size: 11px; }
 }
 
-[data-theme="dark"] .login-card { background: #1a2130; color: #f1f5f9; }
+[data-theme="dark"] .login-card { background: #1a2130; color: #f3f4f6; }
 [data-theme="dark"] .login-title,
-[data-theme="dark"] .login-label { color: #f1f5f9; }
-[data-theme="dark"] .login-input { background: #111827; border-color: #334155; color: #f1f5f9; }
+[data-theme="dark"] .login-label { color: #f3f4f6; }
+[data-theme="dark"] .login-input { background: #111827; border-color: #1f2937; color: #f3f4f6; }
 [data-theme="dark"] .login-google-btn { background: rgba(10, 132, 240, 0.18); }
-[data-theme="dark"] .login-social-btn { background: #263043; color: #f1f5f9; }
-[data-theme="dark"] .login-frame { background: #0f172a; border-color: #1e293b; }
+[data-theme="dark"] .login-social-btn { background: #263043; color: #f3f4f6; }
+[data-theme="dark"] .login-frame { background: #030712; border-color: #111827; }
 [data-theme="dark"] .login-page { background: #0b1120; }
-[data-theme="dark"] .login-recent-title { color: #e2e8f0; }
+[data-theme="dark"] .login-recent-title { color: #e5e7eb; }
 [data-theme="dark"] .login-recent-card { background: #1a2740; }
-[data-theme="dark"] .login-recent-name { color: #f1f5f9; }
+[data-theme="dark"] .login-recent-name { color: #f3f4f6; }
 
 .login-recent-empty {
   max-width: 260px;
@@ -839,9 +839,9 @@
   .login-input.login-otp-code-input { font-size: max(18px, calc(var(--u) * 30)); }
 }
 
-[data-theme="dark"] .login-frame { box-shadow: 0 0 0 calc(var(--u, 1px) * 17) #1e293b, 0 24px 60px rgba(0, 0, 0, 0.5); }
+[data-theme="dark"] .login-frame { box-shadow: 0 0 0 calc(var(--u, 1px) * 17) #111827, 0 24px 60px rgba(0, 0, 0, 0.5); }
 
-[data-theme="dark"] .login-top-back-btn { background: #1a2130; border-color: #334155; color: #7cc0ff; }
+[data-theme="dark"] .login-top-back-btn { background: #1a2130; border-color: #1f2937; color: #7cc0ff; }
 
 /* Feature highlights shown when there are no recent accounts */
 .login-features {
@@ -906,5 +906,5 @@
 
 [data-theme="dark"] .login-feature { background: #1a2740; border-color: #25344f; }
 [data-theme="dark"] .login-feature:hover { border-color: #3b5a8c; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35); }
-[data-theme="dark"] .login-feature h3 { color: #f1f5f9; }
-[data-theme="dark"] .login-feature p { color: #94a3b8; }
+[data-theme="dark"] .login-feature h3 { color: #f3f4f6; }
+[data-theme="dark"] .login-feature p { color: #9ca3af; }

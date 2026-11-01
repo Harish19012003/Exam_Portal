@@ -13,7 +13,7 @@
   border-radius: 8px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -24,13 +24,13 @@
 .topbar-icon-btn:hover,
 .topbar-icon-btn.active {
   background: rgba(0, 0, 0, 0.05);
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
 }
 
 [data-theme="dark"] .topbar-icon-btn:hover,
 [data-theme="dark"] .topbar-icon-btn.active {
   background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
+  color: #f3f4f6;
 }
 
 /* Badge Count */
@@ -70,7 +70,7 @@
   width: 360px;
   max-width: 90vw;
   background: var(--bg-card, #ffffff);
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 14px;
   box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.15), 0 4px 12px -2px rgba(0, 0, 0, 0.08);
   z-index: 1000;
@@ -97,7 +97,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
 .notif-header-title {
@@ -109,7 +109,7 @@
 .notif-header-title h3 {
   font-size: 15px;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
   margin: 0;
 }
 
@@ -162,7 +162,7 @@
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   cursor: pointer;
   padding: 4px;
   border-radius: 6px;
@@ -171,7 +171,7 @@
 
 .notif-close-btn:hover {
   background: rgba(0, 0, 0, 0.05);
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
 }
 
 /* Tabs */
@@ -179,8 +179,8 @@
   display: flex;
   padding: 6px 16px;
   gap: 6px;
-  background: var(--bg-app, #f8fafc);
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-app, #f9fafb);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
 .notif-tab {
@@ -191,7 +191,7 @@
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   cursor: pointer;
   transition: all 0.15s ease;
   text-align: center;
@@ -216,7 +216,7 @@
   align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
   cursor: pointer;
   transition: background 0.15s ease;
   position: relative;
@@ -283,7 +283,7 @@
 .notif-item-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -294,13 +294,13 @@
   align-items: center;
   gap: 3px;
   font-size: 11px;
-  color: var(--text-tertiary, #94a3b8);
+  color: var(--text-tertiary, #9ca3af);
   flex-shrink: 0;
 }
 
 .notif-item-desc {
   font-size: 12px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   margin: 0;
   line-height: 1.4;
   word-break: break-word;
@@ -361,13 +361,13 @@
 .notif-empty-state h4 {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
   margin: 0 0 4px 0;
 }
 
 .notif-empty-state p {
   font-size: 12px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   margin: 0;
 }
 
@@ -377,8 +377,8 @@
   align-items: center;
   justify-content: center;
   padding: 10px 16px;
-  background: var(--bg-app, #f8fafc);
-  border-top: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-app, #f9fafb);
+  border-top: 1px solid var(--border-color, #e5e7eb);
 }
 
 .notif-clear-btn {
@@ -387,7 +387,7 @@
   gap: 5px;
   background: transparent;
   border: none;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;

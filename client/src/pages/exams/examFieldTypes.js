@@ -31,6 +31,7 @@ export const EXAM_FIELD_TYPES = [
   { value: 'formula', label: 'Formula' },
   { value: 'composite', label: 'Composite' },
   { value: 'linked', label: 'Linked value' },
+  { value: 'fromExam', label: 'From exam' },
 ];
 
 export const AUTO_FILL_OPTIONS = [
@@ -284,12 +285,15 @@ export const emptyFieldForm = () => ({
   layout: 'full',
   optionsSource: 'manual',
   configListId: '',
+  userTagIds: [],
   lookupTable: '',
   lookupColumn: '',
   lookupDetail: '',
   fillColumns: [],
   linkedFieldKey: '',
   linkedColumn: '',
+  /** Parent exam.values key to mirror on every center row (dataType fromExam). */
+  examFieldKey: '',
   allowMultiple: false,
   sameAsFieldKey: '',
   sameAsDefaultOn: true,

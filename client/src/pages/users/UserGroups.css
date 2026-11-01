@@ -15,10 +15,10 @@
   flex-shrink: 0;
   height: 34px;
   padding: 0 12px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 999px;
   background: var(--bg-card, #ffffff);
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -27,7 +27,7 @@
 }
 
 .user-group-tab:hover {
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
   border-color: var(--primary-color, #5c43fa);
 }
 
@@ -55,7 +55,7 @@
   width: 1px;
   height: 20px;
   flex-shrink: 0;
-  background: var(--border-color, #e2e8f0);
+  background: var(--border-color, #e5e7eb);
   margin: 0 4px;
 }
 
@@ -93,7 +93,7 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(3, 7, 18, 0.55);
   backdrop-filter: blur(4px);
 }
 
@@ -104,10 +104,10 @@
   max-width: min(520px, 92vw);
   max-height: 90vh;
   border-radius: 16px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   background: var(--bg-card, #ffffff);
-  color: var(--text-primary, #0f172a);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+  color: var(--text-primary, #030712);
+  box-shadow: 0 24px 60px rgba(3, 7, 18, 0.3);
   overflow: hidden;
 }
 
@@ -117,7 +117,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
 .user-group-modal-head h2 {
@@ -139,14 +139,14 @@
   margin-bottom: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .user-group-input {
   width: 100%;
   min-height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 10px;
   background: var(--bg-card, #ffffff);
   color: inherit;
@@ -162,7 +162,7 @@
 .user-group-members {
   max-height: 260px;
   overflow-y: auto;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 10px;
 }
 
@@ -182,7 +182,7 @@
 
 .user-group-member small {
   display: block;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   font-size: 11.5px;
 }
 
@@ -193,7 +193,7 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px 20px;
-  border-top: 1px solid var(--border-color, #e2e8f0);
+  border-top: 1px solid var(--border-color, #e5e7eb);
 }
 
 .user-group-error {

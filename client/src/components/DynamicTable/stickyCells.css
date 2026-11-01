@@ -90,17 +90,17 @@
 
 [data-theme='dark'] .dt-sticky-cell--selected,
 .dark .dt-sticky-cell--selected {
-  background-color: #2e1065 !important;
+  background-color: #172554 !important;
 }
 
 [data-theme='dark'] .dt-sticky-cell--selected.dt-sticky-cell--left,
 .dark .dt-sticky-cell--selected.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #2e1065, 1px 0 0 0 #2e1065 !important;
+  box-shadow: 12px 0 0 0 #172554, 1px 0 0 0 #172554 !important;
 }
 
 [data-theme='dark'] .dt-sticky-cell--selected.dt-sticky-cell--right,
 .dark .dt-sticky-cell--selected.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #2e1065, -1px 0 0 0 #2e1065 !important;
+  box-shadow: -12px 0 0 0 #172554, -1px 0 0 0 #172554 !important;
 }
 
 /* Scrolling body cells must stay under sticky columns */
@@ -122,6 +122,14 @@
 .dt-grid > thead > tr > th:not(:last-child),
 .dt-grid > tbody > tr > td:not(:last-child) {
   border-right: var(--dt-v-width, 0px) solid var(--dt-v-color, #e5e7eb);
+}
+
+/* While dragging a column edge, kill width transitions so resize tracks the pointer 1:1. */
+.dt-grid.dt-is-resizing,
+.dt-grid.dt-is-resizing th,
+.dt-grid.dt-is-resizing td {
+  transition: none !important;
+  animation: none !important;
 }
 
 /* Feature Builder "Table colors": header, alternate rows and footer. Variables come from utils/tableColors.ts. */

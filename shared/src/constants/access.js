@@ -281,3 +281,30 @@ export const canSeeRow = (access, tableId, values, me) => {
   if (t.denyRowScopes.some((rules) => allMatch(rules, values, me))) return false;
   return true;
 };
+
+/** Field keys whose options come from user tags (assignee multi-pickers). */
+export const assigneeFieldKeys = (fields = []) =>
+  (Array.isArray(fields) ? fields : [])
+    .filter((f) => f?.optionsSource === 'userTags')
+    .map((f) => f.key)
+    .filter(Boolean);
+
+/**
+ * Tag-scoped assignee fields: when any of those cells has user id(s), only those
+ * people (and super admins) see the row. Empty assignee cells add no restriction.
+ */
+export const passesAssigneeVisibility = (me, values, fieldKeys, { superAdmin = false } = {}) => {
+  if (superAdmin) return true;
+  if (!fieldKeys?.length) return true;
+  const myId = String(me?.id || '');
+  if (!myId) return false;
+  let anyAssigned = false;
+  for (const key of fieldKeys) {
+    const raw = values?.[key];
+    const ids = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String).filter(Boolean);
+    if (ids.length === 0) continue;
+    anyAssigned = true;
+    if (ids.includes(myId)) return true;
+  }
+  return !anyAssigned;
+};

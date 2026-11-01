@@ -36,7 +36,7 @@
 .page-title {
   font-size: clamp(1.125rem, 2vw, 1.25rem);
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
   margin: 0;
   letter-spacing: -0.3px;
   line-height: 1.25;
@@ -47,7 +47,7 @@
 .page-subtitle {
   font-size: 12.5px;
   line-height: 1.4;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   margin: 0;
   max-width: 780px;
 }
@@ -75,9 +75,9 @@
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   background: var(--bg-card, #ffffff);
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
@@ -96,9 +96,9 @@
   width: min(320px, 86vw);
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   background: var(--bg-card, #ffffff);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 12px 32px rgba(3, 7, 18, 0.14);
 }
 
 .page-info-popover-head {
@@ -108,14 +108,14 @@
   margin-bottom: 4px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #030712);
 }
 
 .page-info-popover p {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 @media (max-width: 768px) {

@@ -16,8 +16,8 @@ const ACCENT = {
   // Opaque selected cell paints (sticky columns cannot use rgba — text bleeds through)
   lightSelectedCell: 'bg-[#ebe4ff]',
   darkHover: 'hover:bg-gray-800/60',
-  darkSelected: 'bg-[rgba(124,58,237,0.18)] border-l-2 border-l-[var(--primary-color,#7c3aed)]',
-  darkSelectedCell: 'bg-[#2e1065]',
+  darkSelected: 'bg-[rgba(59,130,246,0.18)] border-l-2 border-l-[var(--primary-color,#3b82f6)]',
+  darkSelectedCell: 'bg-[#172554]',
 };
 
 const STICKY_BG = {
@@ -27,8 +27,8 @@ const STICKY_BG = {
   lightSubRow: '#f5f3ff',
   dark: '#111827',
   darkHover: '#1f2937',
-  darkSelected: '#2e1065',
-  darkSubRow: '#1e1b4b',
+  darkSelected: '#172554',
+  darkSubRow: '#0c1a3a',
 };
 
 export function getTableTheme(isDarkMode: boolean): TableThemeTokens {

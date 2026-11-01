@@ -1,12 +1,17 @@
 import { getEffectiveDataType, resolveFieldOptions } from './examFieldTypes';
-import { isTableSourceField } from './tableLookupApi';
+import {
+  isTableSourceField,
+  isUserTagsField,
+  resolveColumnsForLookupField,
+  syncFieldsForLookupField,
+} from './tableLookupApi';
 
 /** Map builder field types onto DynamicTable DataType */
 const toTableDataType = (field) => {
   const t = getEffectiveDataType(field);
   if (t === 'code' || t === 'mono') return 'text';
   if (t === 'dot') return 'boolean';
-  if (t === 'linked') return 'text';
+  if (t === 'linked' || t === 'fromExam') return 'text';
   return t || 'text';
 };
 
@@ -52,9 +57,11 @@ const MODIFY_BY_KEYS = new Set([
 /** DynamicTable columns for field-builder defs only (no audit columns); shared by exams and vendors */
 export const buildFieldColumns = (fields = []) =>
   (fields || []).map((field, index) => {
-    const dataType = toTableDataType(field);
+    const userTagsField = isUserTagsField(field);
+    // Assignee fields always store user id[]; force multiselect-shaped cells.
+    const dataType = userTagsField ? 'multiselect' : toTableDataType(field);
     const isAuto = field.autoFill && field.autoFill !== 'none';
-    const options = resolveFieldOptions(field);
+    const options = userTagsField ? [] : resolveFieldOptions(field);
     return {
       key: field.key,
       label: field.label || field.key,
@@ -65,14 +72,22 @@ export const buildFieldColumns = (fields = []) =>
       width: dataType === 'date' || dataType === 'datetime' ? 150 : 180,
       // Linked values follow another field, so they are read-only. Table-column fields are edited
       // by searching their source table (the cell stores that row's id).
-      editable: !isAuto && dataType !== 'formula' && dataType !== 'composite' && field.dataType !== 'linked',
+      editable:
+        !isAuto &&
+        dataType !== 'formula' &&
+        dataType !== 'composite' &&
+        field.dataType !== 'linked' &&
+        field.dataType !== 'fromExam',
       lookup: isTableSourceField(field)
         ? {
             table: field.tableSource.table,
             column: field.tableSource.column,
             detailColumn: field.tableSource.detailColumn,
+            resolveColumns: resolveColumnsForLookupField(fields, field),
+            syncFields: syncFieldsForLookupField(fields, field),
           }
         : undefined,
+      userTags: userTagsField ? { tagIds: (field.userTagIds || []).map(String) } : undefined,
       required: Boolean(field.required) && !isAuto,
       filterable: true,
       sortable: true,

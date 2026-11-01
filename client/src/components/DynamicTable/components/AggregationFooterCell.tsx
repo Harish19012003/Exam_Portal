@@ -37,6 +37,7 @@ export function AggregationFooterCell({
   if (!fieldCol) {
     return (
       <td
+        data-col-key={col.key}
         style={{ width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth, ...stickyStyle }}
         className={`px-3 py-1.5 ${isPinned ? pinnedBg : ''}`}
       />
@@ -48,6 +49,7 @@ export function AggregationFooterCell({
 
   return (
     <td
+      data-col-key={col.key}
       style={{ width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth, ...stickyStyle }}
       className={`px-3 py-1.5 align-top font-semibold text-[13px] ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} ${isPinned ? pinnedBg : ''}`}
     >
@@ -66,7 +68,7 @@ export function AggregationFooterCell({
 
         {isDropdownOpen && (
           <div
-            className={`absolute bottom-full mb-1 left-0 z-50 w-48 rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border flex flex-col overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-gray-700' : 'bg-white border-gray-200'}`}
+            className={`absolute bottom-full mb-1 left-0 z-50 w-48 rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border flex flex-col overflow-hidden ${isDarkMode ? 'bg-[#111827] border-gray-700' : 'bg-white border-gray-200'}`}
             onClick={e => e.stopPropagation()}
           >
             <div className="max-h-[220px] overflow-y-auto py-1.5 custom-scrollbar">

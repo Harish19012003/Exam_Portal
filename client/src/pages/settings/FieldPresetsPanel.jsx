@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useId, useState } from 'react';
 import { LayoutTemplate, Pencil, Plus, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
-import { resolveFieldOptions } from '../exams/examFieldTypes';
+import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
 import {
   createExamPreset,
   deleteExamPreset,
@@ -186,6 +186,8 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
             ? `${form.fields.length} field${form.fields.length === 1 ? '' : 's'} · new exams of this service start with them`
             : undefined
         }
+        examSourceFields={loadExamFields()}
+        enableFromExam
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
         topSlot={

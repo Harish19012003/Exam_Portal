@@ -138,6 +138,7 @@ export const validateRequiredFields = (fields, values) => {
   for (const field of fields) {
     if (!field.required) continue;
     if (field.autoFill && field.autoFill !== 'none') continue;
+    if (field.dataType === 'linked' || field.dataType === 'fromExam') continue;
     if (isEmptyValue(values[field.key])) {
       return `${field.label} is required.`;
     }

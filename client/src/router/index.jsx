@@ -20,19 +20,19 @@ import { SeqViewPage } from '../pages/SeqViewPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
 const UnauthorizedPage = () => (
-  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: 'var(--bg-app, #f8fafc)', color: 'var(--text-primary, #0f172a)', padding: '24px', textAlign: 'center' }}>
+  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: 'var(--bg-app, #f9fafb)', color: 'var(--text-primary, #030712)', padding: '24px', textAlign: 'center' }}>
     <h1 style={{ fontSize: '72px', fontWeight: '800', margin: 0, color: '#dc2626' }}>403</h1>
     <h2 style={{ fontSize: '22px', fontWeight: '700', margin: 0 }}>Access Denied</h2>
-    <p style={{ color: 'var(--text-secondary, #64748b)', maxWidth: '420px', margin: 0 }}>You do not have the required permissions to view this resource.</p>
+    <p style={{ color: 'var(--text-secondary, #6b7280)', maxWidth: '420px', margin: 0 }}>You do not have the required permissions to view this resource.</p>
     <a href="/dashboard" style={{ marginTop: '12px', padding: '10px 20px', borderRadius: '8px', background: 'var(--primary-color, #2563eb)', color: '#fff', textDecoration: 'none', fontWeight: '600', fontSize: '14px' }}>Back to Dashboard</a>
   </div>
 );
 
 const NotFoundPage = () => (
-  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: 'var(--bg-app, #f8fafc)', color: 'var(--text-primary, #0f172a)', padding: '24px', textAlign: 'center' }}>
+  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: 'var(--bg-app, #f9fafb)', color: 'var(--text-primary, #030712)', padding: '24px', textAlign: 'center' }}>
     <h1 style={{ fontSize: '72px', fontWeight: '800', margin: 0, color: 'var(--primary-color, #2563eb)' }}>404</h1>
     <h2 style={{ fontSize: '22px', fontWeight: '700', margin: 0 }}>Page Not Found</h2>
-    <p style={{ color: 'var(--text-secondary, #64748b)', maxWidth: '420px', margin: 0 }}>The requested page could not be found. Please check the URL or return to the dashboard.</p>
+    <p style={{ color: 'var(--text-secondary, #6b7280)', maxWidth: '420px', margin: 0 }}>The requested page could not be found. Please check the URL or return to the dashboard.</p>
     <a href="/dashboard" style={{ marginTop: '12px', padding: '10px 20px', borderRadius: '8px', background: 'var(--primary-color, #2563eb)', color: '#fff', textDecoration: 'none', fontWeight: '600', fontSize: '14px' }}>Back to Dashboard</a>
   </div>
 );

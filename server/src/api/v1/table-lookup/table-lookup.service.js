@@ -13,11 +13,23 @@ import { allSources, getSource as findSource } from './lookup-sources.js';
 const MAX_PAGE_SIZE = 50;
 const MAX_SCAN = 5000; // rows examined per request when row rules force filtering in memory
 const MAX_RESOLVE = 500;
+const FIELDS_CACHE_MS = 15_000;
 
 const badRequest = (message) => new AppError(message, 400, ERROR_CODES.VALIDATION_ERROR);
 const forbidden = () => new AppError('You do not have access to this table', 403, ERROR_CODES.FORBIDDEN);
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Short TTL cache — dropdown open fires many searches; avoid re-reading field meta each time. */
+const fieldsCache = new Map(); // source.key -> { at, fields }
+
+const listSourceColumns = async (source) => {
+  const hit = fieldsCache.get(source.key);
+  if (hit && Date.now() - hit.at < FIELDS_CACHE_MS) return hit.fields;
+  const fields = await source.listColumns();
+  fieldsCache.set(source.key, { at: Date.now(), fields });
+  return fields;
+};
 
 const getSource = (name) => {
   const source = findSource(name);
@@ -34,12 +46,11 @@ const visibleColumn = (req, source, key) =>
   req.access?.superAdmin || columnLevel(req.access, source.accessTable, key) !== 'hidden';
 
 /** A column key must be one of the table's real fields and not hidden from this user. */
-const checkedColumn = async (req, source, key, { optional = false } = {}) => {
+const checkedColumn = (req, source, key, fields, { optional = false } = {}) => {
   if (!key) {
     if (optional) return null;
     throw badRequest('column is required');
   }
-  const fields = await source.listColumns();
   if (!fields.some((f) => f.key === key)) throw badRequest(`Unknown column: ${key}`);
   if (!visibleColumn(req, source, key)) throw forbidden();
   return key;
@@ -57,18 +68,30 @@ const rowIsVisible = (req, source, doc) =>
 
 const text = (v) => (v === null || v === undefined ? '' : Array.isArray(v) ? v.join(', ') : String(v));
 
-const toItem = (doc, column, detailColumn) => ({
-  id: String(doc._id),
-  label: column ? text(doc[column]) : '',
-  detail: detailColumn ? text(doc[detailColumn]) : '',
-});
+const toItem = (doc, column, detailColumn, extra = []) => {
+  const item = {
+    id: String(doc._id),
+    label: column ? text(doc[column]) : '',
+    detail: detailColumn ? text(doc[detailColumn]) : '',
+  };
+  if (extra.length) {
+    item.values = Object.fromEntries(extra.map((key) => [key, text(doc[key])]));
+  }
+  return item;
+};
+
+/** Parse `columns` query: comma string, repeated params, or array. */
+const parseExtraColumns = (raw) => {
+  const list = Array.isArray(raw) ? raw : String(raw || '').split(',');
+  return [...new Set(list.map((s) => String(s).trim()).filter(Boolean))].slice(0, 20);
+};
 
 /** Tables a field can read from, with the columns this user is allowed to see. */
 export const listSources = async (req) => {
   const out = [];
   for (const source of allSources()) {
     if (!req.access?.superAdmin && !canAction(req.access, source.accessTable, 'view')) continue;
-    const fields = await source.listColumns();
+    const fields = await listSourceColumns(source);
     out.push({
       table: source.key,
       label: source.label,
@@ -78,30 +101,55 @@ export const listSources = async (req) => {
   return out;
 };
 
-/** One page of rows whose `column` contains `q`, sorted by that column. */
+/**
+ * One page of rows whose `column` contains `q`.
+ * Empty search sorts by `_id` (indexed) so opening the dropdown stays fast on large vendor tables.
+ * Typed search still matches case-insensitively on the column value.
+ */
 export const searchRows = async (req, tableName, query = {}) => {
   const source = getSource(tableName);
   assertCanRead(req, source);
-  const column = await checkedColumn(req, source, String(query.column || ''));
-  const detailColumn = await checkedColumn(req, source, String(query.detailColumn || ''), { optional: true });
+  const fields = await listSourceColumns(source);
+  const column = checkedColumn(req, source, String(query.column || ''), fields);
+  const detailColumn = checkedColumn(req, source, String(query.detailColumn || ''), fields, { optional: true });
+  // Extra columns (group / linked siblings) so a pick can fill the row without a follow-up /resolve.
+  const extra = [];
+  for (const key of parseExtraColumns(query.columns)) {
+    if (key === column || key === detailColumn) continue;
+    const known = fields.some((f) => f.key === key);
+    if (!known) throw badRequest(`Unknown column: ${key}`);
+    if (visibleColumn(req, source, key)) extra.push(key);
+  }
   const q = String(query.q ?? '').trim().slice(0, 100);
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), MAX_PAGE_SIZE);
   const skip = Math.max(parseInt(query.skip, 10) || 0, 0);
 
-  const match = { [column]: q ? { $regex: escapeRegex(q), $options: 'i' } : { $nin: [null, ''] } };
+  // Opening the picker (no query): require a non-empty value, page by _id (uses the default index).
+  // Typing a query: case-insensitive contains match on the column.
+  const match = q
+    ? { [column]: { $regex: escapeRegex(q), $options: 'i' } }
+    : { [column]: { $exists: true, $nin: [null, ''] } };
+  const sort = q ? { [column]: 1, _id: 1 } : { _id: 1 };
   const em = getEm();
   const filterInMemory = rowRulesApply(req, source);
 
   if (!filterInMemory) {
-    const project = { [column]: 1, ...(detailColumn ? { [detailColumn]: 1 } : {}) };
+    const project = {
+      [column]: 1,
+      ...(detailColumn ? { [detailColumn]: 1 } : {}),
+      ...Object.fromEntries(extra.map((key) => [key, 1])),
+    };
     const docs = await em.aggregate(source.entity, [
       { $match: match },
-      { $sort: { [column]: 1, _id: 1 } },
+      { $sort: sort },
       { $skip: skip },
       { $limit: limit + 1 },
       { $project: project },
     ]);
-    return { items: docs.slice(0, limit).map((d) => toItem(d, column, detailColumn)), hasMore: docs.length > limit };
+    return {
+      items: docs.slice(0, limit).map((d) => toItem(d, column, detailColumn, extra)),
+      hasMore: docs.length > limit,
+    };
   }
 
   // Row-level rules need the whole document, so page through and filter until the page is full.
@@ -112,7 +160,7 @@ export const searchRows = async (req, tableName, query = {}) => {
   while (items.length <= limit && scanned < MAX_SCAN && !exhausted) {
     const batch = await em.aggregate(source.entity, [
       { $match: match },
-      { $sort: { [column]: 1, _id: 1 } },
+      { $sort: sort },
       { $skip: offset },
       { $limit: 200 },
     ]);
@@ -120,7 +168,7 @@ export const searchRows = async (req, tableName, query = {}) => {
     scanned += batch.length;
     offset += batch.length;
     for (const doc of batch) {
-      if (rowIsVisible(req, source, doc)) items.push(toItem(doc, column, detailColumn));
+      if (rowIsVisible(req, source, doc)) items.push(toItem(doc, column, detailColumn, extra));
     }
   }
   return { items: items.slice(0, limit), hasMore: items.length > limit };
@@ -136,11 +184,12 @@ const isValidId = (source, id) => (source.idType === 'string' ? String(id).lengt
 export const resolveRows = async (req, tableName, body = {}) => {
   const source = getSource(tableName);
   assertCanRead(req, source);
-  const column = body.column ? await checkedColumn(req, source, String(body.column)) : null;
-  const detailColumn = await checkedColumn(req, source, String(body.detailColumn || ''), { optional: true });
+  const fields = await listSourceColumns(source);
+  const column = body.column ? checkedColumn(req, source, String(body.column), fields) : null;
+  const detailColumn = checkedColumn(req, source, String(body.detailColumn || ''), fields, { optional: true });
   const extra = [];
   for (const key of (Array.isArray(body.columns) ? body.columns : []).slice(0, 20).map(String)) {
-    const known = (await source.listColumns()).some((f) => f.key === key);
+    const known = fields.some((f) => f.key === key);
     if (!known) throw badRequest(`Unknown column: ${key}`);
     if (visibleColumn(req, source, key)) extra.push(key);
   }

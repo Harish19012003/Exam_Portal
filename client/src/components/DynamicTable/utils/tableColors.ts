@@ -26,8 +26,8 @@ export const TABLE_COLOR_PRESETS: TableColorPreset[] = [
   {
     id: 'slate',
     label: 'Slate',
-    light: { headerBg: '#e2e8f0', headerText: '#1e293b', stripeBg: '#f6f8fb', footerBg: '#f1f5f9', footerText: '#334155' },
-    dark: { headerBg: '#1e293b', headerText: '#e2e8f0', stripeBg: '#151f31', footerBg: '#0f172a', footerText: '#cbd5e1' },
+    light: { headerBg: '#e5e7eb', headerText: '#111827', stripeBg: '#f6f8fb', footerBg: '#f3f4f6', footerText: '#1f2937' },
+    dark: { headerBg: '#111827', headerText: '#e5e7eb', stripeBg: '#151f31', footerBg: '#030712', footerText: '#d1d5db' },
   },
   {
     id: 'sunset',

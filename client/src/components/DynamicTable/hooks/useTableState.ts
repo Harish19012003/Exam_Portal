@@ -141,6 +141,8 @@ export function useTableState(
 
   const [editingRowIds, setEditingRowIds] = useState<Set<string>>(new Set());
   const [rowDrafts, setRowDrafts] = useState<Record<string, Record<string, unknown>>>({});
+  const rowDraftsRef = useRef(rowDrafts);
+  rowDraftsRef.current = rowDrafts;
   const [focusedCell, setFocusedCell] = useState<{ rowId: string; colKey: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowId: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
@@ -183,9 +185,11 @@ export function useTableState(
   // Sync when parent switches presets (prop identity change) — not on first mount,
   // so we don't clobber rows another view already published this session.
   const skipInitialPropSync = useRef(true);
+  const skipInitialRowsSync = useRef(true);
   const layoutPrefsRef = useRef(layoutPrefs);
   layoutPrefsRef.current = layoutPrefs;
 
+  // Columns / table identity — full chrome reset (not on every parent row repaint).
   useEffect(() => {
     const cleanCols = sanitizeColumns(initialColumns);
     const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId, defaultDensity);
@@ -203,18 +207,33 @@ export function useTableState(
       return;
     }
     setRows(sanitizeRows(initialRows));
-  }, [initialColumns, initialRows, tableId, defaultDensity]);
+    // initialRows intentionally omitted — row data syncs in the effect below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialColumns, tableId, defaultDensity]);
 
+  // Soft-sync row data from parent without wiping sort / filters / selection.
   useEffect(() => {
-    saveTablePrefs({
-      columns,
-      columnWidths,
-      columnOrder,
-      columnVisibility,
-      density,
-      conditionalFormats,
-      recentFormatColors,
-    }, tableId);
+    if (skipInitialRowsSync.current) {
+      skipInitialRowsSync.current = false;
+      return;
+    }
+    setRows(sanitizeRows(initialRows));
+  }, [initialRows]);
+
+  // Debounce local prefs — column resize can fire many updates per second.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      saveTablePrefs({
+        columns,
+        columnWidths,
+        columnOrder,
+        columnVisibility,
+        density,
+        conditionalFormats,
+        recentFormatColors,
+      }, tableId);
+    }, 200);
+    return () => window.clearTimeout(timer);
   }, [columns, columnWidths, columnOrder, columnVisibility, density, conditionalFormats, recentFormatColors, tableId]);
 
   // Debounced persist of personal layout (skip first paint)
@@ -334,18 +353,38 @@ export function useTableState(
   const handleClearSelection = useCallback(() => setSelectedRows(new Set()), []);
 
   // ── Inline edit ────────────────────────────────────────────────────────────
+  // Call onRowUpdate OUTSIDE the setState updater — React Strict Mode runs updaters
+  // twice in dev, which was double-saving and clearing the lookup pick mid-flight.
   const handleCellSave = useCallback((rowId: string, colKey: string, newValue: unknown) => {
+    let updated: DataRow | undefined;
     setRows(prev => {
       const next = prev.map(r =>
         r.rowId === rowId ? { ...r, values: { ...r.values, [colKey]: newValue } } : r
       );
-      const updated = next.find(r => r.rowId === rowId);
-      if (updated && onRowUpdate) {
-        void onRowUpdate(rowId, { [colKey]: newValue }, updated);
-      }
+      updated = next.find(r => r.rowId === rowId);
       return next;
     });
     setEditingCell(null);
+    if (updated && onRowUpdate) {
+      void onRowUpdate(rowId, { [colKey]: newValue }, updated);
+    }
+  }, [onRowUpdate]);
+
+  /** One local paint + one onRowUpdate for multi-cell patches (lookup group fill). */
+  const handleCellsSave = useCallback((rowId: string, updates: Record<string, unknown>) => {
+    if (!updates || Object.keys(updates).length === 0) return;
+    let updated: DataRow | undefined;
+    setRows(prev => {
+      const next = prev.map(r =>
+        r.rowId === rowId ? { ...r, values: { ...r.values, ...updates } } : r
+      );
+      updated = next.find(r => r.rowId === rowId);
+      return next;
+    });
+    setEditingCell(null);
+    if (updated && onRowUpdate) {
+      void onRowUpdate(rowId, updates, updated);
+    }
   }, [onRowUpdate]);
 
   const handleRowDraftChange = useCallback((rowId: string, colKey: string, newValue: unknown) => {
@@ -356,33 +395,35 @@ export function useTableState(
   }, []);
 
   const commitRowDraft = useCallback((rowId: string) => {
-    setRowDrafts(prev => {
-      const draft = prev[rowId];
-      if (draft) {
-        setRows(rPrev => {
-          const originalRow = rPrev.find(r => r.rowId === rowId);
-          if (originalRow) {
-            setPendingEdit(pe => {
-              const prevRows = pe?.originalRows || [];
-              const newRows = [...prevRows.filter(r => r.rowId !== rowId), originalRow];
-              
-              if (editTimerRef.current) clearTimeout(editTimerRef.current);
-              editTimerRef.current = setTimeout(() => setPendingEdit(null), 15000);
-              
-              return { id: String(Date.now()), originalRows: newRows, timerId: editTimerRef.current! };
-            });
-          }
+    const draft = rowDraftsRef.current[rowId];
+    if (draft) {
+      let updated: DataRow | undefined;
+      setRows(rPrev => {
+        const originalRow = rPrev.find(r => r.rowId === rowId);
+        if (originalRow) {
+          setPendingEdit(pe => {
+            const prevRows = pe?.originalRows || [];
+            const newRows = [...prevRows.filter(r => r.rowId !== rowId), originalRow];
 
-          const nextRows = rPrev.map(r =>
-            r.rowId === rowId ? { ...r, values: { ...r.values, ...draft } } : r
-          );
-          const updated = nextRows.find(r => r.rowId === rowId);
-          if (updated && onRowUpdate) {
-            void onRowUpdate(rowId, draft, updated);
-          }
-          return nextRows;
-        });
+            if (editTimerRef.current) clearTimeout(editTimerRef.current);
+            editTimerRef.current = setTimeout(() => setPendingEdit(null), 15000);
+
+            return { id: String(Date.now()), originalRows: newRows, timerId: editTimerRef.current! };
+          });
+        }
+
+        const nextRows = rPrev.map(r =>
+          r.rowId === rowId ? { ...r, values: { ...r.values, ...draft } } : r
+        );
+        updated = nextRows.find(r => r.rowId === rowId);
+        return nextRows;
+      });
+      if (updated && onRowUpdate) {
+        void onRowUpdate(rowId, draft, updated);
       }
+    }
+    setRowDrafts(prev => {
+      if (!(rowId in prev)) return prev;
       const next = { ...prev };
       delete next[rowId];
       return next;
@@ -676,7 +717,7 @@ export function useTableState(
     rowDrafts, setRowDrafts,
     focusedCell, setFocusedCell,
     handleRowDraftChange, commitRowDraft, cancelRowDraft,
-    handleEditSelectedRows, handleCellSave,
+    handleEditSelectedRows, handleCellSave, handleCellsSave,
     handleDeleteRow, handleUndoDelete, handleDeleteSelected, handleAddRow,
     contextMenu, setContextMenu,
     pendingDelete, setPendingDelete,

@@ -231,7 +231,7 @@ function ActionColorButton({
   const PRESET_COLORS_5X5 = [
     '#13C296', '#f43f5e', '#3b82f6', '#8b5cf6', '#f59e0b',
     '#10b981', '#6366f1', '#06b6d4', '#ec4899', '#e11d48',
-    '#f97316', '#64748b', '#84cc16', '#a855f7', '#0ea5e9',
+    '#f97316', '#6b7280', '#84cc16', '#a855f7', '#0ea5e9',
     '#14b8a6', '#f43f5e', '#d97706', '#0284c7', '#7c3aed',
     '#059669', '#dc2626', '#2563eb', '#9333ea', '#ca8a04',
   ];
@@ -563,7 +563,7 @@ function TableColorsEditor({
 
   const set = currentSet(mode);
   const fallback: Record<keyof TableColorSet, string> = mode === 'dark'
-    ? { headerBg: '#2e1065', headerText: '#e9d5ff', stripeBg: '#161e2c', footerBg: '#111827', footerText: '#9ca3af' }
+    ? { headerBg: '#1f2937', headerText: '#e5e7eb', stripeBg: '#161e2c', footerBg: '#111827', footerText: '#9ca3af' }
     : { headerBg: '#ede9fe', headerText: '#4c1d95', stripeBg: '#f7f8fb', footerBg: '#f9fafb', footerText: '#6b7280' };
 
   return (
@@ -583,7 +583,7 @@ function TableColorsEditor({
               }`}
             >
               <span className="flex h-9 flex-col overflow-hidden rounded-md border border-black/5">
-                <span className="h-3" style={{ background: sw.headerBg || (isDarkMode ? '#2e1065' : '#ede9fe') }} />
+                <span className="h-3" style={{ background: sw.headerBg || (isDarkMode ? '#1f2937' : '#ede9fe') }} />
                 <span className="h-3" style={{ background: isDarkMode ? '#111827' : '#ffffff' }} />
                 <span className="h-3" style={{ background: sw.stripeBg || (isDarkMode ? '#161e2c' : '#f7f8fb') }} />
               </span>

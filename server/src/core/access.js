@@ -6,6 +6,8 @@ import {
   canPage,
   canSeeRow,
   columnLevel,
+  assigneeFieldKeys,
+  passesAssigneeVisibility,
 } from '@exam-view/shared';
 import { AppError } from './errors.js';
 import { getEm } from '../database/connection.js';
@@ -148,8 +150,16 @@ export const autoFillKeys = (fields = []) =>
     .filter((f) => f?.autoFill && f.autoFill !== 'none')
     .map((f) => f.key);
 
-export const rowVisible = (req, tableId, values) => canSeeRow(req.access, tableId, values, req.me);
-
-export const assertRowVisible = (req, tableId, values) => {
-  if (!rowVisible(req, tableId, values)) throw forbidden('This record is outside your access');
+export const rowVisible = (req, tableId, values, fields) => {
+  if (!canSeeRow(req.access, tableId, values, req.me)) return false;
+  if (!fields) return true;
+  return passesAssigneeVisibility(req.me, values, assigneeFieldKeys(fields), {
+    superAdmin: Boolean(req.access?.superAdmin),
+  });
 };
+
+export const assertRowVisible = (req, tableId, values, fields) => {
+  if (!rowVisible(req, tableId, values, fields)) throw forbidden('This record is outside your access');
+};
+
+export { assigneeFieldKeys, passesAssigneeVisibility };
