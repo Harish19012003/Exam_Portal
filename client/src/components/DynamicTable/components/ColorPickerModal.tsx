@@ -21,7 +21,7 @@ const PRESET_COLORS = [
   '#ec4899', // Pink
   '#e11d48', // Red
   '#f97316', // Orange
-  '#64748b', // Slate
+  '#6b7280', // Slate
 ];
 
 export function ColorPickerModal({

@@ -140,6 +140,8 @@ export interface TablePermissions {
   export?: boolean;
 }
 
+export { TableSkeleton } from './components/TableSkeleton';
+
 export function DynamicTable({
   isDarkMode,
   initialColumns,
@@ -906,23 +908,25 @@ export function DynamicTable({
                       }}
                       onSaveBatch={updates => {
                         const editingRow = state.editingRowIds.has(row.rowId);
-                        Object.entries(updates).forEach(([k, v]) => {
-                          if (
-                            featureConfig.isTransposed &&
-                            isTransposedRowId(row.rowId) &&
-                            !isTransposedSyntheticRow(row.rowId)
-                          ) {
+                        if (
+                          featureConfig.isTransposed &&
+                          isTransposedRowId(row.rowId) &&
+                          !isTransposedSyntheticRow(row.rowId)
+                        ) {
+                          Object.entries(updates).forEach(([k, v]) => {
                             const realRowId = parseTransposedSourceRowId(k);
                             const realColKey = parseTransposedFieldKey(row.rowId);
-                            if (realRowId) {
-                              state.handleCellSave(realRowId, realColKey, v);
-                              return;
-                            }
-                          }
-                          if (editingRow) state.handleRowDraftChange(row.rowId, k, v);
-                          else state.handleCellSave(row.rowId, k, v);
-                        });
-                        state.setEditingCell(null);
+                            if (realRowId) state.handleCellSave(realRowId, realColKey, v);
+                          });
+                          state.setEditingCell(null);
+                          return;
+                        }
+                        if (editingRow) {
+                          Object.entries(updates).forEach(([k, v]) => state.handleRowDraftChange(row.rowId, k, v));
+                          state.setEditingCell(null);
+                          return;
+                        }
+                        state.handleCellsSave(row.rowId, updates);
                       }}
                       enableRowSelection={featureConfig.isTransposed ? false : activeFeatures.enableRowSelection}
                       enableActionsColumn={featureConfig.isTransposed ? false : activeFeatures.enableActionsColumn}

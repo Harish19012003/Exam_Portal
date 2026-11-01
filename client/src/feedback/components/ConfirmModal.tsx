@@ -40,7 +40,7 @@ export function ConfirmModal({ confirm, isDarkMode, onDismiss }: ConfirmModalPro
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={`confirm-title-${confirm.id}`}
-      className="w-full overflow-hidden rounded-[14px] border border-[var(--border-color,#e6e8eb)] bg-[var(--bg-card,#ffffff)] text-[var(--text-primary,#1e2022)] shadow-[0_24px_60px_rgba(15,23,42,0.35)] animate-[slideUp_0.2s_ease-out]"
+      className="w-full overflow-hidden rounded-[14px] border border-[var(--border-color,#e6e8eb)] bg-[var(--bg-card,#ffffff)] text-[var(--text-primary,#1e2022)] shadow-[0_24px_60px_rgba(3, 7, 18,0.35)] animate-[slideUp_0.2s_ease-out]"
       onClick={e => e.stopPropagation()}
     >
       <div className="flex items-start gap-3.5 px-5 pt-5 pb-4">

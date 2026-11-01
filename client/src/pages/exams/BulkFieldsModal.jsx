@@ -19,14 +19,19 @@ import { getConfigListById, loadConfigDropdownLists } from '../settings/configSt
 import { fetchConfigLists } from '../settings/configListApi';
 import { listLookupSources } from './tableLookupApi';
 import { parseBulkFields, resolveType, toFieldDefinition, TYPE_ALIASES } from './examBulkFields';
+import { TagPickCellButton } from './TagMultiPicker';
+import { listAssignableTags } from './assigneeApi';
 
 const OPTIONS_SOURCES = [
   { value: 'manual', label: 'Typed' },
   { value: 'config', label: 'Config list' },
   { value: 'table', label: 'Table column' },
+  { value: 'userTags', label: 'User tags' },
 ];
 
-const BULK_TYPES = EXAM_FIELD_TYPES.filter((t) => t.value !== 'formula' && t.value !== 'composite' && t.value !== 'linked');
+const BULK_TYPES = EXAM_FIELD_TYPES.filter(
+  (t) => t.value !== 'formula' && t.value !== 'composite' && t.value !== 'linked',
+);
 const WIDTH_OPTIONS = [
   { value: 'full', label: 'Full width' },
   { value: 'half', label: 'Half (side by side)' },
@@ -47,13 +52,15 @@ const newRow = (dataType = 'text') => ({
   required: false,
   unique: false,
   optionsText: '',
-  optionsSource: 'manual', // 'manual' = typed, 'config' = Config list, 'table' = Vendor / SeqView column
+  optionsSource: 'manual', // 'manual' | 'config' | 'table' | 'userTags'
   configListId: '',
+  userTagIds: [],
   lookupTable: '',
   lookupColumn: '',
   lookupDetail: '',
   linkedRid: '', // Linked value: the row (field) it depends on, and which of its table's columns to show
   linkedColumn: '',
+  examFieldKey: '', // From exam: parent exam.values key to mirror
   phoneValidationMode: 'none',
   phonePattern: '',
   phoneMessage: '',
@@ -83,17 +90,21 @@ const rowFromField = (f) => {
         ? 'config'
         : f.optionsSource === 'table' && f.tableSource
           ? 'table'
-          : 'manual',
+          : f.optionsSource === 'userTags'
+            ? 'userTags'
+            : 'manual',
     configListId: f.optionsSource === 'config' ? f.configListId || '' : '',
+    userTagIds: Array.isArray(f.userTagIds) ? f.userTagIds.map(String) : [],
     lookupTable: f.tableSource?.table || '',
     lookupColumn: f.tableSource?.column || '',
     lookupDetail: f.tableSource?.detailColumn || '',
     linkedKey: f.linkedFrom?.fieldKey || '',
     linkedColumn: f.linkedFrom?.column || '',
+    examFieldKey: f.examFieldKey || '',
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
-    lockOptions: Boolean(f.optionsSource) && !['manual', 'config', 'table'].includes(f.optionsSource),
+    lockOptions: Boolean(f.optionsSource) && !['manual', 'config', 'table', 'userTags'].includes(f.optionsSource),
   };
 };
 
@@ -110,6 +121,8 @@ const optionsPart = (r) => {
     options: OPTIONS_FIELD_TYPES.has(r.dataType) && source === 'manual' ? splitOptions(r.optionsText) : [],
     optionsSource: source,
     configListId: source === 'config' ? r.configListId : '',
+    userTagIds: source === 'userTags' ? (r.userTagIds || []).map(String) : [],
+    ...(source === 'userTags' ? { allowMultiple: true } : {}),
     tableSource:
       source === 'table'
         ? { table: r.lookupTable, column: r.lookupColumn, ...(r.lookupDetail ? { detailColumn: r.lookupDetail } : {}) }
@@ -121,10 +134,11 @@ const rowToItem = (r, allowUnique = false) => ({
   label: r.label.trim(),
   key: r.key.trim(),
   dataType: r.dataType,
-  required: r.dataType !== 'linked' && r.autoFill === 'none' && r.required,
+  required: r.dataType !== 'linked' && r.dataType !== 'fromExam' && r.autoFill === 'none' && r.required,
   unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
   ...optionsPart(r),
   ...(r.dataType === 'linked' ? { linkedFrom: { fieldKey: r.linkedFieldKey || '', column: r.linkedColumn } } : {}),
+  ...(r.dataType === 'fromExam' ? { examFieldKey: r.examFieldKey || '' } : {}),
   autoFill: r.autoFill,
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
@@ -142,20 +156,37 @@ const changedField = (r, allowUnique = false) => {
     ...(allowUnique ? { unique: item.unique } : {}),
     autoFill: item.autoFill,
     layout: item.layout,
-    allowMultiple: item.dataType === 'multiselect',
+    allowMultiple: item.optionsSource === 'userTags' ? true : item.dataType === 'multiselect',
     ...(r.lockOptions
       ? {}
       : {
           options: item.options,
           optionsSource: item.optionsSource,
           configListId: item.configListId,
+          userTagIds: item.userTagIds || [],
           tableSource: item.tableSource,
         }),
     ...(item.dataType === 'phone' ? { phoneValidation: item.phoneValidation } : {}),
     ...(item.dataType === 'linked' ? { linkedFrom: item.linkedFrom } : {}),
+    ...(item.dataType === 'fromExam' ? { examFieldKey: item.examFieldKey } : { examFieldKey: undefined }),
   };
   const sig = (f) =>
-    JSON.stringify([f.label, f.dataType, Boolean(f.required), Boolean(f.unique), f.autoFill || 'none', f.layout || 'full', f.options || [], f.optionsSource || 'manual', f.configListId || '', f.tableSource || null, f.linkedFrom || null, f.phoneValidation || null]);
+    JSON.stringify([
+      f.label,
+      f.dataType,
+      Boolean(f.required),
+      Boolean(f.unique),
+      f.autoFill || 'none',
+      f.layout || 'full',
+      f.options || [],
+      f.optionsSource || 'manual',
+      f.configListId || '',
+      f.userTagIds || [],
+      f.tableSource || null,
+      f.linkedFrom || null,
+      f.examFieldKey || '',
+      f.phoneValidation || null,
+    ]);
   return sig(next) === sig(o) ? null : next;
 };
 
@@ -174,7 +205,12 @@ const buildPhoneValidation = (row) => {
 };
 
 const isBlank = (row) =>
-  !row.label.trim() && !row.key.trim() && !row.optionsText.trim() && !row.configListId && !row.lookupColumn;
+  !row.label.trim() &&
+  !row.key.trim() &&
+  !row.optionsText.trim() &&
+  !row.configListId &&
+  !row.lookupColumn &&
+  !(row.userTagIds || []).length;
 
 const splitOptions = (text) => [...new Set(String(text).split(',').map((s) => s.trim()).filter(Boolean))];
 
@@ -207,6 +243,8 @@ const validateRows = (rows, existingFields, extraReserved) => {
         else if (!getConfigListById(row.configListId)?.options?.length) errors.optionsText = 'List missing or empty';
       } else if (source === 'table') {
         if (!row.lookupTable || !row.lookupColumn) errors.optionsText = 'Select a table and column';
+      } else if (source === 'userTags') {
+        if (!(row.userTagIds || []).length) errors.optionsText = 'Select at least one tag';
       } else if (!splitOptions(row.optionsText).length) {
         errors.optionsText = 'Add options';
       }
@@ -219,6 +257,10 @@ const validateRows = (rows, existingFields, extraReserved) => {
       } else if (!row.linkedColumn) {
         errors.optionsText = 'Pick a column';
       }
+    }
+
+    if (row.dataType === 'fromExam' && !row.examFieldKey) {
+      errors.optionsText = 'Pick an exam field';
     }
 
     if (row.dataType === 'phone' && row.phoneValidationMode === 'custom') {
@@ -373,7 +415,11 @@ export const BulkFieldsModal = ({
   allowUnique = false,
   saving = false,
   error = '',
+  examSourceFields = [],
 }) => {
+  const examFieldOptions = (examSourceFields || [])
+    .filter((f) => f?.key)
+    .map((f) => ({ value: f.key, label: f.label || f.key }));
   const initialRows = () => {
     const existing = fields.filter((f) => f.dataType === 'linked' || BULK_TYPES.some((t) => t.value === f.dataType)).map(rowFromField);
     // A Linked value points at the row (field) it reads from.
@@ -392,11 +438,17 @@ export const BulkFieldsModal = ({
   const [tab, setTab] = useState('fields'); // 'fields' | 'deps'
   const [removedIds, setRemovedIds] = useState([]); // existing Linked value fields to delete on save
   const [lookupSources, setLookupSources] = useState([]);
+  const [assignableTags, setAssignableTags] = useState([]);
   useEffect(() => {
     let cancelled = false;
     listLookupSources()
       .then((rows) => {
         if (!cancelled) setLookupSources(rows);
+      })
+      .catch(() => {});
+    listAssignableTags()
+      .then((rows) => {
+        if (!cancelled) setAssignableTags(rows);
       })
       .catch(() => {});
     return () => {
@@ -1177,7 +1229,24 @@ export const BulkFieldsModal = ({
                       )}
                     </td>
                     <td data-label="Options from">
-                      {row.dataType === 'linked' ? (
+                      {row.dataType === 'fromExam' ? (
+                        examFieldOptions.length ? (
+                          <SearchableSelect
+                            className="exams-bulk-select"
+                            portal
+                            value={row.examFieldKey || ''}
+                            options={examFieldOptions}
+                            placeholder="Exam field…"
+                            searchThreshold={8}
+                            ariaLabel={`Row ${i + 1} exam field`}
+                            onChange={(next) => update(row.rid, { examFieldKey: next })}
+                          />
+                        ) : (
+                          <span className="exams-bulk-static-chip" title="Open bulk add from a center list">
+                            No exam fields
+                          </span>
+                        )
+                      ) : row.dataType === 'linked' ? (
                         <button
                           type="button"
                           className="exams-bulk-dep-link"
@@ -1276,6 +1345,15 @@ export const BulkFieldsModal = ({
                           <input type="text" disabled placeholder="Read from the table" aria-hidden="true" tabIndex={-1} />
                           {cellError(i, 'optionsText') && <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>}
                         </>
+                      ) : needsOptions && !row.lockOptions && effectiveSource(row) === 'userTags' ? (
+                        <TagPickCellButton
+                          value={row.userTagIds || []}
+                          tags={assignableTags}
+                          invalid={Boolean(cellError(i, 'optionsText'))}
+                          errorText={cellError(i, 'optionsText') || ''}
+                          ariaLabel={`Row ${i + 1} user tags`}
+                          onChange={(next) => update(row.rid, { userTagIds: next })}
+                        />
                       ) : (
                         <input
                           type="text"
@@ -1291,7 +1369,9 @@ export const BulkFieldsModal = ({
                           aria-label={`Row ${i + 1} options`}
                         />
                       )}
-                      {cellError(i, 'optionsText') && <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>}
+                      {cellError(i, 'optionsText') && effectiveSource(row) !== 'userTags' && (
+                        <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>
+                      )}
                     </td>
                     {showMore && (
                     <td data-label="Auto-fill">

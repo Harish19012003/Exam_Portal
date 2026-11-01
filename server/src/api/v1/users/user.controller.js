@@ -53,6 +53,33 @@ export const listUsers = async (req, res, next) => {
   }
 };
 
+/** Center-list assignee picker: users matching the field's configured tag ids. */
+export const listAssignable = async (req, res, next) => {
+  try {
+    const raw = req.query?.tagIds ?? req.query?.tagids ?? '';
+    const tagIds = Array.isArray(raw)
+      ? raw
+      : String(raw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const users = await userService.listAssignableByTags(tagIds);
+    return successResponse(res, users, 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resolveAssignable = async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const map = await userService.resolveAssignableUsers(ids);
+    return successResponse(res, map, 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateUser = async (req, res, next) => {
   try {
     const user = await userService.updateUser(req.params.id, req.body, req.user);

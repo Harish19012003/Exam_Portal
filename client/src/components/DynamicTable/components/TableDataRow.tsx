@@ -391,7 +391,7 @@ function TableDataRowComponent({
             ? isDarkMode
               ? 'bg-[#13C296]/20 shadow-[inset_0_0_15px_rgba(19,194,150,0.2)] transition-all duration-300'
               : 'bg-[#13C296]/10 shadow-[inset_0_0_15px_rgba(19,194,150,0.2)] transition-all duration-300'
-            : 'transition-all duration-1000';
+            : 'transition-[background-color,box-shadow,color] duration-300';
 
         const isLeftPinned = offset?.left !== undefined;
         const isRightPinned = offset?.right !== undefined;
@@ -416,6 +416,7 @@ function TableDataRowComponent({
           <td
             id={`cell-${row.rowId}-${col.key}`}
             key={col.key}
+            data-col-key={col.key}
             style={
               {
                 width: actualW,

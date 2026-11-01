@@ -278,7 +278,27 @@
     border: 0;
     border-radius: 8px;
     background: transparent;
-    color: var(--text-secondary, #64748b);
+    color: var(--text-secondary, #6b7280);
     cursor: pointer;
   }
 }
+
+/* ── Dark theme: sidebar matches the navbar (gray-950 canvas, gray-800 controls, blue accent) ── */
+[data-theme="dark"] .xs-sidebar {
+  background: #030712;
+  border-color: #1f2937;
+}
+[data-theme="dark"] .xs-logo-icon {
+  background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+}
+[data-theme="dark"] .xs-nav-item,
+[data-theme="dark"] .xs-icon-btn { color: #9ca3af; }
+[data-theme="dark"] .xs-nav-item:hover,
+[data-theme="dark"] .xs-icon-btn:hover { background: #1f2937; color: #ffffff; }
+[data-theme="dark"] .xs-nav-item.active { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+[data-theme="dark"] .xs-icon-btn.active { color: #60a5fa; }
+[data-theme="dark"] .xs-profile:hover { background: #1f2937; }
+[data-theme="dark"] .xs-user-role { color: #60a5fa; }
+[data-theme="dark"] .xs-user-name,
+[data-theme="dark"] .xs-logo-text { color: #f9fafb; }

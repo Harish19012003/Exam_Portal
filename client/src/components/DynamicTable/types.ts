@@ -97,7 +97,19 @@ export interface FieldColumn extends BaseColumn {
    * Cell reads its choices live from a column of another table (rows are picked by search, and the
    * cell stores that row's id). The editor looks rows up through /table-lookup.
    */
-  lookup?: { table: string; column: string; detailColumn?: string };
+  lookup?: {
+    table: string;
+    column: string;
+    detailColumn?: string;
+    /** Sibling / linked source columns fetched with search so pick needs no /resolve. */
+    resolveColumns?: string[];
+    /** Exam cells to paint on pick (group siblings + linked values). */
+    syncFields?: Array<{ key: string; column: string; detailColumn?: string }>;
+  };
+  /** Multi-assign people filtered by these user-tag ids (stores user id[]). */
+  userTags?: {
+    tagIds: string[];
+  };
   parentColumnKey?: string; // Key of parent column in same row for dependent dropdowns
   dependentOptionsMap?: Record<string, string[]>; // Map parent values -> dependent choices
 }

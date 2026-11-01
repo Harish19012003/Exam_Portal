@@ -271,6 +271,48 @@ export const getAllUsers = async () => {
   });
 };
 
+const displayName = (u) =>
+  `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'User';
+
+/** Lightweight user rows for assignee pickers (no permissions / secrets). */
+const toAssignable = (u) => ({
+  id: String(u.id),
+  name: displayName(u),
+  email: u.email || '',
+  tag_ids: Array.isArray(u.tag_ids) ? u.tag_ids.map(String) : [],
+});
+
+/**
+ * Users who have at least one of `tagIds`. Empty tagIds → empty list (callers must pick tags).
+ * Active users only.
+ */
+export const listAssignableByTags = async (tagIds = []) => {
+  const wanted = [...new Set((Array.isArray(tagIds) ? tagIds : []).map(String).filter(Boolean))];
+  if (wanted.length === 0) return [];
+  const users = await userRepository.findAll();
+  return users
+    .filter((u) => {
+      if (u.status && String(u.status).toLowerCase() === 'disabled') return false;
+      const tags = Array.isArray(u.tag_ids) ? u.tag_ids.map(String) : [];
+      return tags.some((t) => wanted.includes(t));
+    })
+    .map(toAssignable)
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+/** Resolve display labels for saved assignee user ids. */
+export const resolveAssignableUsers = async (ids = []) => {
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 500);
+  if (wanted.length === 0) return {};
+  const users = await userRepository.findAll();
+  const out = {};
+  users.forEach((u) => {
+    const id = String(u.id);
+    if (wanted.includes(id)) out[id] = toAssignable(u);
+  });
+  return out;
+};
+
 export const bulkCreateUsers = async (usersList, creatorUser) => {
   if (!Array.isArray(usersList) || usersList.length === 0) {
     throw new AppError('No users provided in bulk upload', 400, ERROR_CODES.VALIDATION_ERROR);

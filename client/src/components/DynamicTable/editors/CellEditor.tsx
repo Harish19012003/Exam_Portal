@@ -13,12 +13,18 @@ import { RatingEditor } from './RatingEditor';
 import { TagsEditor } from './TagsEditor';
 import { AttachmentEditor } from './AttachmentEditor';
 import { LookupEditor } from './LookupEditor';
+import { UserAssigneeEditor } from './UserAssigneeEditor';
 
 
 export function CellEditor(props: CellEditorProps) {
   const { column } = props;
   if (isCompositeColumn(column)) {
     return <CompositeEditor {...props} />;
+  }
+
+  // Assign people filtered by the field's user tags (stores user id[]).
+  if (isFieldColumn(column) && column.userTags) {
+    return <UserAssigneeEditor {...props} />;
   }
 
   // A column that reads its choices from another table is edited by searching that table.

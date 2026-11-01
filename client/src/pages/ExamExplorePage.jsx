@@ -4,7 +4,8 @@ import { IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
-import { DynamicTable } from '../components/DynamicTable';
+import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
+import { useExamRows, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { useAccess, applyColumnAccess, creatableFields, tablePermissions } from '../hooks/useAccess';
 import { getExam } from './exams/examApi';
@@ -14,7 +15,6 @@ import {
   createExamTable,
   deleteExamRows,
   getExamTable,
-  listExamRows,
   saveExamTableConfig,
   updateExamRow,
 } from './exams/examTableApi';
@@ -28,10 +28,20 @@ import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import { DEFAULT_EXAM_TABLE_FEATURES } from './exams/examTableConfig';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
+import { clearLookupDisplayOverrides } from '../components/DynamicTable/editors/lookupDisplayOverrides';
+import { clearLookupPicksForRow } from '../components/DynamicTable/editors/lookupPicks';
+import { restoreAssigneeIds, useAssigneeDisplayRows } from './exams/useAssigneeLabels';
+import { restoreFromExamValues, useExamValueDisplayRows } from './exams/useExamValueDisplayRows';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
-import { groupSyncPatch, isLinkedField, isTableSourceField } from './exams/tableLookupApi';
+import { groupSyncPatch, isFromExamField, isLinkedField, isTableSourceField } from './exams/tableLookupApi';
 import { useConfigLists } from './settings/useConfigLists';
-import { defaultValueForType, groupFieldsForLayout, buildSameAsFlags, DATE_LINK_TYPES } from './exams/examFieldTypes';
+import {
+  defaultValueForType,
+  groupFieldsForLayout,
+  buildSameAsFlags,
+  DATE_LINK_TYPES,
+  loadExamFields,
+} from './exams/examFieldTypes';
 import {
   buildEmptyForm,
   hydrateFeatureStores,
@@ -162,8 +172,10 @@ export const ExamExplorePage = () => {
   const [tableInfo, setTableInfo] = useState(null); // exam_tables row, or null when not created
   const [fields, setFields] = useState([]);
   const [features, setFeatures] = useState(() => tableFeaturesFor(null));
-  const [rows, setRows] = useState([]);
-  const [rowsLoading, setRowsLoading] = useState(false);
+  const { invalidateRows, setRows: setRowsCache } = useInvalidateExams();
+  const rowsQuery = useExamRows(examId, { enabled: Boolean(examId) && Boolean(tableInfo) });
+  const rows = rowsQuery.data || [];
+  const rowsLoading = Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
   const [presets, setPresets] = useState([]);
@@ -209,9 +221,20 @@ export const ExamExplorePage = () => {
   );
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(() => creatableFields(fields, 'exam_rows', access), [fields, access]);
+  const examConfigQuery = useExamTableConfig();
+  const examSourceFields = useMemo(() => {
+    const fromQuery = examConfigQuery.data?.fields;
+    if (Array.isArray(fromQuery) && fromQuery.length) return fromQuery;
+    // Fallback while config query loads / if server config is empty but local schema exists.
+    return loadExamFields();
+  }, [examConfigQuery.data]);
   const savedTableRows = useMemo(() => buildExamTableRows(rows), [rows]);
   // Table-column fields store a row id; the table shows that row's current label.
-  const tableRows = useLookupDisplayRows(savedTableRows, fields);
+  const lookupDisplayRows = useLookupDisplayRows(savedTableRows, fields);
+  // User-tag assignee fields store user ids; show names.
+  const assigneeDisplayRows = useAssigneeDisplayRows(lookupDisplayRows, fields);
+  // From-exam fields mirror parent exam.values onto every center row.
+  const tableRows = useExamValueDisplayRows(assigneeDisplayRows, fields, exam?.values, examSourceFields);
 
   const applySnapshot = useCallback((snap) => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
@@ -227,25 +250,20 @@ export const ExamExplorePage = () => {
   }, []);
 
   const loadRows = useCallback(async () => {
-    setRowsLoading(true);
     try {
-      const data = await listExamRows(examId);
-      setRows(data.rows);
+      await invalidateRows(examId);
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not load the center list'));
-    } finally {
-      setRowsLoading(false);
     }
-  }, [examId]);
+  }, [examId, invalidateRows]);
 
-  // Load the exam, its table definition and rows
+  // Load the exam and its table definition; rows come from React Query once the table exists.
   useEffect(() => {
     let cancelled = false;
     const snapshot = snapshotFeatureStores();
     featuresSyncReadyRef.current = false;
     setStatus('loading');
     setTableError('');
-    setRows([]);
 
     (async () => {
       let examData;
@@ -265,7 +283,6 @@ export const ExamExplorePage = () => {
       setExam(examData);
       applySnapshot(snap);
       setStatus('ready');
-      if (snap?.exists) await loadRows();
       // Presets are offered when there is no table yet, when it is empty, and to spot a preset that
       // has newer field settings than this list's copy.
       listExamPresets().then((list) => !cancelled && setPresets(list)).catch(() => {});
@@ -280,7 +297,7 @@ export const ExamExplorePage = () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       restoreFeatureStores(snapshot);
     };
-  }, [examId, applySnapshot, loadRows]);
+  }, [examId, applySnapshot]);
 
   useEffect(() => {
     setBreadcrumbTail?.(label || null);
@@ -399,11 +416,28 @@ export const ExamExplorePage = () => {
   /* ---------- Rows ---------- */
 
   const handleRowUpdate = async (rowId, values) => {
+    const original = rows.find((r) => r.id === rowId);
+    const patched = restoreFromExamValues(
+      restoreAssigneeIds(
+        restoreLookupIds(values, original?.values, fields, rowId),
+        original?.values,
+        fields,
+        rowId,
+      ),
+      original?.values,
+      fields,
+    );
+    // Apply lookup ids (and group siblings) immediately so seeded labels paint before the API returns.
+    setRowsCache(examId, (prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, values: { ...(r.values || {}), ...patched } } : r)),
+    );
     try {
-      const original = rows.find((r) => r.id === rowId);
-      const next = await updateExamRow(examId, rowId, restoreLookupIds(values, original?.values, fields, rowId));
-      setRows((prev) => prev.map((r) => (r.id === rowId ? next : r)));
+      const next = await updateExamRow(examId, rowId, patched);
+      clearLookupPicksForRow(String(rowId));
+      clearLookupDisplayOverrides(String(rowId));
+      setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? next : r)));
     } catch (err) {
+      if (original) setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? original : r)));
       setMessage(apiErrorMessage(err, 'Could not update the center'));
     }
   };
@@ -412,7 +446,7 @@ export const ExamExplorePage = () => {
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
     try {
       await deleteExamRows(examId, ids);
-      setRows((prev) => prev.filter((r) => !ids.includes(r.id)));
+      setRowsCache(examId, (prev) => prev.filter((r) => !ids.includes(r.id)));
       setMessage(ids.length > 1 ? 'Centers deleted' : 'Center deleted');
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not delete the center'));
@@ -425,6 +459,7 @@ export const ExamExplorePage = () => {
     fieldsRef.current.forEach((f) => {
       if (SKIP_DUPLICATE_KEYS.has(String(f.key).toLowerCase())) return;
       if (f.dataType === 'formula' || f.dataType === 'composite') return;
+      if (isFromExamField(f) || isLinkedField(f)) return;
       if (f.autoFill && f.autoFill !== 'none') {
         values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
       } else if (source[f.key] !== undefined) {
@@ -433,7 +468,7 @@ export const ExamExplorePage = () => {
     });
     try {
       const created = await createExamRow(examId, values);
-      setRows((prev) => [created, ...prev]);
+      setRowsCache(examId, (prev) => [created, ...prev]);
       setMessage('Center duplicated');
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not duplicate the center'));
@@ -482,8 +517,13 @@ export const ExamExplorePage = () => {
     setSubmitting(true);
     setFormError('');
     try {
-      const created = await createExamRow(examId, form);
-      setRows((prev) => [created, ...prev]);
+      // fromExam / linked are display-only — never persist painted values on the row.
+      const values = { ...form };
+      fields.forEach((f) => {
+        if (isFromExamField(f) || isLinkedField(f)) delete values[f.key];
+      });
+      const created = await createExamRow(examId, values);
+      setRowsCache(examId, (prev) => [created, ...prev]);
       setIsCreateOpen(false);
       setMessage('Center added');
     } catch (err) {
@@ -555,6 +595,7 @@ export const ExamExplorePage = () => {
         f.dataType !== 'formula' &&
         f.dataType !== 'composite' &&
         !isLinkedField(f) &&
+        !isFromExamField(f) &&
         !isTableSourceField(f),
     );
     const byKey = new Map(importable.map((f) => [String(f.key).trim().toLowerCase(), f]));
@@ -621,6 +662,10 @@ export const ExamExplorePage = () => {
         sameAsSourceLabel={source?.label || ''}
         linkedSourceField={field.linkedFrom ? fieldByKey[field.linkedFrom.fieldKey] : null}
         linkedSourceValue={field.linkedFrom ? form[field.linkedFrom.fieldKey] : undefined}
+        examValue={exam?.values?.[field.examFieldKey]}
+        examSourceDataType={
+          examSourceFields.find((f) => f.key === field.examFieldKey)?.dataType
+        }
         onSameAsToggle={field.sameAsFieldKey ? (checked) => handleSameAsToggle(field.key, checked) : undefined}
       />
     );
@@ -762,7 +807,7 @@ export const ExamExplorePage = () => {
             )}
           </div>
         ) : rowsLoading || !layoutReady ? (
-          <div className="exams-list-empty">Loading…</div>
+          <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, fields.length || 5)} />
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
@@ -842,6 +887,8 @@ export const ExamExplorePage = () => {
       <ExamFieldBuilder
         open={isBuilderOpen}
         fields={fields}
+        examSourceFields={examSourceFields}
+        enableFromExam
         onClose={() => setIsBuilderOpen(false)}
         onChange={handleFieldsChange}
       />

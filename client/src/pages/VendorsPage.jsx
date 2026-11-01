@@ -2,12 +2,17 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useToast } from '../components/ui/Toast';
 import { Button, IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
-import { DynamicTable } from '../components/DynamicTable';
+import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { ListPlus, Plus, SlidersHorizontal } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { useAccess, applyColumnAccess, tablePermissions } from '../hooks/useAccess';
 import { usePortalTableFeatures, withPortalFeatureLocks } from '../hooks/usePortalTableFeatures';
+import {
+  useInvalidateVendors,
+  useVendorsConfig,
+  useVendorsList,
+} from '../hooks/useVendorsQuery';
 import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
@@ -37,12 +42,18 @@ export const VendorsPage = () => {
     onResetLayoutToDefault,
   } = useTableLayoutPrefs(TABLE_IDS.VENDORS);
 
-  const [rows, setRows] = useState([]);
+  const listQuery = useVendorsList();
+  const configQuery = useVendorsConfig();
+  const { invalidateList, refetchList, setList, setConfigFields } = useInvalidateVendors();
+  const rows = listQuery.data || [];
+  const customFields = Array.isArray(configQuery.data?.fields) ? configQuery.data.fields : [];
+  const showSkeleton =
+    !layoutReady || (listQuery.isPending && !listQuery.data) || (configQuery.isPending && !configQuery.data);
+
   // Confirmations and errors show as toasts (top right) instead of a banner that shifts the table down.
   const { addToast } = useToast();
   const setSuccessMsg = useCallback((message) => { if (message) addToast(message, 'success'); }, [addToast]);
   const setErrorMsg = useCallback((message) => { if (message) addToast(message, 'error'); }, [addToast]);
-  const [customFields, setCustomFields] = useState([]);
   const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false);
   const [manageFieldsOpen, setManageFieldsOpen] = useState(false);
   const [manageStartNew, setManageStartNew] = useState(false);
@@ -56,8 +67,32 @@ export const VendorsPage = () => {
     const res = await apiClient.put('/vendors/config', { features });
     setSuccessMsg('Feature Builder settings saved for everyone');
     return res;
-  }, []);
+  }, [setSuccessMsg]);
   const portalFeatures = usePortalTableFeatures({ canConfigure, persist: persistFeatures });
+  const hydratedFeaturesRef = useRef(false);
+
+  useEffect(() => {
+    if (!configQuery.data || hydratedFeaturesRef.current) return;
+    portalFeatures.hydrate(configQuery.data.features);
+    hydratedFeaturesRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configQuery.data]);
+
+  useEffect(() => {
+    if (configQuery.isError) {
+      setErrorMsg(configQuery.error?.response?.data?.message || 'Failed to load vendor field configuration.');
+    }
+  }, [configQuery.isError, configQuery.error, setErrorMsg]);
+
+  useEffect(() => {
+    if (listQuery.isError) {
+      setErrorMsg(listQuery.error?.response?.data?.message || 'Failed to load vendors from the database.');
+    }
+  }, [listQuery.isError, listQuery.error, setErrorMsg]);
+
+  const refreshRows = useCallback(async () => {
+    await refetchList();
+  }, [refetchList]);
 
   const openAddField = () => {
     setManageStartNew(true);
@@ -78,17 +113,6 @@ export const VendorsPage = () => {
     [customFields, access, configVersion],
   );
 
-  const fetchConfig = async () => {
-    try {
-      const res = await apiClient.get('/vendors/config');
-      const data = res.data?.data || res.data || {};
-      setCustomFields(Array.isArray(data.fields) ? data.fields : []);
-      portalFeatures.hydrate(data.features);
-    } catch (err) {
-      setErrorMsg(err.response?.data?.message || 'Failed to load vendor field configuration.');
-    }
-  };
-
   /**
    * Fields drawer. Every change is saved immediately to the API.
    * The list updates optimistically and is restored if the server rejects the change.
@@ -102,16 +126,16 @@ export const VendorsPage = () => {
     const previous = customFields;
     const removed = previous.filter((f) => !next.some((n) => n.id === f.id));
     const added = next.some((n) => !previous.some((f) => f.id === n.id));
-    setCustomFields(next);
+    setConfigFields(next);
 
     saveChain.current = saveChain.current.then(async () => {
       try {
         const res = await apiClient.put('/vendors/config', { fields: next, confirmDrops: removed.length > 0 });
         const data = res.data?.data || res.data || {};
-        if (Array.isArray(data.fields)) setCustomFields(data.fields);
-        if (removed.length || added) await fetchVendorsFromBackend();
+        if (Array.isArray(data.fields)) setConfigFields(data.fields);
+        if (removed.length || added) await invalidateList();
       } catch (err) {
-        setCustomFields(previous);
+        setConfigFields(previous);
         setErrorMsg(err.response?.data?.message || err.message || 'Could not save the field change.');
       }
     });
@@ -125,7 +149,7 @@ export const VendorsPage = () => {
     try {
       const res = await apiClient.put('/vendors/config', { fields: [...base, ...newFields] });
       const data = res.data?.data || res.data || {};
-      setCustomFields(Array.isArray(data.fields) ? data.fields : [...base, ...newFields]);
+      setConfigFields(Array.isArray(data.fields) ? data.fields : [...base, ...newFields]);
       setBulkFieldsOpen(false);
       setErrorMsg('');
       const parts = [
@@ -133,35 +157,13 @@ export const VendorsPage = () => {
         updatedFields.length && `updated ${updatedFields.length}`,
       ].filter(Boolean);
       setSuccessMsg(`${parts.join(', ')} in the vendor table.`);
-      await fetchVendorsFromBackend();
+      await invalidateList();
     } catch (err) {
       setFieldsError(err.response?.data?.message || err.message || 'Could not save the fields.');
     } finally {
       setSavingFields(false);
     }
   };
-
-  const fetchVendorsFromBackend = async () => {
-    try {
-      const res = await apiClient.get('/vendors');
-      const list = res.data?.data || res.data;
-      if (Array.isArray(list)) {
-        const mapped = list.map((v) => ({
-          rowId: String(v.id),
-          version: v.version || 1,
-          values: Object.fromEntries(Object.entries(v).filter(([k]) => !SYSTEM_VALUE_KEYS.has(k))),
-        }));
-        setRows(mapped);
-      }
-    } catch (err) {
-      setErrorMsg(err.response?.data?.message || 'Failed to load vendors from the database.');
-    }
-  };
-
-  useEffect(() => {
-    fetchConfig();
-    fetchVendorsFromBackend();
-  }, []);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -193,7 +195,7 @@ export const VendorsPage = () => {
           (reason?.response?.data?.message ? `: ${reason.response.data.message}` : '.'),
       );
     }
-    await fetchVendorsFromBackend();
+    await invalidateList();
   };
 
   // ── Persistent row update ───────────────────────────────────────────────────
@@ -205,7 +207,7 @@ export const VendorsPage = () => {
       });
       const saved = res.data?.data || res.data || {};
 
-      setRows((prev) =>
+      setList((prev) =>
         prev.map((r) =>
           r.rowId === String(rowId)
             ? {
@@ -223,7 +225,7 @@ export const VendorsPage = () => {
       setErrorMsg('');
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to update vendor in database.');
-      fetchVendorsFromBackend();
+      await invalidateList();
     }
   };
 
@@ -235,12 +237,12 @@ export const VendorsPage = () => {
     try {
       await apiClient.post('/vendors/delete', { ids });
       const idSet = new Set(ids.map(String));
-      setRows((prev) => prev.filter((r) => !idSet.has(r.rowId)));
+      setList((prev) => prev.filter((r) => !idSet.has(r.rowId)));
       setSuccessMsg(ids.length === 1 ? 'Vendor deleted successfully.' : `${ids.length} vendors deleted successfully.`);
       setErrorMsg('');
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to delete vendor from database.');
-      fetchVendorsFromBackend();
+      await invalidateList();
     }
   };
 
@@ -280,7 +282,7 @@ export const VendorsPage = () => {
       );
       setErrorMsg('');
       setSuccessMsg(`Successfully imported ${importRows.length} vendor${importRows.length === 1 ? '' : 's'}.`);
-      await fetchVendorsFromBackend();
+      await invalidateList();
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to import vendors.');
       throw err;
@@ -307,20 +309,20 @@ export const VendorsPage = () => {
 
       {/* Main Vendor Data Table */}
       <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
-        {!layoutReady ? (
-          <div style={{ padding: '2rem', color: 'var(--text-secondary, #64748b)' }}>Loading table layout…</div>
+        {showSkeleton ? (
+          <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, customFields.length || 5)} />
         ) : customFields.length === 0 ? (
           <div
             style={{
               padding: '3rem 1.5rem',
               textAlign: 'center',
-              color: 'var(--text-secondary, #64748b)',
+              color: 'var(--text-secondary, #6b7280)',
               background: 'var(--bg-card, #ffffff)',
-              border: '1px dashed var(--border-color, #e2e8f0)',
+              border: '1px dashed var(--border-color, #e5e7eb)',
               borderRadius: '14px',
             }}
           >
-            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>No vendor fields yet</p>
+            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #030712)' }}>No vendor fields yet</p>
             <p style={{ margin: '6px 0 0', fontSize: '13px' }}>
               {canConfigure
                 ? 'Add the columns this table needs, one at a time or many at once.'
@@ -373,7 +375,7 @@ export const VendorsPage = () => {
             onRowUpdate={handleRowUpdate}
             onBulkUpdate={handleBulkUpdate}
             onRowDelete={handleRowDelete}
-            onRefresh={fetchVendorsFromBackend}
+            onRefresh={refreshRows}
             onImportRows={handleImportRows}
             showAddRow={false}
             permissions={tablePerms}

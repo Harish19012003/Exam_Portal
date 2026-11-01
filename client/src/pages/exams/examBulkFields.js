@@ -132,8 +132,9 @@ export const toFieldDefinition = (item, order) => {
     options: item.options,
     optionsSource: item.optionsSource || 'manual',
     configListId: item.configListId || '',
+    userTagIds: item.optionsSource === 'userTags' ? item.userTagIds || [] : [],
     ...(item.tableSource ? { tableSource: item.tableSource } : {}),
-    allowMultiple: item.dataType === 'multiselect',
+    allowMultiple: item.optionsSource === 'userTags' ? true : item.dataType === 'multiselect',
     autoFill: item.autoFill || 'none',
     layout: item.layout || 'full',
     sameAsFieldKey: '',
@@ -142,6 +143,7 @@ export const toFieldDefinition = (item, order) => {
   };
   if (item.unique) def.unique = true;
   if (item.linkedFrom) def.linkedFrom = item.linkedFrom;
+  if (item.dataType === 'fromExam' && item.examFieldKey) def.examFieldKey = item.examFieldKey;
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }

@@ -2,12 +2,17 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useToast } from '../components/ui/Toast';
 import { Button, IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
-import { DynamicTable } from '../components/DynamicTable';
+import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { ListPlus, Plus, Settings, SlidersHorizontal } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { useAccess, applyColumnAccess, tablePermissions } from '../hooks/useAccess';
 import { usePortalTableFeatures, withPortalFeatureLocks } from '../hooks/usePortalTableFeatures';
+import {
+  useInvalidateSeqViews,
+  useSeqViewsConfig,
+  useSeqViewsList,
+} from '../hooks/useSeqViewsQuery';
 import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
@@ -38,14 +43,21 @@ export const SeqViewPage = () => {
     onResetLayoutToDefault,
   } = useTableLayoutPrefs(TABLE_IDS.SEQ_VIEW);
 
-  const [rows, setRows] = useState([]);
-  // The table is drawn only once the first load is done, so it never flashes "No results found" for rows still on their way.
-  const [rowsLoaded, setRowsLoaded] = useState(false);
-  // Confirmations and errors show as toasts (top right) instead of a banner that shifts the table down.
+  const listQuery = useSeqViewsList();
+  const configQuery = useSeqViewsConfig();
+  const { invalidateList, refetchList, setList, setConfigFields } = useInvalidateSeqViews();
+
+  const rows = listQuery.data || [];
+  const customFields = Array.isArray(configQuery.data?.fields) ? configQuery.data.fields : [];
+  const dataReady = listQuery.isSuccess || listQuery.isError;
+  const configReady = configQuery.isSuccess || configQuery.isError;
+  // Skeleton only on cold load — cached visits show the table immediately.
+  const showSkeleton =
+    !layoutReady || (listQuery.isPending && !listQuery.data) || (configQuery.isPending && !configQuery.data);
+
   const { addToast } = useToast();
   const setSuccessMsg = useCallback((message) => { if (message) addToast(message, 'success'); }, [addToast]);
   const setErrorMsg = useCallback((message) => { if (message) addToast(message, 'error'); }, [addToast]);
-  const [customFields, setCustomFields] = useState([]);
   const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false);
   const [apiOpen, setApiOpen] = useState(false);
   const [manageFieldsOpen, setManageFieldsOpen] = useState(false);
@@ -60,8 +72,28 @@ export const SeqViewPage = () => {
     const res = await apiClient.put('/seq-views/config', { features });
     setSuccessMsg('Feature Builder settings saved for everyone');
     return res;
-  }, []);
+  }, [setSuccessMsg]);
   const portalFeatures = usePortalTableFeatures({ canConfigure, persist: persistFeatures });
+  const hydratedFeaturesRef = useRef(false);
+
+  useEffect(() => {
+    if (!configQuery.data || hydratedFeaturesRef.current) return;
+    portalFeatures.hydrate(configQuery.data.features);
+    hydratedFeaturesRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configQuery.data]);
+
+  useEffect(() => {
+    if (configQuery.isError) {
+      setErrorMsg(configQuery.error?.response?.data?.message || 'Failed to load SeqView field configuration.');
+    }
+  }, [configQuery.isError, configQuery.error, setErrorMsg]);
+
+  useEffect(() => {
+    if (listQuery.isError) {
+      setErrorMsg(listQuery.error?.response?.data?.message || 'Failed to load SeqViews from the database.');
+    }
+  }, [listQuery.isError, listQuery.error, setErrorMsg]);
 
   const openAddField = () => {
     setManageStartNew(true);
@@ -82,16 +114,9 @@ export const SeqViewPage = () => {
     [customFields, access, configVersion],
   );
 
-  const fetchConfig = async () => {
-    try {
-      const res = await apiClient.get('/seq-views/config');
-      const data = res.data?.data || res.data || {};
-      setCustomFields(Array.isArray(data.fields) ? data.fields : []);
-      portalFeatures.hydrate(data.features);
-    } catch (err) {
-      setErrorMsg(err.response?.data?.message || 'Failed to load SeqView field configuration.');
-    }
-  };
+  const refreshRows = useCallback(async () => {
+    await refetchList();
+  }, [refetchList]);
 
   /**
    * Fields drawer. Every change is saved immediately to the API.
@@ -106,16 +131,16 @@ export const SeqViewPage = () => {
     const previous = customFields;
     const removed = previous.filter((f) => !next.some((n) => n.id === f.id));
     const added = next.some((n) => !previous.some((f) => f.id === n.id));
-    setCustomFields(next);
+    setConfigFields(next);
 
     saveChain.current = saveChain.current.then(async () => {
       try {
         const res = await apiClient.put('/seq-views/config', { fields: next, confirmDrops: removed.length > 0 });
         const data = res.data?.data || res.data || {};
-        if (Array.isArray(data.fields)) setCustomFields(data.fields);
-        if (removed.length || added) await fetchSeqViewsFromBackend();
+        if (Array.isArray(data.fields)) setConfigFields(data.fields);
+        if (removed.length || added) await invalidateList();
       } catch (err) {
-        setCustomFields(previous);
+        setConfigFields(previous);
         setErrorMsg(err.response?.data?.message || err.message || 'Could not save the field change.');
       }
     });
@@ -129,7 +154,7 @@ export const SeqViewPage = () => {
     try {
       const res = await apiClient.put('/seq-views/config', { fields: [...base, ...newFields] });
       const data = res.data?.data || res.data || {};
-      setCustomFields(Array.isArray(data.fields) ? data.fields : [...base, ...newFields]);
+      setConfigFields(Array.isArray(data.fields) ? data.fields : [...base, ...newFields]);
       setBulkFieldsOpen(false);
       setErrorMsg('');
       const parts = [
@@ -137,37 +162,13 @@ export const SeqViewPage = () => {
         updatedFields.length && `updated ${updatedFields.length}`,
       ].filter(Boolean);
       setSuccessMsg(`${parts.join(', ')} in the SeqView table.`);
-      await fetchSeqViewsFromBackend();
+      await invalidateList();
     } catch (err) {
       setFieldsError(err.response?.data?.message || err.message || 'Could not save the fields.');
     } finally {
       setSavingFields(false);
     }
   };
-
-  const fetchSeqViewsFromBackend = async () => {
-    try {
-      const res = await apiClient.get('/seq-views');
-      const list = res.data?.data || res.data;
-      if (Array.isArray(list)) {
-        const mapped = list.map((v) => ({
-          rowId: String(v.id),
-          version: v.version || 1,
-          values: Object.fromEntries(Object.entries(v).filter(([k]) => !SYSTEM_VALUE_KEYS.has(k))),
-        }));
-        setRows(mapped);
-      }
-    } catch (err) {
-      setErrorMsg(err.response?.data?.message || 'Failed to load SeqViews from the database.');
-    } finally {
-      setRowsLoaded(true);
-    }
-  };
-
-  useEffect(() => {
-    fetchConfig();
-    fetchSeqViewsFromBackend();
-  }, []);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -177,8 +178,6 @@ export const SeqViewPage = () => {
     return () => observer.disconnect();
   }, []);
 
-
-  // ── Bulk update: PATCH every selected SeqView, then confirm once for the whole operation ──
   const handleBulkUpdate = async (items) => {
     if (!items?.length) return;
     const results = await Promise.allSettled(
@@ -199,10 +198,9 @@ export const SeqViewPage = () => {
           (reason?.response?.data?.message ? `: ${reason.response.data.message}` : '.'),
       );
     }
-    await fetchSeqViewsFromBackend();
+    await invalidateList();
   };
 
-  // ── Persistent row update ───────────────────────────────────────────────────
   const handleRowUpdate = async (rowId, updatedValues, updatedRow) => {
     try {
       const res = await apiClient.patch(`/seq-views/${encodeURIComponent(rowId)}`, {
@@ -211,7 +209,7 @@ export const SeqViewPage = () => {
       });
       const saved = res.data?.data || res.data || {};
 
-      setRows((prev) =>
+      setList((prev) =>
         prev.map((r) =>
           r.rowId === String(rowId)
             ? {
@@ -229,11 +227,10 @@ export const SeqViewPage = () => {
       setErrorMsg('');
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to update SeqView in database.');
-      fetchSeqViewsFromBackend();
+      await invalidateList();
     }
   };
 
-  // ── Persistent row delete ───────────────────────────────────────────────────
   const handleRowDelete = async (rowIds) => {
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
     if (ids.length === 0) return;
@@ -241,16 +238,15 @@ export const SeqViewPage = () => {
     try {
       await apiClient.post('/seq-views/delete', { ids });
       const idSet = new Set(ids.map(String));
-      setRows((prev) => prev.filter((r) => !idSet.has(r.rowId)));
+      setList((prev) => prev.filter((r) => !idSet.has(r.rowId)));
       setSuccessMsg(ids.length === 1 ? 'SeqView deleted successfully.' : `${ids.length} SeqViews deleted successfully.`);
       setErrorMsg('');
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to delete SeqView from database.');
-      fetchSeqViewsFromBackend();
+      await invalidateList();
     }
   };
 
-  // ── CSV import (table toolbar) — chunked so large files don't blow request bodies ──
   const handleImportRows = async (csvRows, handlers) => {
     const byHeader = new Map();
     customFields.forEach((f) => {
@@ -286,7 +282,7 @@ export const SeqViewPage = () => {
       );
       setErrorMsg('');
       setSuccessMsg(`Successfully imported ${importRows.length} SeqView${importRows.length === 1 ? '' : 's'}.`);
-      await fetchSeqViewsFromBackend();
+      await invalidateList();
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to import SeqViews.');
       throw err;
@@ -298,7 +294,6 @@ export const SeqViewPage = () => {
       className="tables-page--dynamic"
       style={{ padding: '0', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, minHeight: 0, height: '100%' }}
     >
-      {/* Page Header */}
       <PageHeading
         title="SeqView"
         subtitle="Manage and update SeqView records."
@@ -316,22 +311,21 @@ export const SeqViewPage = () => {
         }
       />
 
-      {/* Main SeqView Data Table */}
       <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
-        {!layoutReady || !rowsLoaded ? (
-          <div style={{ padding: '2rem', color: 'var(--text-secondary, #64748b)' }}>Loading…</div>
+        {showSkeleton || !configReady || !dataReady ? (
+          <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, customFields.length || 5)} />
         ) : customFields.length === 0 ? (
           <div
             style={{
               padding: '3rem 1.5rem',
               textAlign: 'center',
-              color: 'var(--text-secondary, #64748b)',
+              color: 'var(--text-secondary, #6b7280)',
               background: 'var(--bg-card, #ffffff)',
-              border: '1px dashed var(--border-color, #e2e8f0)',
+              border: '1px dashed var(--border-color, #e5e7eb)',
               borderRadius: '14px',
             }}
           >
-            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>No SeqView fields yet</p>
+            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #030712)' }}>No SeqView fields yet</p>
             <p style={{ margin: '6px 0 0', fontSize: '13px' }}>
               {canConfigure
                 ? 'Add the columns this table needs, one at a time or many at once.'
@@ -384,7 +378,7 @@ export const SeqViewPage = () => {
             onRowUpdate={handleRowUpdate}
             onBulkUpdate={handleBulkUpdate}
             onRowDelete={handleRowDelete}
-            onRefresh={fetchSeqViewsFromBackend}
+            onRefresh={refreshRows}
             onImportRows={handleImportRows}
             showAddRow={false}
             permissions={tablePerms}
@@ -403,7 +397,7 @@ export const SeqViewPage = () => {
       <SeqViewApiModal
         open={apiOpen}
         onClose={() => setApiOpen(false)}
-        onFetched={fetchSeqViewsFromBackend}
+        onFetched={refreshRows}
         onNotify={setSuccessMsg}
       />
 

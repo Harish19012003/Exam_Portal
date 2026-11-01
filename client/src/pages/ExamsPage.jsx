@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { IconButton } from '../components/Button';
-import { PageHeading } from '../components/PageHeading';
+import { PageTitle } from '../components/PageHeading';
 import { useConfirm } from '../feedback';
 import { apiErrorMessage } from './exams/examTableApi';
 import { useNavigate } from 'react-router-dom';
 import { Plus, X, FilePlus2, SlidersHorizontal, CalendarDays } from 'lucide-react';
-import { DynamicTable } from '../components/DynamicTable';
+import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import {
@@ -22,19 +22,22 @@ import {
   clearCreateExamDraft,
 } from './exams/examDraftStorage';
 import {
-  listExams,
   createExam,
   deleteExam,
   updateExam,
   importExams,
   migrateLocalExamsToSqlIfNeeded,
 } from './exams/examApi';
+import { useExamsList, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
+import { clearLookupDisplayOverrides } from '../components/DynamicTable/editors/lookupDisplayOverrides';
+import { clearLookupPicksForRow } from '../components/DynamicTable/editors/lookupPicks';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
+import { ExamDateWindowChips } from './exams/ExamDateWindowChips';
+import { filterRowsByDateWindow } from './exams/examDateWindow';
 import { groupSyncPatch } from './exams/tableLookupApi';
 import { useConfigLists } from './settings/useConfigLists';
 import {
-  fetchExamTableConfig,
   publishExamTableConfig,
   getDefaultExamTableConfig,
   recoverFieldsFromExams,
@@ -90,8 +93,14 @@ export const ExamsPage = () => {
     ...DEFAULT_EXAM_TABLE_FEATURES,
   }));
   const [configReady, setConfigReady] = useState(false);
-  const [exams, setExams] = useState([]);
-  const [examsLoading, setExamsLoading] = useState(true);
+  const examsListQuery = useExamsList();
+  const examConfigQuery = useExamTableConfig();
+  const { invalidateList: invalidateExamsList, refetchList: refetchExamsList, setList: setExamsCache } =
+    useInvalidateExams();
+  const exams = examsListQuery.data || [];
+  const examsLoading =
+    (examsListQuery.isPending && !examsListQuery.data) ||
+    (examConfigQuery.isPending && !examConfigQuery.data && !configReady);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isFieldBuilderOpen, setIsFieldBuilderOpen] = useState(false);
   const [form, setForm] = useState(() => buildEmptyForm(loadExamFields()));
@@ -138,9 +147,23 @@ export const ExamsPage = () => {
     () => creatableFields(formFields, 'exams', access),
     [formFields, access],
   );
+  const [dateWindow, setDateWindow] = useState('all');
   const savedTableRows = useMemo(() => buildExamTableRows(exams), [exams]);
   // Table-column fields store a row id; the table shows that row's current label.
-  const tableRows = useLookupDisplayRows(savedTableRows, formFields);
+  const lookupDisplayRows = useLookupDisplayRows(savedTableRows, formFields);
+  const dateWindowCounts = useMemo(
+    () => ({
+      all: lookupDisplayRows.length,
+      upcoming: filterRowsByDateWindow(lookupDisplayRows, formFields, 'upcoming').length,
+      today: filterRowsByDateWindow(lookupDisplayRows, formFields, 'today').length,
+      last7: filterRowsByDateWindow(lookupDisplayRows, formFields, 'last7').length,
+    }),
+    [lookupDisplayRows, formFields],
+  );
+  const tableRows = useMemo(
+    () => filterRowsByDateWindow(lookupDisplayRows, formFields, dateWindow),
+    [lookupDisplayRows, formFields, dateWindow],
+  );
 
   const handleSaveLayoutAsDefault = useCallback(
     async (prefs) => {
@@ -222,8 +245,24 @@ export const ExamsPage = () => {
     return () => observer.disconnect();
   }, []);
 
-  // Load shared Settings config for everyone; hydrate Feature Builder stores for admins
+  // One-time IndexedDB → SQL migration, then refresh cached exam list.
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await migrateLocalExamsToSqlIfNeeded();
+      if (!cancelled) await invalidateExamsList();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hydrate field builder / features from cached (or fetched) exam table config.
+  useEffect(() => {
+    if (configReady) return;
+    if (examConfigQuery.isPending && !examConfigQuery.data) return;
+
     let cancelled = false;
     storeSnapshotRef.current = {
       shared: { ...getSharedViewFeatures() },
@@ -232,18 +271,10 @@ export const ExamsPage = () => {
     };
 
     (async () => {
-      setExamsLoading(true);
-      // Push any old IndexedDB exam rows into SQL once (drafts stay local)
-      await migrateLocalExamsToSqlIfNeeded();
-
-      let rows = [];
       try {
-        const [config, examRows] = await Promise.all([
-          fetchExamTableConfig(),
-          listExams(),
-        ]);
+        const config = examConfigQuery.data || getDefaultExamTableConfig();
         if (cancelled) return;
-        rows = examRows;
+        const rows = examsListQuery.data || [];
 
         const next = config || getDefaultExamTableConfig();
         let fields = Array.isArray(next.fields) ? next.fields : [];
@@ -266,8 +297,6 @@ export const ExamsPage = () => {
         setFeaturesDirty(false);
         formFieldsRef.current = fields;
         hydrateFeatureStores(features);
-        setExams(rows);
-        setExamsLoading(false);
         setConfigReady(true);
 
         if (canConfigure && needsPublish && fields.length > 0) {
@@ -279,17 +308,12 @@ export const ExamsPage = () => {
           }
         }
       } catch {
-        if (!cancelled) {
-          setExams([]);
-          setExamsLoading(false);
-          setConfigReady(true);
-        }
+        if (!cancelled) setConfigReady(true);
       }
 
       window.setTimeout(() => {
         if (!cancelled) {
           skipPublishRef.current = false;
-          // Allow Feature Builder draft tracking after table finishes hydrating
           featuresSyncReadyRef.current = true;
         }
       }, 1200);
@@ -306,7 +330,8 @@ export const ExamsPage = () => {
         replaceQuickFiltersState(snap.quick);
       }
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examConfigQuery.isPending, examConfigQuery.data, examsListQuery.data]);
 
   const normalizeFeaturesDraft = useCallback((features) => ({
     ...DEFAULT_EXAM_TABLE_FEATURES,
@@ -469,7 +494,7 @@ export const ExamsPage = () => {
     setFormError('');
     try {
       const exam = await createExam({ values: form, fields: formFields });
-      setExams((prev) => [exam, ...prev]);
+      setExamsCache((prev) => [exam, ...prev]);
       await clearCreateExamDraft();
       skipNextSaveRef.current = true;
       draftReadyRef.current = false;
@@ -487,14 +512,24 @@ export const ExamsPage = () => {
 
   const handleRowUpdate = async (rowId, updatedValues) => {
     const original = exams.find((exam) => exam.id === rowId);
-    const next = await updateExam(rowId, {
-      values: restoreLookupIds(updatedValues, original?.values, formFields, rowId),
-    });
+    const patchedValues = restoreLookupIds(updatedValues, original?.values, formFields, rowId);
+    // Paint group / linked lookup fields from seeds before the save round-trip finishes.
+    if (original) {
+      setExamsCache((prev) =>
+        prev.map((exam) =>
+          exam.id === rowId ? { ...exam, values: { ...(exam.values || {}), ...patchedValues } } : exam,
+        ),
+      );
+    }
+    const next = await updateExam(rowId, { values: patchedValues });
     if (!next) {
+      if (original) setExamsCache((prev) => prev.map((exam) => (exam.id === rowId ? original : exam)));
       setPageMessage('Could not update exam');
       return;
     }
-    setExams((prev) => prev.map((exam) => (exam.id === rowId ? next : exam)));
+    clearLookupPicksForRow(String(rowId));
+    clearLookupDisplayOverrides(String(rowId));
+    setExamsCache((prev) => prev.map((exam) => (exam.id === rowId ? next : exam)));
   };
 
   // Deleting an exam also deletes its center list and every center in it, so always ask first.
@@ -517,11 +552,11 @@ export const ExamsPage = () => {
     const results = await Promise.allSettled(ids.map((id) => deleteExam(id)));
     const deleted = ids.filter((_, i) => results[i].status === 'fulfilled');
     const failed = results.find((r) => r.status === 'rejected');
-    if (deleted.length) setExams((prev) => prev.filter((exam) => !deleted.includes(exam.id)));
+    if (deleted.length) setExamsCache((prev) => prev.filter((exam) => !deleted.includes(exam.id)));
     if (failed) {
       setPageMessage(apiErrorMessage(failed.reason, 'Could not delete the exam'));
       // Show what is really on the server.
-      listExams().then(setExams).catch(() => {});
+      refetchExamsList().catch(() => {});
       return;
     }
     setPageMessage(ids.length > 1 ? 'Exams deleted' : 'Exam deleted');
@@ -585,7 +620,7 @@ export const ExamsPage = () => {
 
       try {
         const exam = await createExam({ values, fields });
-        setExams((prev) => [exam, ...prev]);
+        setExamsCache((prev) => [exam, ...prev]);
         setPageMessage('Exam duplicated');
       } catch {
         setPageMessage('Could not duplicate exam');
@@ -657,8 +692,7 @@ export const ExamsPage = () => {
         },
         { chunkSize: 400, onProgress: handlers?.onProgress },
       );
-      const rows = await listExams();
-      setExams(rows);
+      await invalidateExamsList();
       setPageMessage(`Imported ${exams.length} exam${exams.length === 1 ? '' : 's'}`);
     },
     [],
@@ -692,10 +726,16 @@ export const ExamsPage = () => {
 
   return (
     <div className="exams-page exams-page--table">
-      <PageHeading
-        title="Exam management"
-        actions={
-          <>
+      <div className="exams-page-heading-row">
+        <PageTitle title="Exam management" />
+        {formFields.length > 0 && (
+          <ExamDateWindowChips
+            value={dateWindow}
+            onChange={setDateWindow}
+            counts={dateWindowCounts}
+          />
+        )}
+        <div className="page-heading-actions exams-page-heading-actions">
           {canConfigure && (
             <IconButton label="Field builder (admin)" onClick={() => setIsFieldBuilderOpen(true)}>
               <SlidersHorizontal size={16} strokeWidth={2} />
@@ -706,9 +746,8 @@ export const ExamsPage = () => {
               <Plus size={16} strokeWidth={2.5} />
             </IconButton>
           )}
-          </>
-        }
-      />
+        </div>
+      </div>
 
       {pageMessage && (
         <div className="exams-page-toast" role="status" aria-live="polite">
@@ -718,7 +757,7 @@ export const ExamsPage = () => {
 
       <div className="exams-table-panel">
         {examsLoading || !configReady || !layoutReady ? (
-          <div className="exams-list-empty">Loading exams…</div>
+          <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, formFields.length || 5)} />
         ) : formFields.length === 0 ? (
           <div className="exams-list-empty">
             <CalendarDays size={22} strokeWidth={1.75} />

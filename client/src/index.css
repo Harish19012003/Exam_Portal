@@ -16,8 +16,8 @@
     --bg-sidebar: #f8f9fa;
     --bg-topbar: #ffffff;
     --bg-card: #ffffff;
-    --bg-primary: #f8fafc;
-    --bg-secondary: #f1f5f9;
+    --bg-primary: #f9fafb;
+    --bg-secondary: #f3f4f6;
 
     --text-primary: #1e2022;
     --text-secondary: #747980;
@@ -37,22 +37,22 @@
   }
 
   [data-theme='dark'] {
-    --bg-app: #0f172a;
-    --bg-sidebar: #1e293b;
-    --bg-topbar: #1e293b;
-    --bg-card: #1e293b;
-    --bg-primary: #0f172a;
-    --bg-secondary: #0f172a;
+    --bg-app: #030712;
+    --bg-sidebar: #111827;
+    --bg-topbar: #111827;
+    --bg-card: #111827;
+    --bg-primary: #030712;
+    --bg-secondary: #030712;
 
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-tertiary: #64748b;
+    --text-primary: #f9fafb;
+    --text-secondary: #9ca3af;
+    --text-tertiary: #6b7280;
 
-    --primary-color: #7c3aed;
-    --primary-hover: #8b5cf6;
-    --primary-light: rgba(124, 58, 237, 0.15);
+    --primary-color: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-light: rgba(59, 130, 246, 0.15);
 
-    --border-color: #334155;
+    --border-color: #1f2937;
   }
 
   html,
@@ -113,10 +113,10 @@
   background-color: rgba(100, 116, 139, 0.65);
 }
 [data-theme='dark'] .custom-scrollbar {
-  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+  scrollbar-color: rgba(156, 163, 175, 0.45) transparent;
 }
 [data-theme='dark'] .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.4);
+  background-color: rgba(156, 163, 175, 0.4);
 }
 
 @keyframes expandWidth {

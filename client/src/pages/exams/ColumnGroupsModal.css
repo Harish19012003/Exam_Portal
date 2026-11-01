@@ -6,7 +6,7 @@
 .exams-cg-sub {
   margin: 4px 0 0;
   font-size: 0.8rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-body {
@@ -25,8 +25,8 @@
   gap: 6px;
   padding: 26px 14px;
   text-align: center;
-  color: var(--text-secondary, #64748b);
-  border: 1px dashed var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #6b7280);
+  border: 1px dashed var(--border-color, #e5e7eb);
   border-radius: 12px;
 }
 
@@ -45,7 +45,7 @@
   gap: 8px;
   min-width: 0;
   padding: 14px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-left: 3px solid var(--primary-color, #5c43fa);
   border-radius: 12px;
 }
@@ -68,7 +68,7 @@
 
 .exams-cg-single {
   background: rgba(100, 116, 139, 0.14);
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-map {
@@ -82,7 +82,7 @@
 }
 
 .exams-cg-map-read {
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   font-weight: 500;
 }
 
@@ -110,7 +110,7 @@
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-field input,
@@ -121,15 +121,15 @@
   box-sizing: border-box;
   font: inherit;
   font-size: 0.9rem;
-  color: var(--text-primary, #0f172a);
-  background: var(--bg-primary, #f8fafc);
-  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-primary, #030712);
+  background: var(--bg-primary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
 }
 
 .exams-cg-existing {
   font-size: 0.7rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-members {
@@ -151,7 +151,7 @@
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-remove {
@@ -163,7 +163,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   cursor: pointer;
 }
 
@@ -198,12 +198,12 @@
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-hint {
   font-size: 0.8rem;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .exams-cg-errors {
@@ -223,7 +223,7 @@
   .exams-cg-member {
     grid-template-columns: minmax(0, 1fr) 44px;
     padding: 10px;
-    border: 1px solid var(--border-color, #e2e8f0);
+    border: 1px solid var(--border-color, #e5e7eb);
     border-radius: 10px;
   }
 

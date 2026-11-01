@@ -33,6 +33,9 @@ export function mergeSavedColumns(saved: ColumnConfig[], initialColumns: ColumnC
         label: initCol.label,
         dataType: initCol.dataType,
         aggregation: initCol.aggregation,
+        // Prefs never store live sources — always take from builder columns.
+        lookup: initCol.lookup,
+        userTags: initCol.userTags,
       };
     }
 
@@ -90,14 +93,20 @@ export function syncColumnsWithInitial(
 
     const initOptions = isFieldColumn(initCol) ? initCol.options : undefined;
     const initAgg = isFieldColumn(initCol) ? initCol.aggregation : undefined;
+    const initLookup = isFieldColumn(initCol) ? initCol.lookup : undefined;
+    const initUserTags = isFieldColumn(initCol) ? initCol.userTags : undefined;
     const colOptions = isFieldColumn(col) ? col.options : undefined;
     const colAgg = isFieldColumn(col) ? col.aggregation : undefined;
+    const colLookup = isFieldColumn(col) ? col.lookup : undefined;
+    const colUserTags = isFieldColumn(col) ? col.userTags : undefined;
 
     if (
       JSON.stringify(colOptions) !== JSON.stringify(initOptions) ||
       col.label !== initCol.label ||
       col.dataType !== initCol.dataType ||
-      colAgg !== initAgg
+      colAgg !== initAgg ||
+      JSON.stringify(colLookup) !== JSON.stringify(initLookup) ||
+      JSON.stringify(colUserTags) !== JSON.stringify(initUserTags)
     ) {
       hasChanges = true;
       if (isFieldColumn(col) && isFieldColumn(initCol)) {
@@ -107,6 +116,8 @@ export function syncColumnsWithInitial(
           label: initCol.label,
           dataType: initCol.dataType,
           aggregation: initAgg,
+          lookup: initLookup,
+          userTags: initUserTags,
         };
       }
       return { ...col, label: initCol.label };

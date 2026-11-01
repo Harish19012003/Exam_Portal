@@ -52,9 +52,11 @@ export const saveConfig = handle(async (req) => {
 export const listRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'view');
+  const table = await service.getTable(req.params.examId);
   const result = await service.listRows(req.params.examId);
+  const fields = table?.fields || result?.fields || [];
   const rows = (result.rows || [])
-    .filter((row) => rowVisible(req, TABLE, ruleValues(req, row)))
+    .filter((row) => rowVisible(req, TABLE, ruleValues(req, row), fields))
     .map((row) => forClient(req, row));
   return { ...result, rows, total: rows.length };
 });
@@ -64,18 +66,19 @@ export const createRow = handle(async (req) => {
   assertTable(req, TABLE, 'create');
   const { fields } = await service.getTable(req.params.examId);
   const values = writableValues(req, TABLE, req.body?.values, autoFillKeys(fields));
-  assertRowVisible(req, TABLE, { ...values, __exam_id: req.params.examId });
+  assertRowVisible(req, TABLE, { ...values, __exam_id: req.params.examId }, fields);
   return forClient(req, await service.createRow(req.params.examId, { ...req.body, values }, req.user?.id));
 }, 201);
 
 export const updateRow = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'edit');
+  const { fields } = await service.getTable(req.params.examId);
   const existing = await service.getRow(req.params.examId, req.params.rowId);
-  assertRowVisible(req, TABLE, ruleValues(req, existing));
+  assertRowVisible(req, TABLE, ruleValues(req, existing), fields);
   const values = req.body?.values;
   assertWritable(req, TABLE, values, existing.values);
-  assertRowVisible(req, TABLE, { ...ruleValues(req, existing), ...(values || {}) });
+  assertRowVisible(req, TABLE, { ...ruleValues(req, existing), ...(values || {}) }, fields);
   return forClient(
     req,
     await service.updateRow(req.params.examId, req.params.rowId, req.body, req.user?.id),
@@ -85,10 +88,11 @@ export const updateRow = handle(async (req) => {
 export const deleteRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'delete');
+  const { fields } = await service.getTable(req.params.examId);
   const ids = req.body?.ids ?? req.params.rowId;
   for (const id of Array.isArray(ids) ? ids : [ids]) {
     const row = await service.getRow(req.params.examId, id);
-    assertRowVisible(req, TABLE, ruleValues(req, row));
+    assertRowVisible(req, TABLE, ruleValues(req, row), fields);
   }
   return service.deleteRows(req.params.examId, ids);
 });

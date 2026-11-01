@@ -71,7 +71,8 @@ const cleanFieldDefinition = (raw) => {
   const label = String(raw.label ?? '').trim();
   if (!label || label.length > 120) throw validationError(`Column "${key}" needs a name (max 120 characters)`);
   const dataType = String(raw.dataType || '');
-  if (!/^[a-z]{2,20}$/.test(dataType)) throw validationError(`Column "${key}" has an invalid type`);
+  // Allow camelCase types (e.g. fromExam) as well as plain lowercase (text, datetime).
+  if (!/^[a-z][a-zA-Z]{1,24}$/.test(dataType)) throw validationError(`Column "${key}" has an invalid type`);
   const def = JSON.parse(JSON.stringify({ ...raw, key, label, dataType }));
   if (JSON.stringify(def).length > 20000) throw validationError(`Column "${key}" configuration is too large`);
   return def;

@@ -7,7 +7,10 @@ import { PageHeading } from '../components/PageHeading';
 import { apiClient } from '../api/client';
 import { useConfirm, useFeedback } from '../feedback';
 import { useToast } from '../components/ui/Toast';
-import { DynamicTable } from '../components/DynamicTable';
+import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../api/queryKeys';
+import { useInvalidateUsers, useUsersList, useUserTags, useUserGroups } from '../hooks/useUsersQuery';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { usePortalTableFeatures, withPortalFeatureLocks } from '../hooks/usePortalTableFeatures';
 import { TABLE_IDS } from '../constants/tableIds';
@@ -139,12 +142,17 @@ const USER_TABLE_DEFAULTS = {
 export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const confirm = useConfirm();
   const { show: showFeedback } = useFeedback();
-  const [users, setUsers] = useState([]);
+  const usersQuery = useUsersList();
+  const tagsQuery = useUserTags();
+  const groupsQuery = useUserGroups();
+  const queryClient = useQueryClient();
+  const { invalidateList: invalidateUsersList, refetchList: refetchUsersList } = useInvalidateUsers();
+  const users = usersQuery.data || [];
+  const loading = usersQuery.isPending && !usersQuery.data;
   const [groups, setGroups] = useState([]);
   const [groupModal, setGroupModal] = useState(null); // null | { group: object | null }
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState('');
-  const [loading, setLoading] = useState(true);
   // Confirmations and errors show as toasts (top right), like the other portal pages, instead of a banner that shifts the page down.
   const { addToast } = useToast();
   const setSuccessMsg = useCallback((message) => { if (message) addToast(message, 'success'); }, [addToast]);
@@ -296,68 +304,56 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
-      setLoading(true);
       setError('');
-      const response = await apiClient.get('/users');
-      setUsers(response.data.data || []);
+      await refetchUsersList();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load users');
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [refetchUsersList, setError]);
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (usersQuery.isError) {
+      setError(usersQuery.error?.response?.data?.message || 'Failed to load users');
+    }
+  }, [usersQuery.isError, usersQuery.error, setError]);
 
   // ── User groups (custom tabs) ──────────────────────────────────────────────
   // ── Tags (central list; users hold tag ids) ─────────────────────────────────
-  const [tags, setTags] = useState([]);
+  const tags = tagsQuery.data || [];
   const [tagsDialogOpen, setTagsDialogOpen] = useState(false);
   const [assignTagsUser, setAssignTagsUser] = useState(null);
 
   const fetchTags = useCallback(async () => {
-    try {
-      const response = await apiClient.get('/users/tags');
-      setTags(response.data?.data || []);
-    } catch {
-      setTags([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTags();
-  }, [fetchTags]);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.users.tags() });
+  }, [queryClient]);
 
   // Reload users without the full-page loading state, so the table does not blink after a tag change.
   const refreshUsers = useCallback(async () => {
     try {
-      const response = await apiClient.get('/users');
-      setUsers(response.data?.data || []);
+      await invalidateUsersList();
     } catch {
       /* the next full load will report it */
     }
-  }, []);
+  }, [invalidateUsersList]);
 
   const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
   const userColumns = useMemo(() => buildUserColumns(tags), [tags]);
   const tagsKey = useMemo(() => tags.map((t) => `${t.id}:${t.name}:${t.color}`).join('|'), [tags]);
 
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
-      const response = await apiClient.get('/users/groups');
-      setGroups(response.data.data || []);
+      const result = await groupsQuery.refetch();
+      setGroups(result.data || []);
     } catch {
       setGroups([]);
     }
-  };
+  }, [groupsQuery]);
 
   useEffect(() => {
-    fetchGroups();
-  }, []);
+    if (Array.isArray(groupsQuery.data)) setGroups(groupsQuery.data);
+  }, [groupsQuery.data]);
 
   const closeGroupModal = () => {
     setGroupModal(null);
@@ -1188,7 +1184,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
         }
       >
         {loading || !layoutReady || !portalFeatures.ready ? (
-          <div className="users-table-card" style={{ padding: '32px', textAlign: 'center' }}>Loading user records...</div>
+          <TableSkeleton isDarkMode={isDarkMode} columns={6} />
         ) : (
           <DynamicTable
             key={`users_layout_${layoutEpoch}_${tagsKey}`}

@@ -206,7 +206,7 @@ export function FormulaBuilder({ columns, onSave, isDarkMode, editingKey, rows }
                 <button
                   onClick={() => setFormula((prev: string) => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + 'NOW() ')}
                   className={`text-[11px] font-bold px-2.5 py-1.5 rounded-md border transition-colors shadow-sm
-                    ${isDarkMode ? 'border-violet-500/30 text-violet-400 bg-violet-500/10 hover:bg-violet-500/20' : 'border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100'}`}
+                    ${isDarkMode ? 'border-blue-500/30 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20' : 'border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100'}`}
                 >
                   NOW()
                 </button>

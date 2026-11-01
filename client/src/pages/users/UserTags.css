@@ -23,7 +23,7 @@
   flex-direction: column;
   max-height: 340px;
   overflow-y: auto;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 10px;
 }
 
@@ -33,7 +33,7 @@
   gap: 8px;
   min-height: 48px;
   padding: 4px 10px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
 .user-tag-row:last-child {
@@ -51,14 +51,14 @@
   text-align: center;
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .user-tag-empty {
   padding: 18px 12px;
   font-size: 13px;
   text-align: center;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .user-tag-color-wrap {
@@ -71,7 +71,7 @@
   height: 28px;
   border: 2px solid var(--bg-card, #fff);
   border-radius: 50%;
-  box-shadow: 0 0 0 1px var(--border-color, #cbd5e1);
+  box-shadow: 0 0 0 1px var(--border-color, #d1d5db);
   cursor: pointer;
 }
 
@@ -85,9 +85,9 @@
   gap: 6px;
   padding: 8px;
   background: var(--bg-card, #fff);
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 10px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 12px 30px rgba(3, 7, 18, 0.2);
 }
 
 .user-tag-swatch {
@@ -115,7 +115,7 @@
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
   cursor: pointer;
 }
 
@@ -145,7 +145,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
 }
 
 .user-tag-sortbar label {
@@ -174,7 +174,7 @@
   justify-content: center;
   width: 24px;
   height: 36px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   border-radius: 6px;
   cursor: grab;
 }
@@ -203,7 +203,7 @@
   width: 28px;
   height: 22px;
   padding: 0;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -249,7 +249,7 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, #6b7280);
   background: transparent;
   border: 0;
   border-radius: 6px;
@@ -276,7 +276,7 @@
 
 /* Sub-tags: a guide line shows which tag they belong to. */
 .user-tag-row.nested {
-  background-image: linear-gradient(var(--border-color, #e2e8f0), var(--border-color, #e2e8f0));
+  background-image: linear-gradient(var(--border-color, #e5e7eb), var(--border-color, #e5e7eb));
   background-repeat: no-repeat;
   background-size: 2px 100%;
   background-position: 22px 0;

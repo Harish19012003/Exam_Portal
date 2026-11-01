@@ -69,20 +69,30 @@ export function TableHeader({
   enableSubRows = true,
   isTransposed = false,
 }: TableHeaderProps) {
-  const resizingRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
+  const resizingRef = useRef<{
+    key: string;
+    startX: number;
+    startW: number;
+    lastW: number;
+    pointerId: number;
+    table: HTMLTableElement | null;
+    cells: HTMLElement[];
+    startMinWidth: number;
+  } | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
 
   const hasSelectionIcon = Boolean(selectionColumn?.iconName || selectionColumn?.renderIcon);
   const selectionMode = selectionColumn?.mode ?? (enableRowSelection ? (hasSelectionIcon ? 'checkbox-and-icon' : 'checkbox') : (hasSelectionIcon ? 'icon-only' : 'none'));
 
   // Portal theme header — solid violet (inline style beats washed Tailwind/CSS fights)
-  const thBg = isDarkMode ? 'bg-violet-950' : 'bg-violet-100';
-  const thStyleBg = isDarkMode ? '#2e1065' : '#ede9fe';
-  const thStyleFg = isDarkMode ? '#ede9fe' : '#4c1d95';
-  const borderCls = isDarkMode ? 'border-violet-800' : 'border-violet-200';
-  const textCls = isDarkMode ? 'text-violet-100' : 'text-violet-900';
-  const resizeCls = isDarkMode
-    ? 'bg-violet-500/50 hover:bg-[var(--primary-color,#7c3aed)]'
-    : 'bg-violet-400/40 hover:bg-[var(--primary-color,#5c43fa)]';
+  const thBg = isDarkMode ? 'bg-gray-800' : 'bg-violet-100';
+  const thStyleBg = isDarkMode ? '#1f2937' : '#ede9fe';
+  const thStyleFg = isDarkMode ? '#e5e7eb' : '#4c1d95';
+  const borderCls = isDarkMode ? 'border-gray-700' : 'border-violet-200';
+  const textCls = isDarkMode ? 'text-gray-200' : 'text-violet-900';
+  const resizeLineCls = isDarkMode
+    ? 'bg-blue-400/70 group-hover/resize:bg-[var(--primary-color,#3b82f6)] group-active/resize:bg-[var(--primary-color,#3b82f6)]'
+    : 'bg-violet-500/50 group-hover/resize:bg-[var(--primary-color,#5c43fa)] group-active/resize:bg-[var(--primary-color,#5c43fa)]';
 
   const handleAutoFit = (e: React.MouseEvent, col: ColumnConfig) => {
     e.stopPropagation();
@@ -98,12 +108,16 @@ export function TableHeader({
   };
 
   const startResize = (
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     key: string,
     direction: 'right' | 'left' = 'right',
   ) => {
+    if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture?.(e.pointerId);
+
     const initialW =
       key === '__checkbox'
         ? checkboxWidth
@@ -111,22 +125,123 @@ export function TableHeader({
         ? actionsWidth
         : (columnWidths[key] ?? 100);
 
-    resizingRef.current = { key, startX: e.clientX, startW: initialW };
+    const table = target.closest('table');
+    const cells = table
+      ? (Array.from(table.querySelectorAll(`[data-col-key="${CSS.escape(key)}"]`)) as HTMLElement[])
+      : [];
+    // Header cell for checkbox/actions may not have data-col-key yet — include nearest th.
+    const hostTh = target.closest('th');
+    if (hostTh && !cells.includes(hostTh as HTMLElement)) cells.unshift(hostTh as HTMLElement);
 
-    const onMove = (ev: MouseEvent) => {
+    const startMinWidth = table ? parseFloat(table.style.minWidth || '0') || table.scrollWidth : 0;
+
+    table?.classList.add('dt-is-resizing');
+    resizingRef.current = {
+      key,
+      startX: e.clientX,
+      startW: initialW,
+      lastW: initialW,
+      pointerId: e.pointerId,
+      table,
+      cells,
+      startMinWidth,
+    };
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const applyDomWidth = (width: number) => {
+      const r = resizingRef.current;
+      if (!r) return;
+      const px = `${width}px`;
+      r.cells.forEach((el) => {
+        el.style.width = px;
+        el.style.minWidth = px;
+        el.style.maxWidth = px;
+        el.style.setProperty('--target-width', px);
+      });
+      if (r.table && r.startMinWidth > 0) {
+        r.table.style.minWidth = `${Math.max(0, r.startMinWidth + (width - r.startW))}px`;
+      }
+      r.lastW = width;
+    };
+
+    const flush = () => {
+      resizeRafRef.current = null;
+      const r = resizingRef.current;
+      if (!r) return;
+      // DOM-only during drag — React state commits once on pointerup (avoids full table re-render jank).
+      applyDomWidth(r.lastW);
+    };
+
+    const onMove = (ev: PointerEvent) => {
       if (!resizingRef.current) return;
       const { startX, startW, key: k } = resizingRef.current;
       const delta = direction === 'left' ? startX - ev.clientX : ev.clientX - startX;
       const minW = k === '__checkbox' ? 32 : k === '__actions' ? 40 : 50;
-      onColumnWidthChange(k, Math.max(minW, startW + delta));
+      resizingRef.current.lastW = Math.max(minW, startW + delta);
+      if (resizeRafRef.current == null) {
+        resizeRafRef.current = requestAnimationFrame(flush);
+      }
     };
-    const onUp = () => {
+
+    const onUp = (ev: PointerEvent) => {
+      if (resizeRafRef.current != null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      const r = resizingRef.current;
+      const finalW = r?.lastW ?? initialW;
+      r?.table?.classList.remove('dt-is-resizing');
       resizingRef.current = null;
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      try {
+        target.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        /* already released */
+      }
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      onColumnWidthChange(key, finalW);
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  };
+
+  /** Wide hit strip straddling the column edge; thin visible rail inside. */
+  const resizeHandle = (
+    key: string,
+    opts: { direction?: 'right' | 'left'; onDoubleClick?: (e: React.MouseEvent) => void; title?: string } = {},
+  ) => {
+    const direction = opts.direction ?? 'right';
+    const edge =
+      direction === 'left'
+        ? 'left-0 -ml-1.5'
+        : 'right-0 -mr-1.5';
+    return (
+      <div
+        onPointerDown={e => startResize(e, key, direction)}
+        onDoubleClick={opts.onDoubleClick}
+        title={opts.title}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`Resize ${key === '__checkbox' ? 'selection' : key === '__actions' ? 'actions' : 'column'}`}
+        className={`group/resize absolute ${edge} top-0 bottom-0 w-3 cursor-col-resize z-40
+          flex items-stretch justify-center touch-none select-none`}
+      >
+        <span
+          className={`w-0.5 my-1.5 rounded-full opacity-0 group-hover/th:opacity-70 group-hover/resize:opacity-100
+            transition-opacity ${resizeLineCls}`}
+          aria-hidden="true"
+        />
+      </div>
+    );
   };
 
   const getSortIcon = (key: string) => {
@@ -152,6 +267,7 @@ export function TableHeader({
         {/* Checkbox / Leftmost index column */}
         {(selectionMode !== 'none' || enableSubRows || Boolean(selectionColumn?.customIconElements?.some(e => e.enabled))) && checkboxWidth > 0 && (
           <th
+            data-col-key="__checkbox"
             style={{
               width: checkboxWidth,
               minWidth: checkboxWidth,
@@ -180,13 +296,7 @@ export function TableHeader({
             </div>
 
 
-            {/* Resize handle */}
-            <div
-              onMouseDown={e => startResize(e, '__checkbox')}
-              className={`absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize z-30
-                opacity-0 group-hover/th:opacity-100 transition-opacity ${resizeCls}`}
-              aria-hidden="true"
-            />
+            {resizeHandle('__checkbox')}
           </th>
         )}
 
@@ -210,15 +320,16 @@ export function TableHeader({
             ? (isDarkMode ? 'bg-red-900/30 text-transparent !border-transparent shadow-[inset_0_0_15px_rgba(239,68,68,0.2)]' : 'bg-red-50 text-transparent !border-transparent shadow-[inset_0_0_15px_rgba(239,68,68,0.1)]')
             : isHighlighted 
               ? (isDarkMode
-                  ? 'bg-[rgba(124,58,237,0.22)] shadow-[inset_0_0_15px_rgba(124,58,237,0.25)] transition-all duration-300'
+                  ? 'bg-[rgba(59,130,246,0.22)] shadow-[inset_0_0_15px_rgba(59,130,246,0.25)] transition-all duration-300'
                   : 'bg-[rgba(92,67,250,0.12)] shadow-[inset_0_0_15px_rgba(92,67,250,0.18)] transition-all duration-300')
-              : 'transition-all duration-1000';
+              : 'transition-[background-color,box-shadow,color] duration-300';
 
           const actualW = isHiding ? 0 : colWidth;
 
           return (
             <th
               key={col.key}
+              data-col-key={col.key}
               style={{
                 width: actualW,
                 minWidth: actualW,
@@ -267,7 +378,7 @@ export function TableHeader({
                   <button
                     className={`flex items-center gap-1 min-w-0 max-w-full text-left transition-colors group/sort
                       ${isSorted
-                        ? (isDarkMode ? 'text-[var(--primary-color,#a78bfa)]' : 'text-[var(--primary-color,#5c43fa)]')
+                        ? (isDarkMode ? 'text-[var(--primary-color,#60a5fa)]' : 'text-[var(--primary-color,#5c43fa)]')
                         : textCls}
                       ${!isTransposed && isFieldColumn(col) && col.sortable !== false ? 'cursor-pointer hover:text-[var(--primary-color,#5c43fa)]' : 'cursor-default'}`}
                     onClick={e => {
@@ -315,7 +426,7 @@ export function TableHeader({
                         ${isFiltered
                           ? 'flex text-[var(--primary-color,#5c43fa)]'
                           : (isDarkMode
-                            ? 'hidden group-hover/th:flex text-gray-400 hover:text-violet-200'
+                            ? 'hidden group-hover/th:flex text-gray-400 hover:text-blue-300'
                             : 'hidden group-hover/th:flex text-gray-400 hover:text-[var(--primary-color,#5c43fa)]')}`}
                       aria-label={`Filter ${col.label}${isFiltered ? ' (active)' : ''}`}
                       aria-pressed={isFiltered}
@@ -344,9 +455,9 @@ export function TableHeader({
                     className={`flex-shrink-0 p-1 rounded transition-colors
                       ${col.pinned 
                         ? (isDarkMode
-                            ? 'flex text-[var(--primary-color,#a78bfa)] hover:bg-[rgba(124,58,237,0.15)]'
+                            ? 'flex text-[var(--primary-color,#60a5fa)] hover:bg-[rgba(59,130,246,0.15)]'
                             : 'flex text-[var(--primary-color,#5c43fa)] hover:bg-[rgba(92,67,250,0.1)]') 
-                        : (isDarkMode ? 'hidden group-hover/th:flex text-gray-400 hover:text-violet-200' : 'hidden group-hover/th:flex text-gray-400 hover:text-[var(--primary-color,#5c43fa)]')}`}
+                        : (isDarkMode ? 'hidden group-hover/th:flex text-gray-400 hover:text-blue-300' : 'hidden group-hover/th:flex text-gray-400 hover:text-[var(--primary-color,#5c43fa)]')}`}
                     title={col.pinned ? "Unpin column" : "Pin column"}
                     aria-label={col.pinned ? "Unpin column" : "Pin column"}
                   >
@@ -383,15 +494,10 @@ export function TableHeader({
                 </div>
               </div>
 
-              {/* Resize handle */}
-              <div
-                onMouseDown={e => startResize(e, col.key)}
-                onDoubleClick={e => handleAutoFit(e, col)}
-                title="Double-click to auto-fit width"
-                className={`absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize z-10
-                  opacity-0 group-hover/th:opacity-100 transition-opacity ${resizeCls}`}
-                aria-hidden="true"
-              />
+              {resizeHandle(col.key, {
+                onDoubleClick: e => handleAutoFit(e, col),
+                title: 'Drag to resize · double-click to auto-fit',
+              })}
 
               {/* Drop indicator */}
               {dragColKey && dragColKey !== col.key && (
@@ -418,7 +524,7 @@ export function TableHeader({
               onClick={onAddColumn}
               className={`w-7 h-7 rounded-lg flex items-center justify-center mx-auto transition-all ${
                 isDarkMode
-                  ? 'text-gray-400 hover:text-[var(--primary-color,#a78bfa)] hover:bg-gray-800'
+                  ? 'text-gray-400 hover:text-[var(--primary-color,#60a5fa)] hover:bg-gray-800'
                   : 'text-gray-500 hover:text-[var(--primary-color,#5c43fa)] hover:bg-[rgba(92,67,250,0.08)]'
               }`}
               title="Add Column"
@@ -432,6 +538,7 @@ export function TableHeader({
         {/* Actions column */}
         {enableActionsColumn && actionsWidth > 0 && (
           <th
+            data-col-key="__actions"
             style={{
               width: actionsWidth,
               minWidth: actionsWidth,
@@ -450,13 +557,7 @@ export function TableHeader({
               </span>
             )}
 
-            {/* Resize handle on left edge of Actions header */}
-            <div
-              onMouseDown={e => startResize(e, '__actions', 'left')}
-              className={`absolute left-0 top-0 bottom-0 w-[5px] cursor-col-resize z-30
-                opacity-0 group-hover/th:opacity-100 transition-opacity ${resizeCls}`}
-              aria-hidden="true"
-            />
+            {resizeHandle('__actions', { direction: 'left' })}
           </th>
         )}
       </tr>
@@ -485,7 +586,7 @@ function IndeterminateCheckbox({
       className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center transition-all duration-300 ease-out active:scale-75 flex-shrink-0
         ${checked || indeterminate
           ? 'bg-[var(--primary-color,#5c43fa)] border-[var(--primary-color,#5c43fa)]'
-          : (isDarkMode ? 'border-gray-600 hover:border-violet-300' : 'border-gray-300 hover:border-[var(--primary-color,#5c43fa)]')}`}
+          : (isDarkMode ? 'border-gray-600 hover:border-blue-400' : 'border-gray-300 hover:border-[var(--primary-color,#5c43fa)]')}`}
       aria-label={label}
       aria-checked={indeterminate ? 'mixed' : checked}
       role="checkbox"

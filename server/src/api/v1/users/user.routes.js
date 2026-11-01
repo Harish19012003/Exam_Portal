@@ -26,9 +26,16 @@ router.get('/me/access', authenticate, async (req, res, next) => {
 
 const usersPage = [authenticate, requirePage('users')];
 const superAdminOnly = [authenticate, requireSuperAdmin];
+// Assignee pickers on exam center lists — any signed-in user (row ACL still applies on save/list).
+const signedIn = [authenticate];
 
 // Admin list all users
 router.get('/', ...usersPage, userController.listUsers);
+
+// Tag-filtered people for "assign row to…" dropdowns (no Users-page gate).
+router.get('/assignable', ...signedIn, userController.listAssignable);
+router.post('/assignable/resolve', ...signedIn, userController.resolveAssignable);
+router.get('/assignable/tags', ...signedIn, tagController.listTags);
 
 // User groups. Declared before '/:id' routes. Membership and permissions are privileges,
 // so only a Super Admin may change them.

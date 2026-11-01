@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { PageHeading } from '../components/PageHeading';
 import {
   User,
   Mail,
@@ -269,32 +270,28 @@ export const ProfilePage = () => {
 
   return (
     <div className="profile-page">
-      {/* HERO COVER BANNER */}
-      <div className="profile-hero">
-        <div className="profile-hero-overlay"></div>
-      </div>
+      <PageHeading title="Profile & Security" />
 
-      {/* HEADER CARD */}
       <div className="profile-header-card">
         <div className="profile-avatar-container">
-          <div className="profile-avatar-circle">
+          <div className="profile-avatar-circle" aria-hidden="true">
             {avatarLetter}
           </div>
-          <span className="profile-status-indicator" title="Active"></span>
+          <span className="profile-status-indicator" title="Active" />
         </div>
 
         <div className="profile-header-info">
           <div className="profile-title-row">
-            <h1 className="profile-name">{displayName}</h1>
+            <h2 className="profile-name">{displayName}</h2>
             <div className="profile-badge-group">
               {isPrimary ? (
                 <span className="profile-badge primary">
-                  <Crown size={13} />
+                  <Crown size={13} aria-hidden="true" />
                   <span>Primary Super Admin</span>
                 </span>
               ) : (
                 <span className="profile-badge role">
-                  <Shield size={13} />
+                  <Shield size={13} aria-hidden="true" />
                   <span>{roleName}</span>
                 </span>
               )}
@@ -305,50 +302,56 @@ export const ProfilePage = () => {
           </div>
           <div className="profile-meta-row">
             <span className="profile-meta-item">
-              <Mail size={14} />
-              <span>{profile?.email}</span>
+              <Mail size={14} aria-hidden="true" />
+              <span className="profile-meta-text">{profile?.email}</span>
             </span>
             {profile?.phone_number && (
               <span className="profile-meta-item">
-                <Phone size={14} />
-                <span>{profile.phone_number}</span>
+                <Phone size={14} aria-hidden="true" />
+                <span className="profile-meta-text">{profile.phone_number}</span>
               </span>
             )}
             <span className="profile-meta-item">
-              <Globe size={14} />
-              <span>{profile?.timezone || 'Asia/Kolkata'}</span>
+              <Globe size={14} aria-hidden="true" />
+              <span className="profile-meta-text">{profile?.timezone || 'Asia/Kolkata'}</span>
             </span>
           </div>
         </div>
       </div>
 
-      {/* NAVIGATION TABS */}
-      <div className="profile-tabs">
-          <button
-            type="button"
-            className={`profile-tab-btn ${activeTab === 'details' ? 'active' : ''}`}
-            onClick={() => setActiveTab('details')}
-          >
-            <User size={16} />
-            <span>Personal Details</span>
-          </button>
-          <button
-            type="button"
-            className={`profile-tab-btn ${activeTab === 'security' ? 'active' : ''}`}
-            onClick={() => setActiveTab('security')}
-          >
-            <KeyRound size={16} />
-            <span>Security & Password</span>
-          </button>
-          <button
-            type="button"
-            className={`profile-tab-btn ${activeTab === 'permissions' ? 'active' : ''}`}
-            onClick={() => setActiveTab('permissions')}
-          >
-            <Shield size={16} />
-            <span>Rights & Permissions ({permissionsList.length})</span>
-          </button>
-        </div>
+      <div className="profile-tabs" role="tablist" aria-label="Profile sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'details'}
+          className={`profile-tab-btn ${activeTab === 'details' ? 'active' : ''}`}
+          onClick={() => setActiveTab('details')}
+        >
+          <User size={16} aria-hidden="true" />
+          <span>Personal Details</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'security'}
+          className={`profile-tab-btn ${activeTab === 'security' ? 'active' : ''}`}
+          onClick={() => setActiveTab('security')}
+        >
+          <KeyRound size={16} aria-hidden="true" />
+          <span>Security & Password</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'permissions'}
+          className={`profile-tab-btn ${activeTab === 'permissions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('permissions')}
+        >
+          <Shield size={16} aria-hidden="true" />
+          <span className="profile-tab-label-full">Rights & Permissions ({permissionsList.length})</span>
+          <span className="profile-tab-label-short">Rights ({permissionsList.length})</span>
+        </button>
+      </div>
 
         {/* ALERTS */}
       {successMsg && (

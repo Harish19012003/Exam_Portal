@@ -29,6 +29,7 @@ import {
   SquareCheck,
   ListPlus,
   Search,
+  Copy,
 } from 'lucide-react';
 import {
   EXAM_FIELD_TYPES,
@@ -48,6 +49,7 @@ import {
   getConfigListOptions,
   getDateLinkCandidates,
 } from './examFieldTypes';
+import { TagMultiPicker } from './TagMultiPicker';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
 import { SearchableSelect } from './SearchableSelect';
 import { BulkFieldsModal } from './BulkFieldsModal';
@@ -81,6 +83,7 @@ const TYPE_ICONS = {
   formula: Sigma,
   composite: Layers,
   linked: Link2,
+  fromExam: Copy,
 };
 
 /**
@@ -137,6 +140,10 @@ export const ExamFieldBuilder = ({
   bulkModalProps = {},
   startWithNewField = false,
   allowUnique = false,
+  /** Parent exam field defs ({ key, label }) for “From exam” mirroring on center lists. */
+  examSourceFields = [],
+  /** Center-list builders only — exam management must not offer “From exam”. */
+  enableFromExam = false,
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -166,6 +173,9 @@ export const ExamFieldBuilder = ({
   const linkSourceFields = fields.filter((f) => isTableSourceField(f) && f.id !== form.id);
   const linkSource = linkSourceFields.find((f) => f.key === form.linkedFieldKey);
   const linkColumns = lookupSources.find((t) => t.table === linkSource?.tableSource?.table)?.columns || [];
+  const examFieldOptions = (examSourceFields || [])
+    .filter((f) => f?.key)
+    .map((f) => ({ value: f.key, label: f.label || f.key }));
   const previewConfigOptions =
     form.optionsSource === 'config' && form.configListId
       ? getConfigListOptions(form.configListId)
@@ -250,7 +260,12 @@ export const ExamFieldBuilder = ({
     if (field.allowMultiple) parts.push('Multi');
     if (field.optionsSource === 'config') parts.push('Config');
     if (field.optionsSource === 'table') parts.push(field.lookupGroup ? `Group · ${humanizeGroup(field.lookupGroup)}` : 'Table');
+    if (field.optionsSource === 'userTags') {
+      const n = Array.isArray(field.userTagIds) ? field.userTagIds.length : 0;
+      parts.push(n ? `User tags (${n})` : 'User tags');
+    }
     if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
+    if (field.dataType === 'fromExam' && field.examFieldKey) parts.push(`exam.${field.examFieldKey}`);
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
     if (field.sameAsFieldKey) parts.push('Same-as');
     if (field.required) parts.push('Required');
@@ -303,13 +318,18 @@ export const ExamFieldBuilder = ({
       layout: field.layout || 'full',
       optionsSource: field.optionsSource || 'manual',
       configListId: field.configListId || '',
+      userTagIds: Array.isArray(field.userTagIds) ? field.userTagIds.map(String) : [],
       lookupTable: field.tableSource?.table || '',
       lookupColumn: field.tableSource?.column || '',
       lookupDetail: field.tableSource?.detailColumn || '',
       fillColumns: linkedFieldsOf(fields, field.key).map((f) => f.linkedFrom.column),
       linkedFieldKey: field.linkedFrom?.fieldKey || '',
       linkedColumn: field.linkedFrom?.column || '',
-      allowMultiple: Boolean(field.allowMultiple) || field.dataType === 'multiselect',
+      examFieldKey: field.examFieldKey || '',
+      allowMultiple:
+        field.optionsSource === 'userTags'
+          ? true
+          : Boolean(field.allowMultiple) || field.dataType === 'multiselect',
       sameAsFieldKey: field.sameAsFieldKey || '',
       sameAsDefaultOn: field.sameAsDefaultOn !== false,
       phoneValidation: {
@@ -381,6 +401,11 @@ export const ExamFieldBuilder = ({
           setError('Choose the table and column to read options from.');
           return;
         }
+      } else if (optionsSource === 'userTags') {
+        if (!Array.isArray(form.userTagIds) || form.userTagIds.length === 0) {
+          setError('Select at least one tag. The dropdown will list people with those tags.');
+          return;
+        }
       } else {
         options = parseOptions(form.optionsText);
         if (options.length === 0) {
@@ -393,6 +418,17 @@ export const ExamFieldBuilder = ({
     if (form.dataType === 'linked' && (!form.linkedFieldKey || !form.linkedColumn)) {
       setError('Choose the field to read from and which of its columns to show.');
       return;
+    }
+
+    if (form.dataType === 'fromExam') {
+      if (!examFieldOptions.length) {
+        setError('“From exam” is only available on a center list (needs exam fields).');
+        return;
+      }
+      if (!form.examFieldKey) {
+        setError('Choose which exam field to show on every center row.');
+        return;
+      }
     }
 
     if (needsFormula && !form.formula.trim()) {
@@ -441,7 +477,8 @@ export const ExamFieldBuilder = ({
       return;
     }
 
-    const allowMultiple = isChoiceField ? Boolean(form.allowMultiple) : false;
+    const allowMultiple =
+      optionsSource === 'userTags' ? true : isChoiceField ? Boolean(form.allowMultiple) : false;
     const canLinkDate = DATE_LINK_TYPES.has(form.dataType);
 
     const phoneValidation =
@@ -461,13 +498,19 @@ export const ExamFieldBuilder = ({
       key,
       dataType: form.dataType,
       required:
-        form.dataType === 'linked' || (form.autoFill && form.autoFill !== 'none') ? false : form.required,
+        form.dataType === 'linked' ||
+        form.dataType === 'fromExam' ||
+        (form.autoFill && form.autoFill !== 'none')
+          ? false
+          : form.required,
       linkedFrom:
         form.dataType === 'linked' ? { fieldKey: form.linkedFieldKey, column: form.linkedColumn } : undefined,
+      examFieldKey: form.dataType === 'fromExam' ? form.examFieldKey : undefined,
       ...(allowUnique ? { unique: UNIQUE_FIELD_TYPES.has(form.dataType) && Boolean(form.unique) } : {}),
       options: optionsSource === 'manual' ? options : [],
       optionsSource,
       configListId: optionsSource === 'config' ? form.configListId : '',
+      userTagIds: optionsSource === 'userTags' ? (form.userTagIds || []).map(String) : [],
       lookupGroup: optionsSource === 'table' ? fields.find((f) => f.id === form.id)?.lookupGroup : undefined,
       tableSource:
         optionsSource === 'table'
@@ -931,20 +974,22 @@ export const ExamFieldBuilder = ({
               )}
 
               <div className="exams-form-row">
-                <SearchableSelect
-                  id={`${formId}-autofill`}
-                  label="Auto-fill"
-                  value={form.autoFill || 'none'}
-                  options={AUTO_FILL_OPTIONS}
-                  searchPlaceholder="Search…"
-                  onChange={(next) =>
-                    setForm((p) => ({
-                      ...p,
-                      autoFill: next,
-                      required: next !== 'none' ? false : p.required,
-                    }))
-                  }
-                />
+                {form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
+                  <SearchableSelect
+                    id={`${formId}-autofill`}
+                    label="Auto-fill"
+                    value={form.autoFill || 'none'}
+                    options={AUTO_FILL_OPTIONS}
+                    searchPlaceholder="Search…"
+                    onChange={(next) =>
+                      setForm((p) => ({
+                        ...p,
+                        autoFill: next,
+                        required: next !== 'none' ? false : p.required,
+                      }))
+                    }
+                  />
+                ) : null}
                 <div className="exams-form-group">
                   <label htmlFor={`${formId}-layout`}>Width</label>
                   <select
@@ -958,7 +1003,9 @@ export const ExamFieldBuilder = ({
                 </div>
               </div>
 
-              {(!form.autoFill || form.autoFill === 'none') && (
+              {(!form.autoFill || form.autoFill === 'none') &&
+                form.dataType !== 'linked' &&
+                form.dataType !== 'fromExam' && (
                 <label className="exams-check-row">
                   <input
                     type="checkbox"
@@ -1056,11 +1103,27 @@ export const ExamFieldBuilder = ({
                             Table column
                           </button>
                         )}
+                        {isChoiceField && (
+                          <button
+                            type="button"
+                            className={`exams-source-btn ${form.optionsSource === 'userTags' ? 'active' : ''}`}
+                            onClick={() => {
+                              setForm((p) => ({
+                                ...p,
+                                optionsSource: 'userTags',
+                                allowMultiple: true,
+                              }));
+                              if (error) setError('');
+                            }}
+                          >
+                            User tags
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {isChoiceField && (
+                  {isChoiceField && form.optionsSource !== 'userTags' && (
                     <label className="exams-check-row">
                       <input
                         type="checkbox"
@@ -1072,8 +1135,22 @@ export const ExamFieldBuilder = ({
                       <span>Allow multiple selection</span>
                     </label>
                   )}
+                  {isChoiceField && form.optionsSource === 'userTags' && (
+                    <p className="exams-config-empty-hint">
+                      Multi-assign is always on: one center row can be given to several people (e.g. 2 VMs + 1 ZM).
+                      Assigned people see that row; empty means no extra restriction.
+                    </p>
+                  )}
 
-                  {form.optionsSource === 'table' ? (
+                  {form.optionsSource === 'userTags' ? (
+                    <TagMultiPicker
+                      value={form.userTagIds || []}
+                      onChange={(next) => {
+                        setForm((p) => ({ ...p, userTagIds: next }));
+                        if (error) setError('');
+                      }}
+                    />
+                  ) : form.optionsSource === 'table' ? (
                     <>
                       <SearchableSelect
                         id={`${formId}-lookup-table`}
@@ -1240,6 +1317,35 @@ export const ExamFieldBuilder = ({
                 </div>
               )}
 
+              {form.dataType === 'fromExam' && (
+                <div className="exams-options-block">
+                  {examFieldOptions.length === 0 ? (
+                    <p className="exams-config-empty-hint">
+                      “From exam” mirrors a value from Exam management onto every center row. Open this builder from a
+                      center list after exam fields exist.
+                    </p>
+                  ) : (
+                    <>
+                      <SearchableSelect
+                        id={`${formId}-exam-field`}
+                        label="Exam field to show"
+                        value={form.examFieldKey}
+                        options={examFieldOptions}
+                        placeholder="Select an exam field…"
+                        searchThreshold={8}
+                        onChange={(next) => {
+                          setForm((p) => ({ ...p, examFieldKey: next }));
+                          if (error) setError('');
+                        }}
+                      />
+                      <p className="exams-config-empty-hint">
+                        Read-only. Every center row shows that exam’s current value (not stored on the center).
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {needsFormula && (
                 <div className="exams-form-group">
                   <label htmlFor={`${formId}-formula`}>Formula</label>
@@ -1283,6 +1389,7 @@ export const ExamFieldBuilder = ({
         reservedKeys={reservedKeys}
         allowUnique={allowUnique}
         {...bulkModalProps}
+        examSourceFields={examSourceFields}
         onClose={closeBulk}
         onAdd={handleBulkAdd}
       />
