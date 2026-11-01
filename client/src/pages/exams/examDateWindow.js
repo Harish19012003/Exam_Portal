@@ -88,12 +88,12 @@ export const filterRowsByDateWindow = (rows = [], fields = [], window = 'all') =
       end = tmp;
     }
 
-    // Upcoming: has not started yet (or starts today). Ongoing exams stay under Today / All.
+    // Upcoming: based on start date (today or later).
     if (window === 'upcoming') return start >= today;
     // Today: schedule span covers today.
     if (window === 'today') return start <= today && today <= end;
-    // Last 7 days: start date falls in [today−6 … today] (not “any overlap with a long span”).
-    if (window === 'last7') return start >= last7Start && start <= today;
+    // Last 7 days: based on end date falling in [today−6 … today].
+    if (window === 'last7') return end >= last7Start && end <= today;
     return true;
   });
 };
