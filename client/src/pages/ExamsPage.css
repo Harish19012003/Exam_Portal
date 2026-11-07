@@ -2026,6 +2026,40 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   margin: 4px 0 0;
   font-size: 0.8rem;
   color: var(--text-secondary, #6b7280);
+  overflow-wrap: anywhere;
+}
+
+.exams-bulk-sub strong {
+  color: var(--text-primary, #0f172a);
+  font-weight: 650;
+}
+
+.exams-bulk-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  padding: 0.55rem clamp(12px, 2vw, 18px);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: rgba(124, 58, 237, 0.07);
+  min-width: 0;
+}
+
+.exams-bulk-context-label {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6d28d9;
+}
+
+.exams-bulk-context-path {
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  overflow-wrap: anywhere;
 }
 
 .exams-bulk-body {
@@ -2078,7 +2112,7 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 }
 
 .exams-bulk-table .col-num {
-  width: 32px;
+  width: 64px;
   padding-top: 11px;
   color: var(--text-secondary, #6b7280);
   font-size: 0.78rem;
@@ -2915,4 +2949,120 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-bulk-headrow .exams-bulk-tip { display: inline-flex; }
   .exams-bulk-headrow .exams-bulk-toolbar { flex: 1 1 100%; justify-content: flex-start; padding: 6px clamp(12px, 2vw, 18px); border-top: 1px solid var(--border-color, #e5e7eb); }
   .exams-bulk-headrow .exams-bulk-toolbar-actions { flex-wrap: wrap; }
+}
+
+/* Bulk grid: drag handle for reordering rows */
+.exams-bulk-table .col-num { white-space: nowrap; }
+.exams-bulk-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #9ca3af);
+  vertical-align: middle;
+  cursor: grab;
+}
+.exams-bulk-grip:hover,
+.exams-bulk-grip:focus-visible { background: var(--bg-secondary, #f3f4f6); color: var(--primary-color, #5c43fa); outline: 0; }
+.exams-bulk-grip:active { cursor: grabbing; }
+.exams-bulk-rownum { vertical-align: middle; }
+.exams-bulk-table tr.is-dragging { opacity: 0.45; }
+.exams-bulk-table tr.is-drag-over td { box-shadow: inset 0 2px 0 var(--primary-color, #5c43fa); }
+@media (max-width: 768px) {
+  .exams-bulk-grip { width: 44px; height: 44px; }
+}
+
+/* Bulk grid, desktop/tablet: denser rows, spreadsheet-style cells (boxes appear on hover/focus) */
+@media (min-width: 481px) {
+  .exams-bulk-table th {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+  }
+
+  .exams-bulk-table td {
+    padding: 2px 4px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color, #eef0f3);
+  }
+
+  .exams-bulk-table td:not(.col-num):not(.col-act) { padding-left: 2px; padding-right: 2px; }
+
+  .exams-bulk-table input[type='text'],
+  .exams-bulk-table select {
+    min-height: 34px;
+    padding: 4px 8px;
+    border-color: transparent;
+    background-color: transparent;
+    border-radius: 6px;
+    transition: border-color 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+  }
+
+  .exams-bulk-table tbody tr:hover input[type='text'],
+  .exams-bulk-table tbody tr:hover select {
+    border-color: var(--border-color, #e5e7eb);
+  }
+
+  .exams-bulk-table input[type='text']:hover,
+  .exams-bulk-table select:hover { background-color: var(--bg-primary, #f9fafb); }
+
+  .exams-bulk-table input[type='text']:focus,
+  .exams-bulk-table select:focus {
+    background-color: var(--bg-card, #fff);
+    border-color: var(--primary-color, #5c43fa);
+  }
+
+  .exams-bulk-table input.invalid { border-color: #dc2626; background-color: rgba(220, 38, 38, 0.04); }
+  .exams-bulk-table input:disabled { background-color: transparent; border-color: transparent; opacity: 0.55; }
+
+  /* No left padding on the scroller: pinned cells stick to its edge, so any gap would show scrolled content. */
+  .exams-bulk-body { padding-left: 0; }
+  .exams-bulk-table .col-num,
+  .exams-bulk-table th.col-num { padding: 2px 6px 2px clamp(10px, 2vw, 16px); width: 92px; }
+  .exams-bulk-table th.col-num { padding-top: 10px; padding-bottom: 10px; }
+  .exams-bulk-table input[type='checkbox'] { margin-top: 0; vertical-align: middle; }
+
+  .exams-bulk-table tbody tr:hover td { background: rgba(92, 67, 250, 0.03); }
+  .exams-bulk-table tbody tr:hover td.is-pinned { background: var(--bg-card, #fff); }
+
+  /* Row actions only on hover/focus so the grid stays quiet */
+  .exams-bulk-table td.col-act .exams-bulk-remove { opacity: 0.35; transition: opacity 0.12s ease; }
+  .exams-bulk-table tbody tr:hover td.col-act .exams-bulk-remove,
+  .exams-bulk-table tbody tr:focus-within td.col-act .exams-bulk-remove { opacity: 1; }
+
+  .exams-bulk-grip { opacity: 0.35; }
+  .exams-bulk-table tbody tr:hover .exams-bulk-grip,
+  .exams-bulk-grip:focus-visible { opacity: 1; }
+
+  .exams-bulk-rownum { display: inline-block; min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
+}
+
+/* Bulk modal header: title and "Working on" on one row */
+.exams-bulk-header { align-items: center; }
+.exams-bulk-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  min-width: 0;
+}
+.exams-bulk-heading .exams-bulk-title { flex-shrink: 0; }
+.exams-bulk-heading .exams-bulk-sub {
+  margin: 0;
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--border-color, #e5e7eb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 768px) {
+  .exams-bulk-heading .exams-bulk-sub { flex: 1 1 100%; padding-left: 0; border-left: 0; white-space: normal; }
 }

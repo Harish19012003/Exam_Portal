@@ -1,6 +1,6 @@
 import { useConfirm } from '../../feedback';
-import React, { useCallback, useEffect, useId, useState } from 'react';
-import { LayoutTemplate, Pencil, Plus, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { LayoutTemplate, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
 import { apiClient } from '../../api/client';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
@@ -48,6 +48,9 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
   const [form, setForm] = useState(null); // null = editor closed
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [serviceFilter, setServiceFilter] = useState('');
+  const [viewFilter, setViewFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,6 +156,29 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
     ),
   );
 
+  // Filter bar: free-text search plus service and page filters.
+  const filterServices = useMemo(
+    () => [...new Set(presets.map((p) => p.serviceValue).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [presets],
+  );
+  const visiblePresets = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return presets.filter((p) => {
+      const view = p.view || DEFAULT_EXAM_VIEW;
+      if (serviceFilter && p.serviceValue !== serviceFilter) return false;
+      if (viewFilter && view !== viewFilter) return false;
+      if (!q) return true;
+      return [p.name, p.serviceValue, examViewLabel(view), ...(p.fields || []).map((f) => f.label)]
+        .some((t) => String(t || '').toLowerCase().includes(q));
+    });
+  }, [presets, query, serviceFilter, viewFilter]);
+  const filtersActive = Boolean(query || serviceFilter || viewFilter);
+  const clearFilters = () => {
+    setQuery('');
+    setServiceFilter('');
+    setViewFilter('');
+  };
+
   return (
     <div className="fpp">
       {loadError && <div className="fpp-error" role="alert">{loadError}</div>}
@@ -175,8 +201,44 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
           </button>
         </div>
       ) : (
+        <>
+        <div className="fpp-filters" role="search">
+          <label className="fpp-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search presets, services or fields…"
+              aria-label="Search presets"
+            />
+            {query && (
+              <button type="button" className="fpp-search-clear" onClick={() => setQuery('')} aria-label="Clear search">
+                <X size={14} />
+              </button>
+            )}
+          </label>
+          <select className="fpp-filter-select" value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} aria-label="Filter by service">
+            <option value="">All services</option>
+            {filterServices.map((svc) => <option key={svc} value={svc}>{svc}</option>)}
+          </select>
+          <select className="fpp-filter-select" value={viewFilter} onChange={(e) => setViewFilter(e.target.value)} aria-label="Filter by exam page">
+            <option value="">All pages</option>
+            {EXAM_VIEWS.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+          </select>
+          <span className="fpp-filter-count" aria-live="polite">
+            {visiblePresets.length} of {presets.length}
+          </span>
+          {filtersActive && (
+            <button type="button" className="fpp-filter-clear" onClick={clearFilters}>Clear</button>
+          )}
+        </div>
+
+        {visiblePresets.length === 0 ? (
+          <p className="fpp-muted fpp-no-match">No presets match these filters.</p>
+        ) : (
         <ul className="fpp-grid">
-          {presets.map((preset) => (
+          {visiblePresets.map((preset) => (
             <li key={preset.id} className="fpp-card">
               <div className="fpp-card-head">
                 <span className="fpp-card-icon" aria-hidden="true"><LayoutTemplate size={18} /></span>
@@ -208,6 +270,8 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
             </li>
           ))}
         </ul>
+        )}
+        </>
       )}
 
       {!loading && presets.length > 0 && missingCenterList.length > 0 && (
@@ -229,6 +293,18 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
         enableFromExam
         currentView={form?.view}
         presetSources={presets.filter((p) => p.id !== form?.id)}
+        bulkWorkingContext={
+          form
+            ? [
+                'Field preset',
+                form.name?.trim() || null,
+                form.serviceValue?.trim() || null,
+                examViewLabel(form.view),
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : ''
+        }
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
         topSlot={

@@ -51,6 +51,7 @@ import {
 } from './examFieldTypes';
 import { TagMultiPicker } from './TagMultiPicker';
 import { examViewLabel, isSharedImportedField } from '@exam-view/shared';
+import { isCombinedField } from './examCombinedFields';
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
 import { SearchableSelect } from './SearchableSelect';
@@ -84,6 +85,7 @@ const TYPE_ICONS = {
   icon: Image,
   formula: Sigma,
   composite: Layers,
+  combined: Layers,
   linked: Link2,
   fromExam: Copy,
 };
@@ -151,6 +153,8 @@ export const ExamFieldBuilder = ({
   currentView = null,
   /** Enables Bulk add → Import from preset (Settings → Field presets). */
   presetSources = null,
+  /** Shown in Bulk add so the user knows which preset / exam page they are editing. */
+  bulkWorkingContext = '',
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -274,6 +278,12 @@ export const ExamFieldBuilder = ({
     if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
     if (field.dataType === 'fromExam' && field.examFieldKey) parts.push(`exam.${field.examFieldKey}`);
     if (isSharedImportedField(field)) parts.push(`Shared from ${examViewLabel(field.sharedFromView)}`);
+    if (isCombinedField(field)) {
+      parts.push(
+        `Combined (${field.combine.keys.join(field.combine.separator ?? ', ')})` +
+          (field.sharedFromView ? ` · ${examViewLabel(field.sharedFromView)}` : ''),
+      );
+    }
     if (field.scheduleRole === 'start') parts.push('Schedule start');
     if (field.scheduleRole === 'end') parts.push('Schedule end');
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
@@ -360,14 +370,17 @@ export const ExamFieldBuilder = ({
 
   const closeBulk = () => setBulkOpen(false);
 
-  const handleBulkAdd = (newFields, updatedFields = [], removedIds = []) => {
+  const handleBulkAdd = (newFields, updatedFields = [], removedIds = [], order = []) => {
     const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
     const gone = new Set(removedIds);
-    onChange(
-      [...fields.map((f) => updatedById.get(f.id) || f), ...newFields]
-        .filter((f) => !gone.has(f.id))
-        .map((f, i) => ({ ...f, order: i + 1 })),
-    );
+    const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter((f) => !gone.has(f.id));
+    // The bulk grid's row order is the field order (`id:<id>` for existing, `key:<key>` for new).
+    const rank = new Map(order.map((token, i) => [token, i]));
+    const rankOf = (f, i) => rank.get(`id:${f.id}`) ?? rank.get(`key:${f.key}`) ?? order.length + i;
+    const ordered = order.length
+      ? merged.map((f, i) => ({ f, r: rankOf(f, i) })).sort((a, b) => a.r - b.r).map((x) => x.f)
+      : merged;
+    onChange(ordered.map((f, i) => ({ ...f, order: i + 1 })));
     closeBulk();
   };
 
@@ -812,7 +825,12 @@ export const ExamFieldBuilder = ({
                   )}
                 </div>
                 <div className="exams-type-grid">
-                  {EXAM_FIELD_TYPES.map((t) => {
+                  {EXAM_FIELD_TYPES.filter((t) => {
+                    if (t.value === 'fromExam' && !enableFromExam) return false;
+                    // Combined columns are created via Bulk add → Import → Combine.
+                    if (t.value === 'combined') return false;
+                    return true;
+                  }).map((t) => {
                     const Icon = TYPE_ICONS[t.value] || Type;
                     return (
                       <button
@@ -1428,6 +1446,7 @@ export const ExamFieldBuilder = ({
         examId={examId}
         currentView={currentView}
         presetSources={presetSources}
+        workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
         onClose={closeBulk}
         onAdd={handleBulkAdd}
       />

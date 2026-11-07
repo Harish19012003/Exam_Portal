@@ -286,14 +286,23 @@ export const getRow = (examId, rowId) =>
     return row;
   });
 
+const isCombinedField = (field) =>
+  field?.dataType === 'combined' && Array.isArray(field?.combine?.keys) && field.combine.keys.length >= 2;
+
+/** Shared imports + combined (display-only join) are never persisted from this tab. */
+const writableViewFields = (fields) =>
+  (fields || []).filter((f) => !isSharedImportedField(f) && !isCombinedField(f));
+
 export const createRow = (examId, body, userId) =>
   withMeta(async () => {
     const viewKey = normalizeView(body?.view);
     const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
     if (!fields.length) throw validationError('Add at least one column before adding rows');
-    const cleaned = cleanRowValues(fields, body?.values);
+    const writable = writableViewFields(fields);
+    if (!writable.length) throw validationError('Add at least one editable column before adding rows');
+    const cleaned = cleanRowValues(writable, body?.values);
     await assertUniqueCenterCode(table.id, allFields, cleaned);
-    const id = await repo.insertRow(table.id, fields, cleaned, userId);
+    const id = await repo.insertRow(table.id, writable, cleaned, userId);
     return repo.findRow(table.id, allFields, id);
   });
 
@@ -301,8 +310,7 @@ export const updateRow = (examId, rowId, body, userId) =>
   withMeta(async () => {
     const viewKey = normalizeView(body?.view);
     const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
-    // Shared imports are editable on their home tab only; ignore writes here.
-    const writableFields = fields.filter((f) => !isSharedImportedField(f));
+    const writableFields = writableViewFields(fields);
     const cleaned = cleanRowValues(writableFields, body?.values);
     await assertUniqueCenterCode(table.id, allFields, cleaned, rowId);
     if (!(await repo.updateRow(table.id, writableFields, rowId, cleaned, userId))) {

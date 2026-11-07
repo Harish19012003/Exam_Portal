@@ -155,5 +155,11 @@ export const toFieldDefinition = (item, order) => {
   }
   // Imported from another exam tab — same key/value, read-only on this page.
   if (item.sharedFromView) def.sharedFromView = item.sharedFromView;
+  if (item.dataType === 'combined' && item.combine?.keys?.length >= 2) {
+    def.combine = {
+      keys: item.combine.keys.map(String),
+      separator: item.combine.separator == null ? ', ' : String(item.combine.separator),
+    };
+  }
   return def;
 };
