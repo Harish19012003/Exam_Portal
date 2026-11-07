@@ -1,6 +1,6 @@
 import { useConfirm } from '../../feedback';
 import { useUrlState } from '../../hooks/useUrlState';
-import React, { useState, useEffect, useId, useMemo } from 'react';
+import React, { useState, useEffect, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ListChecks,
@@ -13,6 +13,8 @@ import {
   LayoutTemplate,
   ListPlus,
   Upload,
+  Download,
+  FileUp,
 } from 'lucide-react';
 import { loadConfigDropdownLists } from './configStorage';
 import {
@@ -85,28 +87,52 @@ export const detectListNameFromText = (rawText) => {
   return null;
 };
 
+/** Normalize one option to `{ id?, label }` for import/export JSON round-trips. */
+export const normalizeBulkOption = (o) => {
+  if (typeof o === 'string') {
+    const label = o.trim();
+    return label ? { label } : null;
+  }
+  if (!o || typeof o !== 'object') return null;
+  const label = String(o.label ?? o.name ?? o.value ?? '').trim();
+  if (!label) return null;
+  const id = typeof o.id === 'string' && o.id.trim() ? o.id.trim() : undefined;
+  return id ? { id, label } : { label };
+};
+
+const mapBulkListItem = (item) => {
+  if (!item || !(item.name || item.title)) return null;
+  const name = String(item.name || item.title).trim();
+  if (!name) return null;
+
+  let options = [];
+  if (Array.isArray(item.options)) {
+    options = item.options.map(normalizeBulkOption).filter(Boolean);
+  } else if (typeof item.options === 'string') {
+    options = parseBulkOptionsText(item.options, { splitCommas: true })
+      .map((label) => ({ label }))
+      .filter((o) => o.label);
+  }
+
+  if (options.length === 0) return null;
+  return { name, options };
+};
+
 export const parseMultipleBulkLists = (text) => {
   if (!text || typeof text !== 'string') return [];
 
   const trimmed = text.trim();
-  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
     try {
       const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .filter((item) => item && (item.name || item.title))
-          .map((item) => ({
-            name: String(item.name || item.title).trim(),
-            options: Array.isArray(item.options)
-              ? item.options
-                  .map((o) => (typeof o === 'string' ? o.trim() : o?.label?.trim() || ''))
-                  .filter(Boolean)
-              : typeof item.options === 'string'
-              ? parseBulkOptionsText(item.options, { splitCommas: true })
-              : [],
-          }))
-          .filter((item) => item.name && item.options.length > 0);
-      }
+      const items = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.lists)
+          ? parsed.lists
+          : parsed?.name || parsed?.title
+            ? [parsed]
+            : [];
+      return items.map(mapBulkListItem).filter(Boolean);
     } catch {
       // not JSON, fallback to line parser
     }
@@ -149,7 +175,7 @@ export const parseMultipleBulkLists = (text) => {
       .trim();
 
     if (cleanedOption) {
-      currentList.options.push(cleanedOption);
+      currentList.options.push({ label: cleanedOption });
     }
   }
 
@@ -159,6 +185,18 @@ export const parseMultipleBulkLists = (text) => {
 
   return lists;
 };
+
+export const buildDropdownListsExportPayload = (lists) =>
+  (Array.isArray(lists) ? lists : [])
+    .map((list) => {
+      if (!list?.name) return null;
+      const options = (list.options || [])
+        .map((o) => normalizeBulkOption(typeof o === 'string' ? o : { id: o?.id, label: o?.label }))
+        .filter(Boolean);
+      if (options.length === 0) return null;
+      return { name: String(list.name).trim(), options };
+    })
+    .filter(Boolean);
 
 const SECTIONS = [
   {
@@ -214,6 +252,9 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   const [form, setForm] = useState(emptyDropdownForm);
   const [formError, setFormError] = useState('');
   const [presetCreateTick, setPresetCreateTick] = useState(0);
+  const [presetImportTick, setPresetImportTick] = useState(0);
+  const [presetExportTick, setPresetExportTick] = useState(0);
+  const [presetCount, setPresetCount] = useState(0);
 
   // Bulk options inside the drawer
   const [isBulkOpen, setIsBulkOpen] = useState(false);
@@ -227,6 +268,7 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   const [isBulkListsModalOpen, setIsBulkListsModalOpen] = useState(false);
   const [bulkListsText, setBulkListsText] = useState('');
   const [bulkListsError, setBulkListsError] = useState('');
+  const bulkFileInputRef = useRef(null);
 
   const section = SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
   const SectionIcon = section.icon;
@@ -434,9 +476,62 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
     return parseMultipleBulkLists(bulkListsText);
   }, [bulkListsText]);
 
+  const openBulkListsModal = () => {
+    setBulkListsText('');
+    setBulkListsError('');
+    setIsBulkListsModalOpen(true);
+  };
+
+  const downloadDropdownListsJson = (lists, filename) => {
+    const payload = buildDropdownListsExportPayload(lists);
+    if (payload.length === 0) return;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const slugListName = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'list';
+
+  const handleExportDropdownLists = () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadDropdownListsJson(dropdowns, `dropdown-lists-${stamp}.json`);
+  };
+
+  const handleExportOneDropdownList = (list) => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadDropdownListsJson([list], `dropdown-list-${slugListName(list.name)}-${stamp}.json`);
+  };
+
+  const handleBulkFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setBulkListsText(text);
+      setBulkListsError('');
+    } catch {
+      setBulkListsError('Could not read that file.');
+    }
+  };
+
   const handleApplyBulkLists = async () => {
     if (parsedBulkLists.length === 0) {
-      setBulkListsError('No valid lists found. Format: "List Name:\nOption 1\nOption 2"');
+      setBulkListsError('No valid lists found. Upload an Export JSON file, or paste List Name: then options.');
       return;
     }
 
@@ -445,7 +540,9 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
       await bulkSaveConfigLists(
         parsedBulkLists.map((l) => ({
           name: l.name,
-          options: l.options.map((optLabel) => makeOption(optLabel)),
+          options: l.options.map((opt) =>
+            opt.id ? { id: opt.id, label: opt.label } : makeOption(opt.label)
+          ),
         }))
       );
       setDropdowns(await fetchConfigLists());
@@ -586,20 +683,55 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   const toolbarActions = (
     <div className="config-toolbar-actions">
       {activeSection === 'dropdowns' && (
-        <button
-          type="button"
-          className="config-add-btn secondary"
-          title="Bulk import lists"
-          aria-label="Bulk import lists"
-          onClick={() => {
-            setBulkListsText('');
-            setBulkListsError('');
-            setIsBulkListsModalOpen(true);
-          }}
-        >
-          <Upload size={14} />
-          <span>Bulk import</span>
-        </button>
+        <>
+          <button
+            type="button"
+            className="config-add-btn secondary"
+            title="Export dropdown lists as JSON"
+            aria-label="Export dropdown lists"
+            onClick={handleExportDropdownLists}
+            disabled={dropdowns.length === 0}
+          >
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+          <button
+            type="button"
+            className="config-add-btn secondary"
+            title="Import dropdown lists from JSON or text"
+            aria-label="Import dropdown lists"
+            onClick={openBulkListsModal}
+          >
+            <Upload size={14} />
+            <span>Import</span>
+          </button>
+        </>
+      )}
+
+      {activeSection === 'presets' && (
+        <>
+          <button
+            type="button"
+            className="config-add-btn secondary"
+            title="Export field presets as JSON"
+            aria-label="Export field presets"
+            onClick={() => setPresetExportTick((t) => t + 1)}
+            disabled={presetCount === 0}
+          >
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+          <button
+            type="button"
+            className="config-add-btn secondary"
+            title="Import field presets from JSON"
+            aria-label="Import field presets"
+            onClick={() => setPresetImportTick((t) => t + 1)}
+          >
+            <Upload size={14} />
+            <span>Import</span>
+          </button>
+        </>
       )}
 
       <button
@@ -648,14 +780,10 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
                   <button
                     type="button"
                     className="config-add-btn secondary"
-                    onClick={() => {
-                      setBulkListsText('');
-                      setBulkListsError('');
-                      setIsBulkListsModalOpen(true);
-                    }}
+                    onClick={openBulkListsModal}
                   >
                     <Upload size={14} />
-                    <span>Bulk import</span>
+                    <span>Import</span>
                   </button>
                   <button type="button" className="config-add-btn primary" onClick={openCreateDropdown}>
                     <Plus size={15} />
@@ -677,6 +805,15 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
                         <button
                           type="button"
                           className="config-icon-btn"
+                          title="Export this list"
+                          aria-label={`Export ${list.name}`}
+                          onClick={() => handleExportOneDropdownList(list)}
+                        >
+                          <Download size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="config-icon-btn"
                           title="Edit list"
                           aria-label={`Edit ${list.name}`}
                           onClick={() => openEditDropdown(list)}
@@ -695,11 +832,11 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
                       </div>
                     </div>
                     <div className="fpp-card-chips">
-                      {list.options.slice(0, 5).map((opt) => (
-                        <span key={opt.id} className="fpp-chip">{opt.label}</span>
+                      {list.options.slice(0, 3).map((opt) => (
+                        <span key={opt.id} className="fpp-chip" title={opt.label}>{opt.label}</span>
                       ))}
-                      {list.options.length > 5 && (
-                        <span className="fpp-chip fpp-chip--more">+{list.options.length - 5} more</span>
+                      {list.options.length > 3 && (
+                        <span className="fpp-chip fpp-chip--more">+{list.options.length - 3} more</span>
                       )}
                     </div>
                   </li>
@@ -709,7 +846,14 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
           </>
         )}
 
-        {activeSection === 'presets' && <FieldPresetsPanel createTick={presetCreateTick} />}
+        {activeSection === 'presets' && (
+          <FieldPresetsPanel
+            createTick={presetCreateTick}
+            importTick={presetImportTick}
+            exportTick={presetExportTick}
+            onPresetCountChange={setPresetCount}
+          />
+        )}
 
         {activeSection === 'values' && (
           <div className="config-empty-state">
@@ -988,12 +1132,12 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Bulk import dropdown lists"
+            aria-label="Import dropdown lists"
           >
             <div className="config-drawer-header">
               <h2 className="config-drawer-title">
                 <ListPlus size={16} className="config-drawer-title-icon" />
-                <span>Bulk import dropdown lists</span>
+                <span>Import dropdown lists</span>
               </h2>
               <button
                 type="button"
@@ -1009,8 +1153,28 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
             <div className="config-modal-body">
               {bulkListsError && <div className="config-form-error">{bulkListsError}</div>}
               <p className="config-bulk-hint">
-                Paste one or multiple lists with their options. You can use header format or raw JSON.
+                Upload an Export JSON file, or paste lists as JSON / plain text. Matching names update
+                existing lists; new names create lists.
               </p>
+
+              <div className="config-bulk-file-row">
+                <input
+                  ref={bulkFileInputRef}
+                  type="file"
+                  accept=".json,.txt,application/json,text/plain"
+                  className="config-bulk-file-input"
+                  onChange={handleBulkFileSelected}
+                />
+                <button
+                  type="button"
+                  className="config-add-btn secondary"
+                  onClick={() => bulkFileInputRef.current?.click()}
+                >
+                  <FileUp size={14} />
+                  <span>Choose file</span>
+                </button>
+                <span className="config-bulk-file-hint">.json or .txt</span>
+              </div>
 
               <div className="config-bulk-example-box">
                 <span className="config-bulk-example-title">Example format:</span>
@@ -1036,7 +1200,7 @@ Evening`}
                   setBulkListsText(e.target.value);
                   if (bulkListsError) setBulkListsError('');
                 }}
-                placeholder="Paste lists here..."
+                placeholder="Paste lists here, or choose an Export JSON file…"
                 autoFocus
               />
 

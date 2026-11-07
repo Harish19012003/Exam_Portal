@@ -1080,9 +1080,9 @@ export function DynamicTable({
                         maxWidth: ACTIONS_WIDTH,
                         right: 0,
                         position: 'sticky',
-                        zIndex: 21,
+                        zIndex: 30,
                       }}
-                      className={`px-1 py-3 ${theme.bgPinnedFooter}`}
+                      className={`px-1 py-3 dt-sticky-th dt-sticky-th--right ${theme.bgPinnedFooter}`}
                     >
                       {Object.keys(aggregations).length > 0 && (
                         <div className="flex items-center justify-center w-full h-full">

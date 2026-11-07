@@ -1320,8 +1320,21 @@ html.dark .exams-dynamic-table-wrap,
   border-bottom-color: var(--border-color, #e6e8eb) !important;
 }
 
-.exams-dynamic-table-wrap tbody tr:hover td {
+/* Never paint sticky columns translucent — scrolled text bleeds through ACTIONS. */
+.exams-dynamic-table-wrap tbody tr:hover td:not(.dt-sticky-cell) {
   background-color: rgba(92, 67, 250, 0.04) !important;
+}
+
+.exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell {
+  background-color: #f3f0ff !important;
+}
+
+.exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #f3f0ff, 1px 0 0 0 #f3f0ff !important;
+}
+
+.exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #f3f0ff, -1px 0 0 0 #f3f0ff !important;
 }
 
 /* Keep action buttons visible + brand-tinted */
@@ -1351,9 +1364,24 @@ html.dark .exams-dynamic-table-wrap,
   color: var(--text-primary, #030712) !important;
 }
 
-[data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td,
-html.dark .exams-dynamic-table-wrap tbody tr:hover td {
+[data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td:not(.dt-sticky-cell),
+html.dark .exams-dynamic-table-wrap tbody tr:hover td:not(.dt-sticky-cell) {
   background-color: rgba(59, 130, 246, 0.1) !important;
+}
+
+[data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell,
+html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell {
+  background-color: #1f2937 !important;
+}
+
+[data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left,
+html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left {
+  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+}
+
+[data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right,
+html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
+  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
 }
 
 [data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-full'],

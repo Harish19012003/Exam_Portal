@@ -273,11 +273,11 @@ export function TableHeader({
               minWidth: checkboxWidth,
               position: 'sticky',
               left: 0,
-              zIndex: 21,
+              zIndex: 30,
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative ${thBg} border-b ${borderCls} px-2.5`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--left ${thBg} border-b ${borderCls} px-2.5`}
           >
             <div className="flex items-center justify-center gap-1.5">
               {enableSubRows && selectionMode !== 'icon-only' && <div className="w-7 flex-shrink-0" />}
@@ -545,11 +545,11 @@ export function TableHeader({
               maxWidth: actionsWidth,
               position: 'sticky',
               right: 0,
-              zIndex: 21,
+              zIndex: 30,
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative ${thBg} border-b ${borderCls} px-2 py-3 text-center`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-2 py-3 text-center`}
           >
             {(rowActions?.showLabel !== false && (rowActions?.showLabel || Boolean(rowActions?.label))) && (
               <span className={`text-[12px] font-bold uppercase tracking-wide truncate ${textCls}`}>

@@ -60,3 +60,27 @@ export const deletePreset = (id) =>
     if (!(await repo.deletePreset(id))) throw notFound();
     return { success: true, id: String(id) };
   });
+
+/**
+ * Bulk import: same service + page replaces the existing preset (keeps its id).
+ * Body: `{ presets: [{ name, serviceValue, view, fields, features? }, ...] }`
+ */
+export const bulkUpsert = (body, userId) =>
+  withTable(async () => {
+    const items = Array.isArray(body?.presets) ? body.presets : null;
+    if (!items || items.length === 0) throw validationError('presets must be a non-empty array');
+    if (items.length > 200) throw validationError('At most 200 presets per import');
+    const results = [];
+    for (const item of items) {
+      const payload = cleanPayload(item);
+      const existing = await repo.findByServiceAndView(payload.serviceValue, payload.view);
+      if (existing) {
+        await repo.updatePreset(existing.id, payload);
+        results.push(await repo.findById(existing.id));
+      } else {
+        const id = await repo.insertPreset({ ...payload, createdBy: userId });
+        results.push(await repo.findById(id));
+      }
+    }
+    return results;
+  });
