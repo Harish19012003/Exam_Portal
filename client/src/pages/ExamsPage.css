@@ -1976,13 +1976,15 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 .exams-bulk-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  /* Above field-builder drawer (1000) so background edit icons never paint through. */
+  z-index: 1300;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
   background: rgba(3, 7, 18, 0.55);
   box-sizing: border-box;
+  isolation: isolate;
 }
 
 .exams-bulk-modal {
@@ -1998,6 +2000,7 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   box-shadow: 0 24px 60px rgba(3, 7, 18, 0.35);
   box-sizing: border-box;
   overflow: hidden;
+  isolation: isolate;
 }
 
 [data-theme='dark'] .exams-bulk-modal {
@@ -2386,16 +2389,17 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 .exams-bulk-table td.col-act {
   position: sticky;
   right: 0;
+  /* Above left pinned columns so Delete / Duplicate stay clickable while scrolling sideways. */
   background: var(--bg-card, #ffffff);
   box-shadow: -8px 0 8px -8px rgba(3, 7, 18, 0.18);
 }
 
 .exams-bulk-table th.col-act {
-  z-index: 3;
+  z-index: 6;
 }
 
 .exams-bulk-table td.col-act {
-  z-index: 2;
+  z-index: 5;
 }
 
 [data-theme='dark'] .exams-bulk-table th.col-act,
@@ -2404,10 +2408,12 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.6);
 }
 
+.exams-bulk-table tbody tr:hover td.col-act,
 .exams-bulk-table tbody tr:focus-within td.col-act {
   background: var(--bg-card, #ffffff);
 }
 
+[data-theme='dark'] .exams-bulk-table tbody tr:hover td.col-act,
 [data-theme='dark'] .exams-bulk-table tbody tr:focus-within td.col-act {
   background: var(--bg-card, #111827);
 }
@@ -2462,12 +2468,21 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
     background: var(--bg-card, #ffffff);
   }
 
+  /* Keep below right action column (z-index 5/6) so actions are never covered. */
   .exams-bulk-table td.is-pinned {
     z-index: 2;
   }
 
   .exams-bulk-table th.is-pinned {
     z-index: 4;
+  }
+
+  .exams-bulk-table th.is-pinned.col-act {
+    z-index: 6;
+  }
+
+  .exams-bulk-table td.is-pinned.col-act {
+    z-index: 5;
   }
 
   .exams-bulk-table th.pin-edge,

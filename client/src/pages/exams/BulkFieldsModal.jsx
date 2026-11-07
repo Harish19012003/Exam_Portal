@@ -495,7 +495,7 @@ export const BulkFieldsModal = ({
   const focusRidRef = useRef(null);
 
   const [tab, setTab] = useState('fields'); // 'fields' | 'deps'
-  const [removedIds, setRemovedIds] = useState([]); // existing Linked value fields to delete on save
+  const [removedIds, setRemovedIds] = useState([]); // existing field ids to delete on save
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -601,12 +601,17 @@ export const BulkFieldsModal = ({
     });
   };
 
-  const removeRow = (rid) =>
+  const removeRow = (rid) => {
+    const target = rows.find((r) => r.rid === rid);
+    if (!target) return;
+    if (target.existingId) {
+      setRemovedIds((prev) => (prev.includes(target.existingId) ? prev : [...prev, target.existingId]));
+    }
     setRows((prev) => {
-      if (prev.find((r) => r.rid === rid)?.existingId) return prev;
       const next = prev.filter((r) => r.rid !== rid);
       return next.some((r) => !r.existingId) ? next : [...next, newRow()];
     });
+  };
 
   // Auto-fill and Width are rarely changed, so they stay hidden until asked for (or already in use).
   const [showMore, setShowMore] = useState(() =>
@@ -1695,9 +1700,8 @@ export const BulkFieldsModal = ({
                         type="button"
                         className="exams-bulk-remove"
                         onClick={() => removeRow(row.rid)}
-                        disabled={Boolean(row.existingId)}
                         aria-label={`Remove row ${i + 1}`}
-                        title={row.existingId ? 'Existing fields are deleted from Manage fields' : 'Remove row'}
+                        title={row.existingId ? 'Remove field (applies when you Save changes)' : 'Remove row'}
                       >
                         <Trash2 size={14} />
                       </button>
