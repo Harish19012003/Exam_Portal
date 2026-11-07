@@ -24,6 +24,7 @@ export const queryKeys = {
       String(view || 'center-list'),
     ],
     presets: () => [...queryKeys.exams.all, 'presets'],
+    links: (examId) => [...queryKeys.exams.all, 'links', String(examId || '')],
   },
   configLists: ['config-lists'],
   tableLayout: (tableId) => ['table-layout', String(tableId || '')],

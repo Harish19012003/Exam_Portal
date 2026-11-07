@@ -3,6 +3,7 @@ import { UserGroupSchema } from './UserGroup.js';
 import { ExamSchema } from './Exam.js';
 import { ExamTableSchema } from './ExamTable.js';
 import { ExamRowSchema } from './ExamRow.js';
+import { ExamLinkSchema } from './ExamLink.js';
 import { VendorSchema } from './Vendor.js';
 import { VendorMetaSchema } from './VendorMeta.js';
 import { SeqViewSchema } from './SeqView.js';
@@ -24,6 +25,7 @@ export const entities = [
   ExamSchema,
   ExamTableSchema,
   ExamRowSchema,
+  ExamLinkSchema,
   VendorSchema,
   VendorMetaSchema,
   SeqViewSchema,
@@ -45,6 +47,7 @@ export { UserGroup } from './UserGroup.js';
 export { Exam } from './Exam.js';
 export { ExamTable } from './ExamTable.js';
 export { ExamRow } from './ExamRow.js';
+export { ExamLink } from './ExamLink.js';
 export { Vendor } from './Vendor.js';
 export { VendorMeta } from './VendorMeta.js';
 export { SeqView } from './SeqView.js';

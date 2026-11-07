@@ -34,6 +34,33 @@ export const deleteExam = async (id) => {
   return true;
 };
 
+/** Linked exams for one exam: { examId, linkedExamIds, linkedExams }. */
+export const listExamLinks = async (id) => {
+  const { data } = await apiClient.get(`/exams/${encodeURIComponent(id)}/links`);
+  return unwrap(data) || { examId: id, linkedExamIds: [], linkedExams: [] };
+};
+
+/** Replace the full set of linked exams for one exam. */
+export const setExamLinks = async (id, linkedExamIds = []) => {
+  const { data } = await apiClient.put(`/exams/${encodeURIComponent(id)}/links`, {
+    linkedExamIds,
+  });
+  return unwrap(data);
+};
+
+export const unlinkExam = async (id, linkedExamId) => {
+  const { data } = await apiClient.delete(
+    `/exams/${encodeURIComponent(id)}/links/${encodeURIComponent(linkedExamId)}`,
+  );
+  return unwrap(data);
+};
+
+/** Link every pair among the given exam ids. */
+export const linkExams = async (examIds = []) => {
+  const { data } = await apiClient.post('/exams/links', { examIds });
+  return unwrap(data);
+};
+
 /** Bulk create/upsert exams (CSV import + IDB migration). */
 export const importExams = async (exams = []) => {
   const { data } = await apiClient.post('/exams/import', { exams });

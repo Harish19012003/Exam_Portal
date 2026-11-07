@@ -5,7 +5,7 @@ import { PageTitle } from '../components/PageHeading';
 import { useConfirm } from '../feedback';
 import { apiErrorMessage } from './exams/examTableApi';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, FilePlus2, SlidersHorizontal, CalendarDays } from 'lucide-react';
+import { Plus, X, FilePlus2, SlidersHorizontal, CalendarDays, Link2 } from 'lucide-react';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
@@ -70,6 +70,7 @@ import {
   mergeDraftIntoForm,
   validateFormFields,
 } from './exams/examTableHelpers';
+import { LinkExamsDialog } from './exams/LinkExamsDialog';
 import './ExamsPage.css';
 
 export const ExamsPage = () => {
@@ -79,6 +80,7 @@ export const ExamsPage = () => {
   const { access, can } = useAccess();
   const canConfigure = can('exams', 'configure');
   const canCreate = can('exams', 'create');
+  const canEditExams = can('exams', 'edit');
   const {
     layoutReady,
     layoutPrefs,
@@ -110,6 +112,7 @@ export const ExamsPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [pageMessage, setPageMessage] = useState('');
+  const [linkExam, setLinkExam] = useState(null);
   const [featuresDirty, setFeaturesDirty] = useState(false);
   const [isSavingFeatures, setIsSavingFeatures] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -567,6 +570,30 @@ export const ExamsPage = () => {
     if (row?.id) handleRowDelete([row.id]);
   };
 
+  // Latest handlers without rebuilding DynamicTable features every render.
+  const examActionsRef = useRef(() => null);
+  examActionsRef.current = (row) => {
+    if (!canEditExams) return null;
+    const examId = String(row?.id || row?.rowId || '');
+    const exam = exams.find((e) => String(e.id) === examId);
+    if (!exam) return null;
+    const linkedCount = Array.isArray(exam.linkedExamIds) ? exam.linkedExamIds.length : 0;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setLinkExam(exam);
+        }}
+        className="p-1 rounded-lg transition-colors text-gray-400 hover:text-teal-600 hover:bg-teal-50"
+        aria-label={linkedCount ? `Linked exams (${linkedCount})` : 'Link exams'}
+        title={linkedCount ? `Linked exams (${linkedCount})` : 'Link exams'}
+      >
+        <Link2 className="w-3.5 h-3.5" aria-hidden="true" />
+      </button>
+    );
+  };
+
   /** Duplicate row: copy visible field values; skip auto-fill / audit / formula. */
   const handleExploreRow = useCallback(
     (row) => {
@@ -809,11 +836,35 @@ export const ExamsPage = () => {
                 enableAddRow: false,
                 enableSubRows: false,
                 enableTranspose: false,
+                rowActions: {
+                  ...DEFAULT_EXAM_TABLE_FEATURES.rowActions,
+                  ...(tableFeatures?.rowActions || {}),
+                  width: Math.max(
+                    196,
+                    Number(tableFeatures?.rowActions?.width) ||
+                      DEFAULT_EXAM_TABLE_FEATURES.rowActions.width ||
+                      168,
+                  ),
+                  renderCustomActions: (row) => examActionsRef.current(row),
+                },
               }}
             />
           </div>
         )}
       </div>
+
+      {linkExam && (
+        <LinkExamsDialog
+          exam={linkExam}
+          exams={exams}
+          fields={formFields}
+          onClose={() => setLinkExam(null)}
+          onSaved={async () => {
+            await invalidateExamsList();
+            setPageMessage('Exam links saved');
+          }}
+        />
+      )}
 
       {isCreateOpen && (
         <div className="exams-drawer-overlay" onClick={closeCreate}>

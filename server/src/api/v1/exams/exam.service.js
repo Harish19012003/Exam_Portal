@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import * as examRepository from './exam.repository.js';
+import * as examLinkService from './exam-link.service.js';
 import * as settingsService from '../settings/settings.service.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
@@ -34,7 +35,8 @@ export const listExams = async () => {
       // ignore
     }
   }
-  return examRepository.findAll(fields);
+  const exams = await examRepository.findAll(fields);
+  return examLinkService.withLinkedIds(exams);
 };
 
 export const getExam = async (id) => {
@@ -43,7 +45,7 @@ export const getExam = async (id) => {
   if (!exam) {
     throw new AppError('Exam not found', 404, ERROR_CODES.NOT_FOUND);
   }
-  return exam;
+  return examLinkService.withLinkedIds(exam);
 };
 
 export const createExam = async ({ values, fields, id }, userId) => {
