@@ -305,8 +305,11 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
   switch (column.dataType) {
     case 'text':
       return (
-        <div className={`text-[13px] truncate block ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-          {str || <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>}
+        <div
+          className={`text-[13px] truncate block ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}
+          title={str.includes('\n') ? str : undefined}
+        >
+          {(str.includes('\n') ? str.replace(/\s*\n+\s*/g, ' ↵ ') : str) || <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>}
         </div>
       );
 

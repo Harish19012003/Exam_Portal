@@ -1,4 +1,5 @@
 import { isSharedImportedField } from '@exam-view/shared';
+import { isCombinedField } from './examCombinedFields';
 import { getEffectiveDataType, resolveFieldOptions } from './examFieldTypes';
 import {
   isTableSourceField,
@@ -12,7 +13,7 @@ const toTableDataType = (field) => {
   const t = getEffectiveDataType(field);
   if (t === 'code' || t === 'mono') return 'text';
   if (t === 'dot') return 'boolean';
-  if (t === 'linked' || t === 'fromExam') return 'text';
+  if (t === 'linked' || t === 'fromExam' || t === 'combined') return 'text';
   return t || 'text';
 };
 
@@ -71,15 +72,17 @@ export const buildFieldColumns = (fields = []) =>
       visible: true,
       pinned: null,
       width: dataType === 'date' || dataType === 'datetime' ? 150 : 180,
-      // Linked / fromExam / shared-from-another-tab values are display-only here.
+      // Linked / fromExam / combined / shared-from-another-tab values are display-only here.
       editable:
         !isAuto &&
         dataType !== 'formula' &&
         dataType !== 'composite' &&
         field.dataType !== 'linked' &&
         field.dataType !== 'fromExam' &&
+        !isCombinedField(field) &&
         !isSharedImportedField(field),
-      sharedFromView: isSharedImportedField(field) ? field.sharedFromView : undefined,
+      sharedFromView: isSharedImportedField(field) || isCombinedField(field) ? field.sharedFromView : undefined,
+      combined: isCombinedField(field) ? field.combine : undefined,
       lookup: isTableSourceField(field)
         ? {
             table: field.tableSource.table,

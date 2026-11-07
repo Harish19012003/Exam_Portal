@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { InfoTip } from '../../components/PageHeading';
+import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
 import { CENTER_CODE_KEY, DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
+import { buildCombinedField, COMBINE_SEPARATORS, DEFAULT_COMBINE_SEPARATOR, separatorForLabel } from './examCombinedFields';
 import { getExamTable } from './examTableApi';
+import { SearchableSelect } from './SearchableSelect';
 import './ImportFieldsFromTabModal.css';
 
 const presetLabel = (p) =>
@@ -10,7 +13,7 @@ const presetLabel = (p) =>
 
 /**
  * Pick fields from another exam tab (live exam) or from another field preset (Settings).
- * Shared row values show automatically once the column key is added.
+ * Optional: combine 2+ source fields into one read-only joined column.
  */
 export const ImportFieldsFromTabModal = ({
   open,
@@ -23,41 +26,54 @@ export const ImportFieldsFromTabModal = ({
   onImport,
 }) => {
   const presetMode = Array.isArray(presetSources) && !examId;
+  // The parent rebuilds `presetSources` / `tabOptions` on every render. Read them through refs so a
+  // re-render never resets the user's ticks; only opening the dialog or changing the source does.
+  const presetSourcesRef = useRef(presetSources);
+  presetSourcesRef.current = presetSources;
   const currentKeys = useMemo(() => new Set(currentFields.map((f) => f.key)), [currentFields]);
 
   const tabOptions = useMemo(
     () => EXAM_VIEWS.filter((v) => v.key !== currentView),
     [currentView],
   );
+  const firstTabKey = tabOptions[0]?.key || DEFAULT_EXAM_VIEW;
 
   const [sourceView, setSourceView] = useState(tabOptions[0]?.key || DEFAULT_EXAM_VIEW);
   const [sourcePresetId, setSourcePresetId] = useState(presetSources?.[0]?.id || '');
   const [sourceFields, setSourceFields] = useState([]);
-  const [selected, setSelected] = useState(() => new Set());
+  /** Ordered selection (tick order = join order by default). */
+  const [selectedOrder, setSelectedOrder] = useState([]);
+  const [combineMode, setCombineMode] = useState(false);
+  const [combineLabel, setCombineLabel] = useState('');
+  const [combineSeparator, setCombineSeparator] = useState(DEFAULT_COMBINE_SEPARATOR);
+  const [separatorChoice, setSeparatorChoice] = useState('comma'); // a COMBINE_SEPARATORS id, or 'custom'
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open) return undefined;
-    setSourceView(tabOptions[0]?.key || DEFAULT_EXAM_VIEW);
-    setSourcePresetId(presetSources?.[0]?.id || '');
-    setSelected(new Set());
+    setSourceView(firstTabKey);
+    setSourcePresetId(presetSourcesRef.current?.[0]?.id || '');
+    setSelectedOrder([]);
+    setCombineMode(false);
+    setCombineLabel('');
+    setCombineSeparator(DEFAULT_COMBINE_SEPARATOR);
+    setSeparatorChoice('comma');
+    setQuery('');
     setError('');
     return undefined;
-  }, [open, tabOptions, presetSources]);
+  }, [open, firstTabKey]);
 
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
 
     if (presetMode) {
-      const preset = (presetSources || []).find((p) => String(p.id) === String(sourcePresetId));
+      const preset = (presetSourcesRef.current || []).find((p) => String(p.id) === String(sourcePresetId));
       const list = Array.isArray(preset?.fields) ? preset.fields : [];
       setSourceFields(list);
-      const next = new Set();
-      const center = list.find((f) => f.key === CENTER_CODE_KEY);
-      if (center && !currentKeys.has(CENTER_CODE_KEY)) next.add(CENTER_CODE_KEY);
-      setSelected(next);
+      setSelectedOrder([]);
       setLoading(false);
       setError('');
       return () => {
@@ -73,10 +89,7 @@ export const ImportFieldsFromTabModal = ({
         if (!alive) return;
         const list = Array.isArray(snap?.fields) ? snap.fields : [];
         setSourceFields(list);
-        const next = new Set();
-        const center = list.find((f) => f.key === CENTER_CODE_KEY);
-        if (center && !currentKeys.has(CENTER_CODE_KEY)) next.add(CENTER_CODE_KEY);
-        setSelected(next);
+        setSelectedOrder([]);
       })
       .catch(() => {
         if (!alive) return;
@@ -89,32 +102,90 @@ export const ImportFieldsFromTabModal = ({
     return () => {
       alive = false;
     };
-  }, [open, examId, sourceView, sourcePresetId, presetMode, presetSources, currentKeys]);
+  }, [open, examId, sourceView, sourcePresetId, presetMode]);
+
+  useEffect(() => {
+    if (selectedOrder.length < 2 && combineMode) setCombineMode(false);
+  }, [selectedOrder, combineMode]);
+
+  useEffect(() => {
+    if (!combineMode || combineLabel.trim()) return;
+    const labels = selectedOrder
+      .map((key) => sourceFields.find((f) => f.key === key)?.label || key)
+      .filter(Boolean);
+    if (labels.length >= 2) setCombineLabel(labels.join(separatorForLabel(combineSeparator)));
+  }, [combineMode, selectedOrder, sourceFields, combineSeparator, combineLabel]);
 
   if (!open) return null;
 
+  const selected = new Set(selectedOrder);
   const toggle = (key) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+    setSelectedOrder((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  const movePart = (key, dir) => {
+    setSelectedOrder((prev) => {
+      const i = prev.indexOf(key);
+      if (i < 0) return prev;
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
   };
 
-  const selectable = sourceFields.filter((f) => !currentKeys.has(f.key));
+  // Normal import skips keys already on this page; combine can use any source field.
+  const baseFields = combineMode
+    ? sourceFields
+    : sourceFields.filter((f) => !currentKeys.has(f.key));
+  const q = query.trim().toLowerCase();
+  const listFields = q
+    ? baseFields.filter((f) => `${f.label || ''} ${f.key}`.toLowerCase().includes(q))
+    : baseFields;
   const alreadyHere = sourceFields.filter((f) => currentKeys.has(f.key));
   const sourceHomeView = presetMode
     ? (presetSources || []).find((p) => String(p.id) === String(sourcePresetId))?.view || DEFAULT_EXAM_VIEW
     : sourceView;
 
   const handleImport = () => {
-    const picked = sourceFields.filter((f) => selected.has(f.key));
-    if (!picked.length) {
+    if (!selectedOrder.length) {
       setError('Select at least one field to import.');
       return;
     }
-    onImport?.(picked, sourceHomeView);
+
+    if (combineMode) {
+      if (selectedOrder.length < 2) {
+        setError('Pick at least two fields to combine.');
+        return;
+      }
+      try {
+        const combinedField = buildCombinedField({
+          label: combineLabel,
+          keys: selectedOrder,
+          separator: combineSeparator,
+          sourceView: sourceHomeView,
+          takenKeys: [...currentKeys],
+          sourceFields,
+        });
+        onImport?.({ combinedField, sourceView: sourceHomeView });
+        onClose?.();
+      } catch (err) {
+        setError(err?.message || 'Could not build the combined column.');
+      }
+      return;
+    }
+
+    const picked = selectedOrder
+      .map((key) => sourceFields.find((f) => f.key === key))
+      .filter((f) => f && !currentKeys.has(f.key));
+    if (!picked.length) {
+      setError('Select at least one field that is not already on this page.');
+      return;
+    }
+    onImport?.({ fields: picked, sourceView: sourceHomeView });
     onClose?.();
   };
 
@@ -131,46 +202,66 @@ export const ImportFieldsFromTabModal = ({
           <div>
             <h2 className="import-fields-title">
               {presetMode ? 'Import fields from another preset' : 'Import fields from another tab'}
+              <InfoTip title="About importing" label="About importing fields">
+                Imported columns are shared: one value, edited on the home page. Tick 2 or more fields to join
+                them into one read-only column.
+              </InfoTip>
             </h2>
-            <p className="import-fields-sub">
-              Same keys share one value on the exam. Imported columns are marked shared from the source page —
-              edit there; they stay read-only on this page.
-            </p>
           </div>
           <button type="button" className="import-fields-close" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
 
+        <div className="import-fields-controls">
         {presetMode ? (
           (presetSources || []).length === 0 ? (
             <p className="import-fields-empty">
               Create at least one other preset first (e.g. Center list for this service), then import its columns here.
             </p>
           ) : (
-          <label className="import-fields-source">
-            <span>Source preset</span>
-            <select value={sourcePresetId} onChange={(e) => setSourcePresetId(e.target.value)}>
-              {(presetSources || []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {presetLabel(p)} ({p.fieldCount ?? p.fields?.length ?? 0} fields)
-                </option>
-              ))}
-            </select>
-          </label>
+            <div className="import-fields-source">
+              <span>From</span>
+              <SearchableSelect
+                portal
+                ariaLabel="Source preset"
+                value={String(sourcePresetId)}
+                onChange={(v) => setSourcePresetId(v)}
+                options={(presetSources || []).map((p) => ({
+                  value: String(p.id),
+                  label: `${presetLabel(p)} (${p.fieldCount ?? p.fields?.length ?? 0} fields)`,
+                }))}
+                searchPlaceholder="Search presets…"
+              />
+            </div>
           )
         ) : (
-          <label className="import-fields-source">
-            <span>Source tab</span>
-            <select value={sourceView} onChange={(e) => setSourceView(e.target.value)}>
-              {tabOptions.map((v) => (
-                <option key={v.key} value={v.key}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+          <div className="import-fields-source">
+            <span>From</span>
+            <SearchableSelect
+              portal
+              ariaLabel="Source tab"
+              value={sourceView}
+              onChange={(v) => setSourceView(v)}
+              options={tabOptions.map((v) => ({ value: v.key, label: v.label }))}
+            />
+          </div>
+        )}
+
+        {sourceFields.length > 6 && (
+          <label className="import-fields-search">
+            <Search size={14} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search fields…"
+              aria-label="Search fields"
+            />
           </label>
         )}
+
+        </div>
 
         {error && (
           <p className="import-fields-error" role="alert">
@@ -185,10 +276,12 @@ export const ImportFieldsFromTabModal = ({
             <p className="import-fields-empty">
               {presetMode ? 'That preset has no fields yet.' : `“${examViewLabel(sourceView)}” has no fields yet.`}
             </p>
-          ) : !selectable.length ? (
-            <p className="import-fields-empty">Every field from the source is already in this list.</p>
+          ) : !listFields.length ? (
+            <p className="import-fields-empty">
+              {q ? 'No fields match your search.' : 'Every field from the source is already in this list.'}
+            </p>
           ) : (
-            selectable.map((f) => (
+            listFields.map((f) => (
               <label key={f.key} className="import-fields-row">
                 <input
                   type="checkbox"
@@ -197,20 +290,121 @@ export const ImportFieldsFromTabModal = ({
                 />
                 <span className="import-fields-label">{f.label || f.key}</span>
                 <code className="import-fields-key">{f.key}</code>
-                <span className="import-fields-badge">
-                  {f.key === CENTER_CODE_KEY ? 'shared key' : 'shared'}
-                </span>
+                {f.key === CENTER_CODE_KEY && <span className="import-fields-badge">shared key</span>}
+                {combineMode && selected.has(f.key) && (
+                  <span className="import-fields-ord">#{selectedOrder.indexOf(f.key) + 1}</span>
+                )}
               </label>
             ))
           )}
-          {alreadyHere.length > 0 && selectable.length > 0 && (
-            <p className="import-fields-skip">
-              Skipped (already here): {alreadyHere.map((f) => f.label || f.key).join(', ')}
-            </p>
+          {!combineMode && alreadyHere.length > 0 && listFields.length > 0 && (
+            <details className="import-fields-skipped">
+              <summary>{alreadyHere.length} already on this page</summary>
+              <p className="import-fields-skip">{alreadyHere.map((f) => f.label || f.key).join(', ')}</p>
+            </details>
           )}
         </div>
 
+        {selectedOrder.length >= 2 && (
+          <div className="import-fields-combine">
+            <label className="import-fields-combine-toggle">
+              <input
+                type="checkbox"
+                checked={combineMode}
+                onChange={(e) => setCombineMode(e.target.checked)}
+              />
+              <span>Combine into one column</span>
+            </label>
+            {combineMode && (
+              <>
+                <label className="import-fields-source">
+                  <span>Combined column name</span>
+                  <input
+                    type="text"
+                    value={combineLabel}
+                    onChange={(e) => setCombineLabel(e.target.value)}
+                    placeholder="e.g. Center address"
+                    maxLength={120}
+                  />
+                </label>
+                <div className="import-fields-source">
+                  <span>Separator</span>
+                  <SearchableSelect
+                    portal
+                    ariaLabel="Separator"
+                    value={separatorChoice}
+                    searchThreshold={99}
+                    onChange={(id) => {
+                      setSeparatorChoice(id);
+                      const preset = COMBINE_SEPARATORS.find((o) => o.id === id);
+                      setCombineSeparator(preset ? preset.value : '');
+                    }}
+                    options={[
+                      ...COMBINE_SEPARATORS.map((o) => ({ value: o.id, label: o.label })),
+                      { value: 'custom', label: 'Custom…' },
+                    ]}
+                  />
+                </div>
+                {separatorChoice === 'custom' && (
+                  <label className="import-fields-source">
+                    <span>Custom separator</span>
+                    <input
+                      type="text"
+                      value={combineSeparator}
+                      onChange={(e) => setCombineSeparator(e.target.value)}
+                      placeholder="e.g.  ::  or  →"
+                      maxLength={12}
+                      autoFocus
+                    />
+                  </label>
+                )}
+                <div className="import-fields-parts" role="list" aria-label="Join order">
+                  <span className="import-fields-parts-label">Join order</span>
+                  {selectedOrder.map((key, index) => {
+                    const field = sourceFields.find((f) => f.key === key);
+                    return (
+                      <div key={key} className="import-fields-part" role="listitem">
+                        <span className="import-fields-part-label">
+                          {field?.label || key}
+                          <code>{key}</code>
+                        </span>
+                        <span className="import-fields-part-actions">
+                          <button
+                            type="button"
+                            className="import-fields-part-btn"
+                            disabled={index === 0}
+                            onClick={() => movePart(key, -1)}
+                            aria-label={`Move ${field?.label || key} up`}
+                          >
+                            <ArrowUp size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="import-fields-part-btn"
+                            disabled={index === selectedOrder.length - 1}
+                            onClick={() => movePart(key, 1)}
+                            aria-label={`Move ${field?.label || key} down`}
+                          >
+                            <ArrowDown size={14} />
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="import-fields-skip">
+                  Only the combined column is added — source columns stay on {examViewLabel(sourceHomeView)}.
+                  Empty parts are skipped at display time.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
         <footer className="import-fields-footer">
+          <span className="import-fields-count" aria-live="polite">
+            {selectedOrder.length ? `${selectedOrder.length} selected` : 'None selected'}
+          </span>
           <button type="button" className="import-fields-btn secondary" onClick={onClose}>
             Cancel
           </button>
@@ -218,9 +412,11 @@ export const ImportFieldsFromTabModal = ({
             type="button"
             className="import-fields-btn primary"
             onClick={handleImport}
-            disabled={loading || selected.size === 0}
+            disabled={loading || selectedOrder.length === 0 || (combineMode && selectedOrder.length < 2)}
           >
-            Import {selected.size || ''} field{selected.size === 1 ? '' : 's'}
+            {combineMode
+              ? 'Add combined column'
+              : `Import ${selectedOrder.length || ''} field${selectedOrder.length === 1 ? '' : 's'}`}
           </button>
         </footer>
       </div>

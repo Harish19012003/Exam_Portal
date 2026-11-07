@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, Download, Info, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, Download, GripVertical, Info, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { examViewLabel } from '@exam-view/shared';
 import {
   EXAM_FIELD_TYPES,
@@ -34,7 +34,11 @@ const OPTIONS_SOURCES = [
 ];
 
 const BULK_TYPES = EXAM_FIELD_TYPES.filter(
-  (t) => t.value !== 'formula' && t.value !== 'composite' && t.value !== 'linked',
+  (t) =>
+    t.value !== 'formula' &&
+    t.value !== 'composite' &&
+    t.value !== 'linked' &&
+    t.value !== 'combined',
 );
 const WIDTH_OPTIONS = [
   { value: 'full', label: 'Full width' },
@@ -70,6 +74,8 @@ const newRow = (dataType = 'text') => ({
   phonePattern: '',
   phoneMessage: '',
   sharedFromView: '',
+  combineKeys: [],
+  combineSeparator: ', ',
   existingId: null,
   orig: null,
   lockOptions: false,
@@ -109,6 +115,8 @@ const rowFromField = (f) => {
     examFieldKey: f.examFieldKey || '',
     scheduleRole: f.scheduleRole === 'start' || f.scheduleRole === 'end' ? f.scheduleRole : '',
     sharedFromView: f.sharedFromView || '',
+    combineKeys: Array.isArray(f.combine?.keys) ? f.combine.keys.map(String) : [],
+    combineSeparator: f.combine?.separator == null ? ', ' : String(f.combine.separator),
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
@@ -155,6 +163,9 @@ const rowToItem = (r, allowUnique = false) => ({
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
   ...(r.sharedFromView ? { sharedFromView: r.sharedFromView } : {}),
+  ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
+    ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
+    : {}),
 });
 
 /** The saved field with this row's edits applied, or null when nothing changed. */
@@ -188,6 +199,11 @@ const changedField = (r, allowUnique = false) => {
           ? item.scheduleRole
           : undefined
         : undefined,
+    ...(item.dataType === 'combined' && item.combine
+      ? { combine: item.combine }
+      : item.dataType === 'combined'
+        ? {}
+        : { combine: undefined }),
   };
   const sig = (f) =>
     JSON.stringify([
@@ -206,6 +222,8 @@ const changedField = (r, allowUnique = false) => {
       f.examFieldKey || '',
       f.scheduleRole || '',
       f.phoneValidation || null,
+      f.combine || null,
+      f.sharedFromView || '',
     ]);
   return sig(next) === sig(o) ? null : next;
 };
@@ -429,6 +447,8 @@ export const BulkFieldsModal = ({
   onClose,
   onAdd,
   title = 'Bulk add fields',
+  /** Where the user is editing, e.g. "Field preset · Bio-Metric · Mock Day". */
+  workingContext = '',
   labelPlaceholder = 'e.g. Exam Type',
   keyPlaceholder = 'exam_type',
   reservedKeys = [],
@@ -446,7 +466,14 @@ export const BulkFieldsModal = ({
     .filter((f) => f?.key)
     .map((f) => ({ value: f.key, label: f.label || f.key }));
   const initialRows = () => {
-    const existing = fields.filter((f) => f.dataType === 'linked' || BULK_TYPES.some((t) => t.value === f.dataType)).map(rowFromField);
+    const existing = fields
+      .filter(
+        (f) =>
+          f.dataType === 'linked' ||
+          f.dataType === 'combined' ||
+          BULK_TYPES.some((t) => t.value === f.dataType),
+      )
+      .map(rowFromField);
     // A Linked value points at the row (field) it reads from.
     existing.forEach((r) => {
       if (r.linkedKey) r.linkedRid = existing.find((x) => x.key === r.linkedKey)?.rid || '';
@@ -457,6 +484,13 @@ export const BulkFieldsModal = ({
   const existingCount = rows.filter((r) => r.existingId).length;
   const maxRows = MAX_ROWS + existingCount;
   const bodyRef = useRef(null);
+  const focusHandleRidRef = useRef(null);
+  useEffect(() => {
+    const rid = focusHandleRidRef.current;
+    if (!rid) return;
+    focusHandleRidRef.current = null;
+    tableRef.current?.querySelector(`[data-grip="${rid}"]`)?.focus();
+  });
   const tableRef = useRef(null);
   const focusRidRef = useRef(null);
 
@@ -579,7 +613,8 @@ export const BulkFieldsModal = ({
     rows.some((r) => (r.autoFill || 'none') !== 'none' || (r.layout || 'full') !== 'full'),
   );
   // Column pinning: columns 0..pinCount (# / Label / Key / Type) stay put while scrolling sideways; null = none.
-  const [pinCount, setPinCount] = useState(null);
+  // Label (column 1) is pinned by default so rows stay identifiable when scrolling right.
+  const [pinCount, setPinCount] = useState(1);
   const [pinLefts, setPinLefts] = useState([]);
   // Config lists for the Options cell. Start from the local cache, then refresh from the server.
   const [configLists, setConfigLists] = useState(loadConfigDropdownLists);
@@ -723,6 +758,35 @@ export const BulkFieldsModal = ({
     );
   };
 
+  /* ---------- Reorder rows (drag the handle, or Alt+Up / Alt+Down on it) ---------- */
+  const [dragRid, setDragRid] = useState(null);
+  const [dragOverRid, setDragOverRid] = useState(null);
+
+  const moveRow = (fromRid, toRid) => {
+    if (!fromRid || !toRid || fromRid === toRid) return;
+    setRows((prev) => {
+      const from = prev.findIndex((r) => r.rid === fromRid);
+      const to = prev.findIndex((r) => r.rid === toRid);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const nudgeRow = (rid, delta) => {
+    setRows((prev) => {
+      const from = prev.findIndex((r) => r.rid === rid);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      [next[from], next[to]] = [next[to], next[from]];
+      return next;
+    });
+    focusHandleRidRef.current = rid;
+  };
+
   const duplicateRow = (rid) =>
     setRows((prev) => {
       if (prev.length >= maxRows) return prev;
@@ -741,11 +805,54 @@ export const BulkFieldsModal = ({
     setNotice('');
   };
 
-  /** Pull shared columns from another exam tab into this bulk grid (save to persist). */
-  const handleImportFromTab = (pickedFields, sourceView) => {
+  const insertBulkRows = (additions, notice) => {
+    if (!additions.length) {
+      setNotice('Those fields are already in this list.');
+      return;
+    }
+    setRows((prev) => {
+      const blankStart = prev.findIndex(
+        (r) => !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim(),
+      );
+      if (blankStart < 0) return [...prev, ...additions].slice(0, maxRows);
+      return [...prev.slice(0, blankStart), ...additions, ...prev.slice(blankStart)].slice(0, maxRows);
+    });
+    setNotice(notice);
+    setTab('fields');
+  };
+
+  /** Pull shared / combined columns from another tab or preset into this bulk grid. */
+  const handleImportFromTab = (result) => {
+    const home = String(result?.sourceView || '').trim();
     const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
-    const home = String(sourceView || '').trim();
-    const additions = (pickedFields || [])
+
+    if (result?.combinedField) {
+      const f = result.combinedField;
+      if (haveKeys.has(f.key)) {
+        setNotice(`“${f.label || f.key}” is already in this list.`);
+        return;
+      }
+      const row = rowFromField({ ...f, id: undefined });
+      insertBulkRows(
+        [
+          {
+            ...row,
+            rid: newRow().rid,
+            existingId: null,
+            orig: null,
+            keyTouched: true,
+            sharedFromView: f.sharedFromView || home,
+            combineKeys: f.combine?.keys || [],
+            combineSeparator: f.combine?.separator ?? ', ',
+          },
+        ],
+        `Added combined column “${f.label}” from ${examViewLabel(home)}. Save to keep it.`,
+      );
+      return;
+    }
+
+    const pickedFields = Array.isArray(result?.fields) ? result.fields : Array.isArray(result) ? result : [];
+    const additions = pickedFields
       .filter((f) => f?.key && !haveKeys.has(f.key))
       .map((f) => {
         const sharedFromView = String(f.sharedFromView || home || '').trim();
@@ -759,19 +866,10 @@ export const BulkFieldsModal = ({
           keyTouched: true,
         };
       });
-    if (!additions.length) {
-      setNotice('Those fields are already in this list.');
-      return;
-    }
-    setRows((prev) => {
-      const blankStart = prev.findIndex((r) => !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim());
-      if (blankStart < 0) return [...prev, ...additions].slice(0, maxRows);
-      return [...prev.slice(0, blankStart), ...additions, ...prev.slice(blankStart)].slice(0, maxRows);
-    });
-    setNotice(
+    insertBulkRows(
+      additions,
       `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
     );
-    setTab('fields');
   };
 
   const handleKeyDown = (e, row, isLast) => {
@@ -800,7 +898,12 @@ export const BulkFieldsModal = ({
     if (errorCount || !pending) return;
     const items = resolvedRows.filter((r, i) => !r.existingId && !validation[i].blank).map((r) => rowToItem(r, allowUnique));
     const updated = resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
-    onAdd(items.map((item, i) => toFieldDefinition(item, fields.length + i + 1)), updated, removedIds);
+    const newDefs = items.map((item, i) => toFieldDefinition(item, fields.length + i + 1));
+    // Row order = field order: existing fields by id, new ones by key.
+    const order = resolvedRows
+      .filter((r, i) => r.existingId || !validation[i].blank)
+      .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
+    onAdd(newDefs, updated, removedIds, order);
   };
 
   /* ---------- Dependencies: lookup fields and the Linked values that follow them ---------- */
@@ -907,10 +1010,15 @@ export const BulkFieldsModal = ({
         aria-label={title}
       >
         <div className="exams-bulk-header">
-          <div>
+          <div className="exams-bulk-heading">
             <h2 className="exams-bulk-title">
               <ListPlus size={16} /> {title}
             </h2>
+            {workingContext ? (
+              <p className="exams-bulk-sub" title={workingContext}>
+                Working on: <strong>{workingContext}</strong>
+              </p>
+            ) : null}
           </div>
           <button type="button" className="exams-drawer-close compact" onClick={onClose} aria-label="Close">
             <X size={16} />
@@ -1118,7 +1226,7 @@ export const BulkFieldsModal = ({
             style={{ width: `max(100%, ${(showMore ? 2080 : 1720) + (allowUnique ? 90 : 0)}px)` }}
           >
             <colgroup>
-              <col style={{ width: 44 }} />
+              <col style={{ width: 92 }} />
               <col />
               <col style={{ width: 180 }} />
               <col style={{ width: 160 }} />
@@ -1194,8 +1302,48 @@ export const BulkFieldsModal = ({
                 const isPhone = row.dataType === 'phone';
                 const isLast = i === rows.length - 1;
                 return (
-                  <tr key={row.rid} data-rid={row.rid} className={Object.keys(validation[i].errors).length ? 'has-error' : ''}>
+                  <tr
+                    key={row.rid}
+                    data-rid={row.rid}
+                    className={`${Object.keys(validation[i].errors).length ? 'has-error' : ''}${dragRid === row.rid ? ' is-dragging' : ''}${dragOverRid === row.rid && dragRid !== row.rid ? ' is-drag-over' : ''}`.trim()}
+                    onDragOver={(e) => {
+                      if (!dragRid) return;
+                      e.preventDefault();
+                      if (dragOverRid !== row.rid) setDragOverRid(row.rid);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      moveRow(dragRid, row.rid);
+                      setDragRid(null);
+                      setDragOverRid(null);
+                    }}
+                  >
                     <td {...pinned(0, 'col-num')} data-label="#">
+                      <button
+                        type="button"
+                        className="exams-bulk-grip"
+                        draggable
+                        data-grip={row.rid}
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', row.rid);
+                          setDragRid(row.rid);
+                        }}
+                        onDragEnd={() => {
+                          setDragRid(null);
+                          setDragOverRid(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                            e.preventDefault();
+                            nudgeRow(row.rid, e.key === 'ArrowUp' ? -1 : 1);
+                          }
+                        }}
+                        aria-label={`Move row ${i + 1}. Drag, or press Alt and an arrow key`}
+                        title="Drag to reorder (Alt + ↑ / ↓)"
+                      >
+                        <GripVertical size={14} />
+                      </button>
                       <span className="exams-bulk-rownum">
                         {validation[i].blank ? (
                           i + 1
@@ -1244,6 +1392,13 @@ export const BulkFieldsModal = ({
                     <td {...pinned(3)} data-label="Type">
                       {row.dataType === 'linked' ? (
                         <span className="exams-bulk-static-chip">Linked value</span>
+                      ) : row.dataType === 'combined' ? (
+                        <span
+                          className="exams-bulk-static-chip"
+                          title={(row.combineKeys || []).join(row.combineSeparator || ', ')}
+                        >
+                          Combined
+                        </span>
                       ) : (
                       <SearchableSelect
                         className="exams-bulk-select"
@@ -1356,6 +1511,13 @@ export const BulkFieldsModal = ({
                           <CornerDownRight size={13} aria-hidden="true" />
                           {rows.find((r) => r.rid === row.linkedRid)?.label.trim() || 'Pick a field'}
                         </button>
+                      ) : row.dataType === 'combined' ? (
+                        <span
+                          className="exams-bulk-static-chip"
+                          title={`Joins ${(row.combineKeys || []).join(' + ')} with “${row.combineSeparator ?? ', '}”`}
+                        >
+                          {(row.combineKeys || []).join(row.combineSeparator || ', ') || 'Parts'}
+                        </span>
                       ) : needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions ? (
                         <SearchableSelect
                           className="exams-bulk-select"

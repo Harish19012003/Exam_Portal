@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { applyCombinedDisplayValues, restoreCombinedValues } from './examCombinedFields';
 import { isFromExamField } from './tableLookupApi';
 
 const formatDateish = (raw, dataType) => {
@@ -39,25 +40,27 @@ export const useExamValueDisplayRows = (rows, fields, examValues, examSourceFiel
   }, [examSourceFields]);
 
   return useMemo(() => {
-    if (!fromExamFields.length) return rows;
     const source = examValues && typeof examValues === 'object' ? examValues : {};
-    return (rows || []).map((row) => {
-      const values = { ...row.values };
-      const rawBase = row.rawValues || row.values || {};
-      fromExamFields.forEach((f) => {
-        values[f.key] = displayValue(source[f.examFieldKey], sourceByKey[f.examFieldKey]);
-      });
-      return { ...row, values, rawValues: rawBase };
-    });
-  }, [rows, fromExamFields, examValues, sourceByKey]);
+    const withFromExam = !fromExamFields.length
+      ? rows
+      : (rows || []).map((row) => {
+          const values = { ...row.values };
+          const rawBase = row.rawValues || row.values || {};
+          fromExamFields.forEach((f) => {
+            values[f.key] = displayValue(source[f.examFieldKey], sourceByKey[f.examFieldKey]);
+          });
+          return { ...row, values, rawValues: rawBase };
+        });
+    return applyCombinedDisplayValues(withFromExam, fields);
+  }, [rows, fields, fromExamFields, examValues, sourceByKey]);
 };
 
-/** Drop painted fromExam keys before save (same idea as linked fields). */
+/** Drop painted fromExam / combined keys before save (same idea as linked fields). */
 export const restoreFromExamValues = (updatedValues, originalValues, fields) => {
   const next = { ...updatedValues };
   (fields || []).filter(isFromExamField).forEach((f) => {
     if (originalValues && f.key in originalValues) next[f.key] = originalValues[f.key];
     else delete next[f.key];
   });
-  return next;
+  return restoreCombinedValues(next, originalValues, fields);
 };

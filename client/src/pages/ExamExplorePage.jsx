@@ -7,6 +7,7 @@ import { PageHeading } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
+import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { useExamRows, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
@@ -230,7 +231,10 @@ export const ExamExplorePage = () => {
     [fields, access, configVersion],
   );
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
-  const createFields = useMemo(() => creatableFields(fields, 'exam_rows', access), [fields, access]);
+  const createFields = useMemo(
+    () => creatableFields(fields, 'exam_rows', access).filter((f) => !isCombinedField(f)),
+    [fields, access],
+  );
   const examConfigQuery = useExamTableConfig();
   const examSourceFields = useMemo(() => {
     const fromQuery = examConfigQuery.data?.fields;
@@ -452,9 +456,9 @@ export const ExamExplorePage = () => {
       original?.values,
       fields,
     );
-    // Shared imports are owned by another tab — keep local display but don't persist them here.
+    // Shared / combined columns are display-only on this tab — don't persist them here.
     fields.forEach((f) => {
-      if (isSharedImportedField(f)) delete patched[f.key];
+      if (isSharedImportedField(f) || isCombinedField(f)) delete patched[f.key];
     });
     // Apply lookup ids (and group siblings) immediately so seeded labels paint before the API returns.
     setRowsCache(examId, (prev) =>
@@ -940,6 +944,7 @@ export const ExamExplorePage = () => {
         enableFromExam
         examId={examId}
         currentView={view}
+        bulkWorkingContext={[label || 'Exam', viewTitle].filter(Boolean).join(' · ')}
         onClose={() => setIsBuilderOpen(false)}
         onChange={handleFieldsChange}
       />
