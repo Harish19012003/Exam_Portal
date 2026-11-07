@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { examPath } from '../pages/exams/examUrl';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { listExams } from '../pages/exams/examApi';
 import { buildExamLabel } from '../pages/exams/examLabel';
@@ -12,6 +13,7 @@ const STALE_MS = 60 * 1000;
  */
 export const ExamSwitcher = ({ examId, label }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const listId = useId();
   const rootRef = useRef(null);
   const searchRef = useRef(null);
@@ -66,7 +68,11 @@ export const ExamSwitcher = ({ examId, label }) => {
 
   const choose = (id) => {
     setOpen(false);
-    if (id !== String(examId)) navigate(`/exams/${encodeURIComponent(id)}`);
+    if (id !== String(examId)) {
+      // Stay on the sub page being viewed (Op/Guard List, Mock Day...) when switching exams.
+      const currentTab = location.pathname.replace(/\/$/, '').split('/')[3] || 'center-list';
+      navigate(examPath(id, currentTab));
+    }
   };
 
   const onKeyDown = (e) => {

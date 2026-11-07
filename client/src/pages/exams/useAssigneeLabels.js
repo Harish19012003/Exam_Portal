@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   getAssigneeLabel,
   seedAssigneeLabels,
@@ -22,6 +23,7 @@ const looksLikeUserId = (value) => {
  * Raw ids stay on `rawValues`.
  */
 export const useAssigneeDisplayRows = (rows, fields) => {
+  const queryClient = useQueryClient();
   const assigneeFields = useMemo(() => (fields || []).filter(isUserTagsField), [fields]);
   const [labels, setLabels] = useState({}); // id -> name
   const [seedTick, setSeedTick] = useState(0);
@@ -45,7 +47,12 @@ export const useAssigneeDisplayRows = (rows, fields) => {
   useEffect(() => {
     if (wantedIds.length === 0) return undefined;
     let cancelled = false;
-    resolveAssignableUsers(wantedIds)
+    queryClient
+      .fetchQuery({
+        queryKey: ['assignee-resolve', wantedSig],
+        queryFn: () => resolveAssignableUsers(wantedIds),
+        staleTime: 60 * 1000,
+      })
       .then((map) => {
         if (cancelled) return;
         const next = {};

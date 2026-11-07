@@ -1,3 +1,4 @@
+import { isSharedImportedField } from '@exam-view/shared';
 import { getEffectiveDataType, resolveFieldOptions } from './examFieldTypes';
 import {
   isTableSourceField,
@@ -70,14 +71,15 @@ export const buildFieldColumns = (fields = []) =>
       visible: true,
       pinned: null,
       width: dataType === 'date' || dataType === 'datetime' ? 150 : 180,
-      // Linked values follow another field, so they are read-only. Table-column fields are edited
-      // by searching their source table (the cell stores that row's id).
+      // Linked / fromExam / shared-from-another-tab values are display-only here.
       editable:
         !isAuto &&
         dataType !== 'formula' &&
         dataType !== 'composite' &&
         field.dataType !== 'linked' &&
-        field.dataType !== 'fromExam',
+        field.dataType !== 'fromExam' &&
+        !isSharedImportedField(field),
+      sharedFromView: isSharedImportedField(field) ? field.sharedFromView : undefined,
       lookup: isTableSourceField(field)
         ? {
             table: field.tableSource.table,

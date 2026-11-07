@@ -50,6 +50,7 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { TagMultiPicker } from './TagMultiPicker';
+import { examViewLabel, isSharedImportedField } from '@exam-view/shared';
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
 import { SearchableSelect } from './SearchableSelect';
@@ -145,6 +146,11 @@ export const ExamFieldBuilder = ({
   examSourceFields = [],
   /** Center-list builders only — exam management must not offer “From exam”. */
   enableFromExam = false,
+  /** Enables Bulk add → Import from tab (shared columns across exam pages). */
+  examId = null,
+  currentView = null,
+  /** Enables Bulk add → Import from preset (Settings → Field presets). */
+  presetSources = null,
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -267,6 +273,7 @@ export const ExamFieldBuilder = ({
     }
     if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
     if (field.dataType === 'fromExam' && field.examFieldKey) parts.push(`exam.${field.examFieldKey}`);
+    if (isSharedImportedField(field)) parts.push(`Shared from ${examViewLabel(field.sharedFromView)}`);
     if (field.scheduleRole === 'start') parts.push('Schedule start');
     if (field.scheduleRole === 'end') parts.push('Schedule end');
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
@@ -1418,6 +1425,9 @@ export const ExamFieldBuilder = ({
         allowUnique={allowUnique}
         {...bulkModalProps}
         examSourceFields={examSourceFields}
+        examId={examId}
+        currentView={currentView}
+        presetSources={presetSources}
         onClose={closeBulk}
         onAdd={handleBulkAdd}
       />

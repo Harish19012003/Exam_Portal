@@ -1,9 +1,12 @@
 import { useConfirm } from '../feedback';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../api/queryKeys';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
+import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { useExamRows, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
@@ -21,6 +24,7 @@ import {
 import {
   listExamPresets,
   findPresetForService,
+  presetsForView,
   diffPresetAgainstFields,
   mergePresetIntoFields,
 } from './exams/examPresetApi';
@@ -52,6 +56,8 @@ import {
 } from './exams/examTableHelpers';
 import { buildExamLabel } from './exams/examLabel';
 import { SearchableSelect } from './exams/SearchableSelect';
+import { ExamSubNav } from './exams/ExamSubNav';
+import { examIdFromUrl, examPath } from './exams/examUrl';
 import './ExamsPage.css';
 import './ExamExplorePage.css';
 
@@ -158,7 +164,11 @@ const PresetActions = ({ presets, matched, busy, onLoad, onStartBlank }) => {
 
 export const ExamExplorePage = () => {
   const confirm = useConfirm();
-  const { examId } = useParams();
+  const queryClient = useQueryClient();
+  const params = useParams();
+  const examId = examIdFromUrl(params.examId);
+  const view = isExamViewKey(params.subTab) ? params.subTab : DEFAULT_EXAM_VIEW;
+  const viewTitle = examViewLabel(view);
   const navigate = useNavigate();
   const configVersion = useConfigLists();
   const { setBreadcrumbTail } = useOutletContext() || {};
@@ -201,7 +211,7 @@ export const ExamExplorePage = () => {
   fieldsRef.current = fields;
   featuresRef.current = features;
 
-  const layoutTableId = tableInfo ? `exam_table_${tableInfo.id}_v1` : null;
+  const layoutTableId = tableInfo ? `exam_table_${tableInfo.id}_${view}_v1` : null;
   const {
     layoutReady,
     layoutPrefs,
@@ -240,6 +250,7 @@ export const ExamExplorePage = () => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
     const nextFeatures = tableFeaturesFor(snap?.features);
     serverFieldsRef.current = nextFields;
+    if (snap) queryClient.setQueryData(queryKeys.exams.table(examId, view), snap);
     setTableInfo(snap?.exists ? snap.table : null);
     setFields(nextFields);
     setFeatures(nextFeatures);
@@ -247,35 +258,42 @@ export const ExamExplorePage = () => {
     lastSavedFeaturesRef.current = nextFeatures;
     setFeaturesDirty(false);
     hydrateFeatureStores(nextFeatures);
-  }, []);
+  }, [queryClient, examId, view]);
 
   const loadRows = useCallback(async () => {
     try {
       await invalidateRows(examId);
     } catch (err) {
-      setMessage(apiErrorMessage(err, 'Could not load the center list'));
+      setMessage(apiErrorMessage(err, `Could not load ${viewTitle.toLowerCase()}`));
     }
-  }, [examId, invalidateRows]);
+  }, [examId, invalidateRows, viewTitle]);
 
-  // Load the exam and its table definition; rows come from React Query once the table exists.
+  // Load the exam and this tab's field config; rows are shared across tabs via React Query.
   useEffect(() => {
     let cancelled = false;
     const snapshot = snapshotFeatureStores();
     featuresSyncReadyRef.current = false;
-    setStatus('loading');
+    // Switching between an exam's tabs remounts this page: cached data renders without a spinner.
+    if (!queryClient.getQueryData(queryKeys.exams.detail(examId))) setStatus('loading');
     setTableError('');
 
     (async () => {
       let examData;
       try {
-        examData = await getExam(examId);
+        examData = await queryClient.fetchQuery({
+          queryKey: queryKeys.exams.detail(examId),
+          queryFn: () => getExam(examId),
+        });
       } catch (err) {
         if (!cancelled) setStatus(err?.response?.status === 404 ? 'missing' : 'error');
         return;
       }
       let snap = null;
       try {
-        snap = await getExamTable(examId);
+        snap = await queryClient.fetchQuery({
+          queryKey: queryKeys.exams.table(examId, view),
+          queryFn: () => getExamTable(examId, view),
+        });
       } catch (err) {
         if (!cancelled) setTableError(apiErrorMessage(err, 'Could not load the exam table'));
       }
@@ -285,7 +303,10 @@ export const ExamExplorePage = () => {
       setStatus('ready');
       // Presets are offered when there is no table yet, when it is empty, and to spot a preset that
       // has newer field settings than this list's copy.
-      listExamPresets().then((list) => !cancelled && setPresets(list)).catch(() => {});
+      queryClient
+        .fetchQuery({ queryKey: queryKeys.exams.presets(), queryFn: listExamPresets })
+        .then((list) => !cancelled && setPresets(list))
+        .catch(() => {});
       window.setTimeout(() => {
         if (!cancelled) featuresSyncReadyRef.current = true;
       }, 1200);
@@ -297,7 +318,7 @@ export const ExamExplorePage = () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       restoreFeatureStores(snapshot);
     };
-  }, [examId, applySnapshot]);
+  }, [examId, view, applySnapshot, queryClient]);
 
   useEffect(() => {
     setBreadcrumbTail?.(label || null);
@@ -342,19 +363,23 @@ export const ExamExplorePage = () => {
       }
     }
     try {
-      const snap = await saveExamTableConfig(examId, { fields: next, confirmDrops: removed.length > 0 });
+      const snap = await saveExamTableConfig(examId, {
+        fields: next,
+        confirmDrops: removed.length > 0,
+        view,
+      });
       serverFieldsRef.current = snap.fields;
-      setMessage('Center list fields saved');
+      setMessage(`${viewTitle} fields saved`);
       await loadRows();
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not save the table columns'));
       try {
-        applySnapshot(await getExamTable(examId));
+        applySnapshot(await getExamTable(examId, view));
       } catch {
         // keep local state
       }
     }
-  }, [examId, applySnapshot, loadRows, confirm]);
+  }, [examId, view, viewTitle, applySnapshot, loadRows, confirm]);
 
   const handleFieldsChange = useCallback(
     (nextFields) => {
@@ -388,17 +413,17 @@ export const ExamExplorePage = () => {
     featuresRef.current = next;
     setIsSavingFeatures(true);
     try {
-      await saveExamTableConfig(examId, { features: next });
+      await saveExamTableConfig(examId, { features: next, view });
       lastSavedFeaturesRef.current = next;
       setFeaturesDirty(false);
-      setMessage('Feature Builder settings saved for everyone');
+      setMessage(`Feature Builder settings saved for ${viewTitle}`);
     } catch (err) {
       setFeaturesDirty(true);
       setMessage(apiErrorMessage(err, 'Could not save the settings'));
     } finally {
       setIsSavingFeatures(false);
     }
-  }, [isAdmin, examId]);
+  }, [isAdmin, examId, view, viewTitle]);
 
   const handleSaveLayoutAsDefault = useCallback(
     async (prefs) => {
@@ -427,12 +452,16 @@ export const ExamExplorePage = () => {
       original?.values,
       fields,
     );
+    // Shared imports are owned by another tab — keep local display but don't persist them here.
+    fields.forEach((f) => {
+      if (isSharedImportedField(f)) delete patched[f.key];
+    });
     // Apply lookup ids (and group siblings) immediately so seeded labels paint before the API returns.
     setRowsCache(examId, (prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, values: { ...(r.values || {}), ...patched } } : r)),
     );
     try {
-      const next = await updateExamRow(examId, rowId, patched);
+      const next = await updateExamRow(examId, rowId, patched, view);
       clearLookupPicksForRow(String(rowId));
       clearLookupDisplayOverrides(String(rowId));
       setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? next : r)));
@@ -467,7 +496,7 @@ export const ExamExplorePage = () => {
       }
     });
     try {
-      const created = await createExamRow(examId, values);
+      const created = await createExamRow(examId, values, view);
       setRowsCache(examId, (prev) => [created, ...prev]);
       setMessage('Center duplicated');
     } catch (err) {
@@ -522,7 +551,7 @@ export const ExamExplorePage = () => {
       fields.forEach((f) => {
         if (isFromExamField(f) || isLinkedField(f)) delete values[f.key];
       });
-      const created = await createExamRow(examId, values);
+      const created = await createExamRow(examId, values, view);
       setRowsCache(examId, (prev) => [created, ...prev]);
       setIsCreateOpen(false);
       setMessage('Center added');
@@ -537,7 +566,7 @@ export const ExamExplorePage = () => {
     setCreating(true);
     setTableError('');
     try {
-      applySnapshot(await createExamTable(examId, { presetId }));
+      applySnapshot(await createExamTable(examId, { presetId, view }));
       await loadRows();
     } catch (err) {
       setTableError(apiErrorMessage(err, 'Could not create the table'));
@@ -550,7 +579,7 @@ export const ExamExplorePage = () => {
   const handleUpdateFromPreset = async (preset) => {
     const ok = await confirm({
       title: 'Update fields from preset?',
-      message: `Apply the current “${preset.name}” field settings to this center list?`,
+      message: `Apply the current “${preset.name}” field settings to ${viewTitle}?`,
       tertiary: 'Fields follow the preset’s order, matching fields take its type and options, and missing fields are added. Centers and their values are kept, and no field is removed.',
       confirmLabel: 'Update fields',
     });
@@ -558,7 +587,10 @@ export const ExamExplorePage = () => {
     setCreating(true);
     setTableError('');
     try {
-      const snap = await saveExamTableConfig(examId, { fields: mergePresetIntoFields(preset.fields, fields) });
+      const snap = await saveExamTableConfig(examId, {
+        fields: mergePresetIntoFields(preset.fields, fields),
+        view,
+      });
       applySnapshot(snap);
       setMessage('Fields updated from the preset');
       await loadRows();
@@ -569,13 +601,21 @@ export const ExamExplorePage = () => {
     }
   };
 
-  /** Fill this exam's empty table with a preset's fields (and Feature Builder settings). */
+  /** Fill this tab's empty field list with a preset's fields (and Feature Builder settings). */
   const handleLoadPreset = async (preset) => {
     if (!preset) return;
     setCreating(true);
     setTableError('');
     try {
-      applySnapshot(await saveExamTableConfig(examId, { fields: preset.fields, features: preset.features ?? undefined }));
+      // Ensure the shared table shell exists, then write this tab's fields.
+      if (!tableInfo) await createExamTable(examId, { view });
+      applySnapshot(
+        await saveExamTableConfig(examId, {
+          fields: preset.fields,
+          features: preset.features ?? undefined,
+          view,
+        }),
+      );
       setMessage(`Loaded ${preset.fieldCount} fields from “${preset.name}”`);
       await loadRows();
     } catch (err) {
@@ -629,7 +669,7 @@ export const ExamExplorePage = () => {
         const index = next;
         next += 1;
         try {
-          await createExamRow(examId, prepared[index]);
+          await createExamRow(examId, prepared[index], view);
           done += 1;
           report();
         } catch (err) {
@@ -684,13 +724,13 @@ export const ExamExplorePage = () => {
   );
 
   if (status === 'loading') {
-    return <div className="exam-explore-page exam-explore-state">Loading center list…</div>;
+    return <div className="exam-explore-page exam-explore-state">Loading {viewTitle.toLowerCase()}…</div>;
   }
 
   if (status !== 'ready') {
     return (
       <div className="exam-explore-page">
-        <PageHeading title="Center list" leading={backButton} />
+        <PageHeading title={viewTitle} leading={backButton} />
         <div className="exam-explore-panel exam-explore-state" role="alert">
           {status === 'missing' ? 'This exam no longer exists.' : 'Could not load this exam. Please try again.'}
         </div>
@@ -699,19 +739,22 @@ export const ExamExplorePage = () => {
   }
 
   const hasTable = Boolean(tableInfo);
-  const matchedPreset = findPresetForService(presets, exam?.values?.service);
+  // Only presets for this tab; recommended = exact service + page match.
+  const viewPresets = presetsForView(presets, view);
+  const matchedPreset = findPresetForService(presets, exam?.values?.service, view);
   // Plain computation (not a hook): this runs after the early returns above.
   const presetDiff = matchedPreset && fields.length ? diffPresetAgainstFields(matchedPreset.fields, fields) : null;
   const presetOutdated = Boolean(presetDiff && (presetDiff.changed.length || presetDiff.added.length || presetDiff.reordered));
-
   return (
     <div className="exams-page exams-page--table exam-explore-page">
       <PageHeading
-        title="Center list"
+        title={viewTitle}
         subtitle={`Exam : ${label}`}
         leading={backButton}
         actions={
-          hasTable ? (
+          <>
+            <ExamSubNav examId={examId} />
+            {hasTable ? (
             <>
               {isAdmin && (
                 <IconButton label="Field builder (admin)" onClick={() => setIsBuilderOpen(true)}>
@@ -724,7 +767,8 @@ export const ExamExplorePage = () => {
                 </IconButton>
               )}
             </>
-          ) : null
+            ) : null}
+          </>
         }
       />
 
@@ -769,10 +813,10 @@ export const ExamExplorePage = () => {
             <div className="exam-explore-empty-icon" aria-hidden="true">
               <Table2 size={22} strokeWidth={1.75} />
             </div>
-            <p className="exam-explore-empty-title">No center list yet</p>
+            <p className="exam-explore-empty-title">No {viewTitle.toLowerCase()} yet</p>
             <p className="exam-explore-empty-hint">
               {!isAdmin
-                ? 'An admin needs to create this exam’s center list first.'
+                ? `An admin needs to set up ${viewTitle.toLowerCase()} for this exam first.`
                 : matchedPreset
                   ? 'Use the recommended preset for this exam’s service, pick another, or start blank.'
                   : `${exam?.values?.service ? `No preset matches “${exam.values.service}”. ` : ''}Pick a preset to start from, or build the fields yourself.`}
@@ -780,7 +824,7 @@ export const ExamExplorePage = () => {
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
             {isAdmin && (
               <PresetActions
-                presets={presets}
+                presets={viewPresets}
                 matched={matchedPreset}
                 busy={creating}
                 onLoad={(preset) => handleCreateTable(preset.id)}
@@ -797,13 +841,18 @@ export const ExamExplorePage = () => {
             <p className="exam-explore-empty-hint">
               {isAdmin
                 ? matchedPreset
-                  ? 'Load the recommended preset, choose another, or use the sliders icon to build your own fields.'
-                  : 'Load a preset, or use the sliders icon to build fields, then add centers with +.'
-                : 'Ask an admin to build the fields for this exam’s center list.'}
+                  ? 'Load the recommended preset, or use the sliders icon → Bulk add → Import from tab.'
+                  : 'Load a preset for this page, or use the sliders icon → Bulk add → Import from tab.'
+                : `Ask an admin to build the fields for this exam’s ${viewTitle.toLowerCase()}.`}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
             {isAdmin && (
-              <PresetActions presets={presets} matched={matchedPreset} busy={creating} onLoad={handleLoadPreset} />
+              <PresetActions
+                presets={viewPresets}
+                matched={matchedPreset}
+                busy={creating}
+                onLoad={handleLoadPreset}
+              />
             )}
           </div>
         ) : rowsLoading || !layoutReady ? (
@@ -889,6 +938,8 @@ export const ExamExplorePage = () => {
         fields={fields}
         examSourceFields={examSourceFields}
         enableFromExam
+        examId={examId}
+        currentView={view}
         onClose={() => setIsBuilderOpen(false)}
         onChange={handleFieldsChange}
       />

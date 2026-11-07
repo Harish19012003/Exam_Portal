@@ -1,27 +1,51 @@
+import { DEFAULT_EXAM_VIEW } from '@exam-view/shared';
 import { apiClient } from '../../api/client';
 
 const unwrap = (response) => response?.data?.data ?? response?.data;
 const base = (examId) => `/exams/${encodeURIComponent(examId)}/table`;
+const withView = (view) => ({ view: view || DEFAULT_EXAM_VIEW });
 
-/** { exists, table, fields, features } */
-export const getExamTable = async (examId) => unwrap(await apiClient.get(base(examId)));
-/** Create the exam's table, optionally pre-filled from a field preset. */
-export const createExamTable = async (examId, { presetId } = {}) =>
-  unwrap(await apiClient.post(base(examId), presetId != null ? { presetId } : {}));
+/** { exists, table, view, fields, features, views } */
+export const getExamTable = async (examId, view = DEFAULT_EXAM_VIEW) =>
+  unwrap(await apiClient.get(base(examId), { params: withView(view) }));
+
+/** Create the exam's shared table shell (or ensure a tab's field config), optionally from a preset. */
+export const createExamTable = async (examId, { presetId, view = DEFAULT_EXAM_VIEW } = {}) =>
+  unwrap(
+    await apiClient.post(base(examId), {
+      ...(presetId != null ? { presetId } : {}),
+      ...withView(view),
+    }),
+  );
 
 /**
- * Save the Fields drawer and/or Feature Builder for one exam table.
- * The server persists field definitions to match `fields`.
- * Removing fields needs `confirmDrops: true`.
+ * Save the Fields drawer and/or Feature Builder for one exam tab.
+ * The server persists field definitions to match `fields` for that view.
+ * Removing fields needs `confirmDrops: true` when data would be deleted.
  */
-export const saveExamTableConfig = async (examId, { fields, features, confirmDrops } = {}) =>
-  unwrap(await apiClient.put(`${base(examId)}/config`, { fields, features, confirmDrops }));
+export const saveExamTableConfig = async (
+  examId,
+  { fields, features, confirmDrops, view = DEFAULT_EXAM_VIEW } = {},
+) =>
+  unwrap(
+    await apiClient.put(`${base(examId)}/config`, {
+      fields,
+      features,
+      confirmDrops,
+      ...withView(view),
+    }),
+  );
 
 export const listExamRows = async (examId) => unwrap(await apiClient.get(`${base(examId)}/rows`));
-export const createExamRow = async (examId, values) =>
-  unwrap(await apiClient.post(`${base(examId)}/rows`, { values }));
-export const updateExamRow = async (examId, rowId, values) =>
-  unwrap(await apiClient.patch(`${base(examId)}/rows/${encodeURIComponent(rowId)}`, { values }));
+export const createExamRow = async (examId, values, view = DEFAULT_EXAM_VIEW) =>
+  unwrap(await apiClient.post(`${base(examId)}/rows`, { values, ...withView(view) }));
+export const updateExamRow = async (examId, rowId, values, view = DEFAULT_EXAM_VIEW) =>
+  unwrap(
+    await apiClient.patch(`${base(examId)}/rows/${encodeURIComponent(rowId)}`, {
+      values,
+      ...withView(view),
+    }),
+  );
 export const deleteExamRows = async (examId, ids) =>
   unwrap(await apiClient.post(`${base(examId)}/rows/delete`, { ids }));
 

@@ -1,12 +1,16 @@
 import { AppError } from '../../../core/errors.js';
-import { ERROR_CODES } from '@exam-view/shared';
+import { DEFAULT_EXAM_VIEW, ERROR_CODES, examViewLabel, isExamViewKey } from '@exam-view/shared';
 import * as repo from './exam-preset.repository.js';
 import { cleanFields } from '../exam-tables/exam-table.service.js';
 
 const validationError = (message) => new AppError(message, 400, ERROR_CODES.VALIDATION_ERROR);
 const notFound = () => new AppError('Preset not found', 404, ERROR_CODES.NOT_FOUND);
-const duplicateService = () =>
-  new AppError('A preset for this service already exists', 409, ERROR_CODES.CONFLICT);
+const duplicatePair = (serviceValue, view) =>
+  new AppError(
+    `A preset for “${serviceValue}” on ${examViewLabel(view)} already exists`,
+    409,
+    ERROR_CODES.CONFLICT,
+  );
 
 const withTable = async (fn) => {
   await repo.ensurePresetTable();
@@ -16,8 +20,10 @@ const withTable = async (fn) => {
 const cleanPayload = (body = {}) => {
   const name = String(body.name ?? '').trim();
   const serviceValue = String(body.serviceValue ?? '').trim();
+  const viewRaw = String(body.view ?? DEFAULT_EXAM_VIEW).trim() || DEFAULT_EXAM_VIEW;
   if (!name || name.length > 120) throw validationError('Preset name is required (max 120 characters)');
   if (!serviceValue || serviceValue.length > 191) throw validationError('Service is required (max 191 characters)');
+  if (!isExamViewKey(viewRaw)) throw validationError(`Unknown exam page: "${viewRaw}"`);
   const fields = cleanFields(body.fields ?? []);
   let features = null;
   if (body.features != null) {
@@ -25,7 +31,7 @@ const cleanPayload = (body = {}) => {
     if (JSON.stringify(body.features).length > 200000) throw validationError('Features are too large');
     features = body.features;
   }
-  return { name, serviceValue, fields, features };
+  return { name, serviceValue, view: viewRaw, fields, features };
 };
 
 export const listPresets = () => withTable(() => repo.listPresets());
@@ -33,7 +39,9 @@ export const listPresets = () => withTable(() => repo.listPresets());
 export const createPreset = (body, userId) =>
   withTable(async () => {
     const payload = cleanPayload(body);
-    if (await repo.findByService(payload.serviceValue)) throw duplicateService();
+    if (await repo.findByServiceAndView(payload.serviceValue, payload.view)) {
+      throw duplicatePair(payload.serviceValue, payload.view);
+    }
     const id = await repo.insertPreset({ ...payload, createdBy: userId });
     return repo.findById(id);
   });
@@ -41,8 +49,8 @@ export const createPreset = (body, userId) =>
 export const updatePreset = (id, body) =>
   withTable(async () => {
     const payload = cleanPayload(body);
-    const same = await repo.findByService(payload.serviceValue);
-    if (same && String(same.id) !== String(id)) throw duplicateService();
+    const same = await repo.findByServiceAndView(payload.serviceValue, payload.view);
+    if (same && String(same.id) !== String(id)) throw duplicatePair(payload.serviceValue, payload.view);
     if (!(await repo.updatePreset(id, payload))) throw notFound();
     return repo.findById(id);
   });

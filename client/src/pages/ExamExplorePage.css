@@ -27,9 +27,9 @@
 }
 
 .exam-explore-back {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -44,6 +44,10 @@
 
 .exam-explore-back:hover {
   color: var(--text-primary, #030712);
+}
+
+@media (max-width: 768px) {
+  .exam-explore-back { width: 44px; height: 44px; min-width: 44px; }
 }
 
 .exam-explore-panel {

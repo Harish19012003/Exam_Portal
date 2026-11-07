@@ -1,5 +1,7 @@
 import { useConfirm } from '../../feedback';
+import { useUrlState } from '../../hooks/useUrlState';
 import React, { useState, useEffect, useId, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ListChecks,
   Tags,
@@ -22,6 +24,7 @@ import {
   updateConfigList,
 } from './configListApi';
 import { FieldPresetsPanel } from './FieldPresetsPanel';
+import './FieldPresetsPanel.css';
 
 export const parseBulkOptionsText = (
   rawText,
@@ -179,7 +182,7 @@ const SECTIONS = [
     title: 'Field presets',
     icon: LayoutTemplate,
     emptyTitle: 'No field presets yet',
-    emptyHint: 'Create one preset per service; new exams of that service start with its fields.',
+    emptyHint: 'Create one preset per service and exam page; matching exams recommend it on that page.',
     actionLabel: 'New preset',
   },
 ];
@@ -195,10 +198,17 @@ const emptyDropdownForm = () => ({
   options: [makeOption(), makeOption()],
 });
 
-export const ConfigTab = () => {
+export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
+  const [isWide, setIsWide] = useState(() => window.matchMedia('(min-width: 769px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)');
+    const onChange = (e) => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
   const confirm = useConfirm();
   const formId = useId();
-  const [activeSection, setActiveSection] = useState('dropdowns');
+  const [activeSection, setActiveSection] = useUrlState('section', 'dropdowns');
   const [dropdowns, setDropdowns] = useState(loadConfigDropdownLists);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [form, setForm] = useState(emptyDropdownForm);
@@ -551,58 +561,77 @@ export const ConfigTab = () => {
     }
   };
 
+  const sectionTabs = (
+    <div className="config-section-tabs" role="tablist" aria-label="Config sections">
+      {SECTIONS.map((s) => {
+        const Icon = s.icon;
+        const isActive = s.id === activeSection;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            className={`config-section-tab ${isActive ? 'active' : ''}`}
+            onClick={() => setActiveSection(s.id)}
+          >
+            <Icon size={14} />
+            <span>{s.title}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const toolbarActions = (
+    <div className="config-toolbar-actions">
+      {activeSection === 'dropdowns' && (
+        <button
+          type="button"
+          className="config-add-btn secondary"
+          title="Bulk import lists"
+          aria-label="Bulk import lists"
+          onClick={() => {
+            setBulkListsText('');
+            setBulkListsError('');
+            setIsBulkListsModalOpen(true);
+          }}
+        >
+          <Upload size={14} />
+          <span>Bulk import</span>
+        </button>
+      )}
+
+      <button
+        type="button"
+        className="config-add-btn primary"
+        title={section.actionLabel}
+        aria-label={section.actionLabel}
+        onClick={handleSectionAction}
+        disabled={activeSection === 'values'}
+      >
+        <Plus size={15} />
+        <span>{section.actionLabel}</span>
+      </button>
+    </div>
+  );
+
+  // In Settings the tabs and buttons share the "Config" title row (wide screens); otherwise they stay in the page.
+  const inHeader = Boolean(tabsSlot && actionsSlot) && isWide;
+
   return (
     <div className="config-tab">
-      <div className="config-toolbar">
-        <div className="config-section-tabs" role="tablist" aria-label="Config sections">
-          {SECTIONS.map((s) => {
-            const Icon = s.icon;
-            const isActive = s.id === activeSection;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={`config-section-tab ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveSection(s.id)}
-              >
-                <Icon size={14} />
-                <span>{s.title}</span>
-              </button>
-            );
-          })}
+      {inHeader ? (
+        <>
+          {createPortal(sectionTabs, tabsSlot)}
+          {createPortal(<div className="config-icon-actions">{toolbarActions}</div>, actionsSlot)}
+        </>
+      ) : (
+        <div className="config-toolbar">
+          {sectionTabs}
+          {toolbarActions}
         </div>
-
-        <div className="config-toolbar-actions">
-          {activeSection === 'dropdowns' && (
-            <button
-              type="button"
-              className="config-add-btn secondary"
-              title="Bulk import lists"
-              onClick={() => {
-                setBulkListsText('');
-                setBulkListsError('');
-                setIsBulkListsModalOpen(true);
-              }}
-            >
-              <Upload size={14} />
-              <span>Bulk import</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="config-add-btn primary"
-            title={section.actionLabel}
-            onClick={handleSectionAction}
-            disabled={activeSection === 'values'}
-          >
-            <Plus size={15} />
-            <span>{section.actionLabel}</span>
-          </button>
-        </div>
-      </div>
+      )}
 
       <div className="config-section-panel" role="tabpanel">
         {activeSection === 'dropdowns' && (
@@ -635,43 +664,43 @@ export const ConfigTab = () => {
                 </div>
               </div>
             ) : (
-              <ul className="config-dropdown-list">
+              <ul className="fpp-grid fpp-grid--compact">
                 {dropdowns.map((list) => (
-                  <li key={list.id} className="config-dropdown-row">
-                    <div className="config-dropdown-row-main">
-                      <div className="config-dropdown-row-meta">
-                        <span className="config-dropdown-card-title">{list.name}</span>
-                        <span className="config-dropdown-card-count">
-                          {list.options.length} opt
-                        </span>
+                  <li key={list.id} className="fpp-card fpp-card--list">
+                    <div className="fpp-card-head">
+                      <span className="fpp-card-icon" aria-hidden="true"><SectionIcon size={18} /></span>
+                      <div className="fpp-card-titles">
+                        <span className="fpp-card-title" title={list.name}>{list.name}</span>
+                        <span className="fpp-card-service">{list.options.length} option{list.options.length === 1 ? '' : 's'}</span>
                       </div>
-                      <div className="config-dropdown-options-preview">
-                        {list.options.map((opt) => (
-                          <span key={opt.id} className="config-option-chip">
-                            {opt.label}
-                          </span>
-                        ))}
+                      <div className="fpp-card-actions">
+                        <button
+                          type="button"
+                          className="config-icon-btn"
+                          title="Edit list"
+                          aria-label={`Edit ${list.name}`}
+                          onClick={() => openEditDropdown(list)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="config-icon-btn danger"
+                          title="Delete list"
+                          aria-label={`Delete ${list.name}`}
+                          onClick={() => handleDeleteDropdown(list.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
-                    <div className="config-dropdown-card-actions">
-                      <button
-                        type="button"
-                        className="config-icon-btn"
-                        title="Edit list"
-                        aria-label={`Edit ${list.name}`}
-                        onClick={() => openEditDropdown(list)}
-                      >
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className="config-icon-btn danger"
-                        title="Delete list"
-                        aria-label={`Delete ${list.name}`}
-                        onClick={() => handleDeleteDropdown(list.id)}
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                    <div className="fpp-card-chips">
+                      {list.options.slice(0, 5).map((opt) => (
+                        <span key={opt.id} className="fpp-chip">{opt.label}</span>
+                      ))}
+                      {list.options.length > 5 && (
+                        <span className="fpp-chip fpp-chip--more">+{list.options.length - 5} more</span>
+                      )}
                     </div>
                   </li>
                 ))}

@@ -1087,3 +1087,8 @@
 [data-theme="dark"] .topbar-time {
   color: #9ca3af;
 }
+
+/* Page-provided control (e.g. Settings tab dropdown) shown left of the clock */
+.topbar-page-slot { display: flex; align-items: center; margin-right: 4px; }
+.topbar-page-slot:empty { display: none; }
+.topbar-page-slot .settings-pill-trigger { min-height: 34px; padding: 4px 14px; font-size: 13px; }

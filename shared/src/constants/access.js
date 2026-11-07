@@ -21,6 +21,7 @@ import { ROLES } from './roles.js';
 export const ACCESS_PAGES = Object.freeze([
   { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
   { id: 'exams', label: 'Exams', path: '/exams' },
+  { id: 'exam_day', label: 'Exam Day', path: '/exam-day' },
   { id: 'vendors', label: 'Vendor Data', path: '/vendors' },
   { id: 'seq_view', label: 'SeqView', path: '/seq-view' },
   { id: 'tables', label: 'Dynamic Tables', path: '/tables' },

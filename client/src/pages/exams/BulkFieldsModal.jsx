@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, Download, Info, ListPlus, Network, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, Download, Info, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { examViewLabel } from '@exam-view/shared';
 import {
   EXAM_FIELD_TYPES,
   AUTO_FILL_OPTIONS,
@@ -23,6 +24,7 @@ import { parseBulkFields, resolveType, toFieldDefinition, TYPE_ALIASES } from '.
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
+import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
 
 const OPTIONS_SOURCES = [
   { value: 'manual', label: 'Typed' },
@@ -67,6 +69,7 @@ const newRow = (dataType = 'text') => ({
   phoneValidationMode: 'none',
   phonePattern: '',
   phoneMessage: '',
+  sharedFromView: '',
   existingId: null,
   orig: null,
   lockOptions: false,
@@ -105,6 +108,7 @@ const rowFromField = (f) => {
     linkedColumn: f.linkedFrom?.column || '',
     examFieldKey: f.examFieldKey || '',
     scheduleRole: f.scheduleRole === 'start' || f.scheduleRole === 'end' ? f.scheduleRole : '',
+    sharedFromView: f.sharedFromView || '',
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
@@ -150,6 +154,7 @@ const rowToItem = (r, allowUnique = false) => ({
   autoFill: r.autoFill,
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
+  ...(r.sharedFromView ? { sharedFromView: r.sharedFromView } : {}),
 });
 
 /** The saved field with this row's edits applied, or null when nothing changed. */
@@ -431,6 +436,11 @@ export const BulkFieldsModal = ({
   saving = false,
   error = '',
   examSourceFields = [],
+  /** When set with currentView, enables “Import from tab” on an exam page. */
+  examId = null,
+  currentView = null,
+  /** Other field presets — enables “Import from preset” on Settings → Field presets. */
+  presetSources = null,
 }) => {
   const examFieldOptions = (examSourceFields || [])
     .filter((f) => f?.key)
@@ -454,6 +464,11 @@ export const BulkFieldsModal = ({
   const [removedIds, setRemovedIds] = useState([]); // existing Linked value fields to delete on save
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const canImportFromExam = Boolean(examId && currentView);
+  // Explicit null = feature off; [] still shows the button (empty state inside the modal).
+  const canImportFromPreset = !examId && Array.isArray(presetSources);
+  const canImportShared = canImportFromExam || canImportFromPreset;
   useEffect(() => {
     let cancelled = false;
     listLookupSources()
@@ -726,6 +741,39 @@ export const BulkFieldsModal = ({
     setNotice('');
   };
 
+  /** Pull shared columns from another exam tab into this bulk grid (save to persist). */
+  const handleImportFromTab = (pickedFields, sourceView) => {
+    const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
+    const home = String(sourceView || '').trim();
+    const additions = (pickedFields || [])
+      .filter((f) => f?.key && !haveKeys.has(f.key))
+      .map((f) => {
+        const sharedFromView = String(f.sharedFromView || home || '').trim();
+        const row = rowFromField({ ...f, id: undefined, sharedFromView });
+        return {
+          ...row,
+          rid: newRow().rid,
+          existingId: null,
+          orig: null,
+          sharedFromView,
+          keyTouched: true,
+        };
+      });
+    if (!additions.length) {
+      setNotice('Those fields are already in this list.');
+      return;
+    }
+    setRows((prev) => {
+      const blankStart = prev.findIndex((r) => !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim());
+      if (blankStart < 0) return [...prev, ...additions].slice(0, maxRows);
+      return [...prev.slice(0, blankStart), ...additions, ...prev.slice(blankStart)].slice(0, maxRows);
+    });
+    setNotice(
+      `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
+    );
+    setTab('fields');
+  };
+
   const handleKeyDown = (e, row, isLast) => {
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.target.tagName === 'INPUT') {
       const tr = e.target.closest('tr');
@@ -869,6 +917,7 @@ export const BulkFieldsModal = ({
           </button>
         </div>
 
+        <div className="exams-bulk-headrow">
         <div className="exams-bulk-tabs" role="tablist" aria-label="Bulk add sections">
           <button
             type="button"
@@ -899,7 +948,8 @@ export const BulkFieldsModal = ({
             className="exams-bulk-tip"
             title={`Columns: Label · Key · Type · Options · Auto-fill · Width · Required${allowUnique ? ' · Unique' : ''}. Existing fields are listed first and can be edited in place; a new row's key fills in from its label.`}
           >
-            Paste rows from Excel or Sheets into any cell.
+            <Info size={14} aria-hidden="true" />
+            <span className="exams-bulk-tip-text">Paste rows from Excel or Sheets into any cell.</span>
           </span>
           <span className="exams-bulk-toolbar-actions">
             <button type="button" className="exams-text-add-btn" onClick={() => addRow()} disabled={rows.length >= maxRows}>
@@ -914,6 +964,20 @@ export const BulkFieldsModal = ({
             >
               {showMore ? 'Hide' : 'Show'} auto-fill &amp; width
             </button>
+            {canImportShared && (
+              <button
+                type="button"
+                className="exams-text-add-btn"
+                onClick={() => setImportOpen(true)}
+                title={
+                  canImportFromPreset
+                    ? 'Import shared columns from another field preset'
+                    : 'Import shared columns from another exam page'
+                }
+              >
+                <Sparkles size={14} /> {canImportFromPreset ? 'Import from preset' : 'Import from tab'}
+              </button>
+            )}
             <button type="button" className="exams-text-add-btn" onClick={downloadSample}>
               <Download size={14} /> Sample file
             </button>
@@ -923,6 +987,7 @@ export const BulkFieldsModal = ({
           </span>
         </div>
         )}
+        </div>
         {notice && (
           <div className="exams-bulk-notice" role="status">
             {notice}
@@ -1538,6 +1603,22 @@ export const BulkFieldsModal = ({
           </div>
         </div>
       </form>
+      {canImportShared && (
+        <ImportFieldsFromTabModal
+          open={importOpen}
+          examId={canImportFromExam ? examId : null}
+          currentView={currentView}
+          presetSources={canImportFromPreset ? presetSources : null}
+          currentFields={[
+            ...(fields || []),
+            ...rows
+              .filter((r) => String(r.key || '').trim())
+              .map((r) => ({ key: String(r.key).trim(), label: r.label || r.key })),
+          ]}
+          onClose={() => setImportOpen(false)}
+          onImport={handleImportFromTab}
+        />
+      )}
     </div>,
     document.body
   );

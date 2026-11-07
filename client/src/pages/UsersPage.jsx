@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useUrlState } from '../hooks/useUrlState';
 import { createPortal } from 'react-dom';
 import { UserGroupTabs, UserGroupModal } from './users/UserGroupTabs';
 import { UserAccessModal } from './users/UserAccessModal';
@@ -14,7 +15,7 @@ import { useInvalidateUsers, useUsersList, useUserTags, useUserGroups } from '..
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { usePortalTableFeatures, withPortalFeatureLocks } from '../hooks/usePortalTableFeatures';
 import { TABLE_IDS } from '../constants/tableIds';
-import { ROLES, AVAILABLE_RIGHTS, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
+import { ROLES, AVAILABLE_RIGHTS, RIGHTS_MATRIX, DEFAULT_ROLE_PERMISSIONS } from '@exam-view/shared';
 import {
   Users,
   Crown,
@@ -42,6 +43,10 @@ import {
   Zap,
   ShieldOff,
   Tag,
+  GraduationCap,
+  Database,
+  ListOrdered,
+  Settings,
 } from 'lucide-react';
 import { SearchableSelect } from './exams/SearchableSelect';
 import './ExamsPage.css';
@@ -139,6 +144,117 @@ const USER_TABLE_DEFAULTS = {
   enableActionsColumn: true,
 };
 
+const RIGHTS_CATEGORY_ICONS = {
+  Users,
+  Administration: Shield,
+  Examinations: GraduationCap,
+  Vendors: Database,
+  SeqView: ListOrdered,
+  System: Settings,
+  Security: ShieldCheck,
+};
+
+/** Rights picker: category list (with n/m badges) on the left, a View / Edit matrix on the right. */
+const RightsChecklist = ({ selected, onChange }) => {
+  const groups = useMemo(
+    () =>
+      RIGHTS_MATRIX.reduce((acc, row) => {
+        (acc[row.category] ||= []).push(row);
+        return acc;
+      }, {}),
+    []
+  );
+  const idsOf = (rows) => rows.flatMap((r) => [r.view, r.edit].filter(Boolean));
+  const categories = Object.keys(groups);
+  const [active, setActive] = useState(categories[0]);
+  const rows = groups[active] || [];
+  const ActiveIcon = RIGHTS_CATEGORY_ICONS[active] || Shield;
+
+  // Edit implies View; removing View also removes Edit.
+  const toggle = (row, kind) => {
+    const set = new Set(selected);
+    if (kind === 'view') {
+      if (set.has(row.view)) {
+        set.delete(row.view);
+        if (row.edit) set.delete(row.edit);
+      } else set.add(row.view);
+    } else if (set.has(row.edit)) set.delete(row.edit);
+    else {
+      set.add(row.edit);
+      if (row.view) set.add(row.view);
+    }
+    onChange([...set]);
+  };
+  const selectAll = () => onChange([...new Set([...selected, ...idsOf(rows)])]);
+  const clear = () => {
+    const ids = new Set(idsOf(rows));
+    onChange(selected.filter((x) => !ids.has(x)));
+  };
+
+  const cell = (row, kind) => {
+    const id = row[kind];
+    if (!id) return <span className="rights-cell-none" aria-hidden="true">—</span>;
+    return (
+      <input
+        type="checkbox"
+        aria-label={`${kind === 'view' ? 'View' : 'Edit'} ${row.label}`}
+        checked={selected.includes(id)}
+        onChange={() => toggle(row, kind)}
+      />
+    );
+  };
+
+  return (
+    <div className="rights-split">
+      <nav className="rights-cats" aria-label="Rights categories">
+        {categories.map((cat) => {
+          const Icon = RIGHTS_CATEGORY_ICONS[cat] || Shield;
+          const ids = idsOf(groups[cat]);
+          const count = ids.filter((id) => selected.includes(id)).length;
+          return (
+            <button
+              key={cat}
+              type="button"
+              className={`rights-cat${cat === active ? ' is-active' : ''}`}
+              onClick={() => setActive(cat)}
+            >
+              <Icon size={16} />
+              <span className="rights-cat-name">{cat}</span>
+              <span className={`rights-cat-badge${count === ids.length ? ' is-full' : ''}`}>
+                {count}/{ids.length}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="rights-detail">
+        <div className="rights-detail-head">
+          <span className="rights-detail-title">
+            <ActiveIcon size={16} /> {active} Rights
+          </span>
+          <span className="rights-detail-actions">
+            <button type="button" onClick={selectAll}>Select all</button>
+            <button type="button" onClick={clear}>Clear</button>
+          </span>
+        </div>
+        <div className="rights-detail-cols">
+          <span>Feature / Capability</span>
+          <span>View</span>
+          <span>Edit</span>
+        </div>
+        {rows.map((row) => (
+          <div key={row.label} className="rights-row">
+            <span>{row.label}</span>
+            {cell(row, 'view')}
+            {cell(row, 'edit')}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const confirm = useConfirm();
   const { show: showFeedback } = useFeedback();
@@ -160,7 +276,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
 
   // Search & Filter & Sort
   // 'all' | 'role:<role>' | 'group:<id>'
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useUrlState('utab', 'all');
 
   // Toggle summary stats cards visibility (default: false / off)
   const [showStats, setShowStats] = useState(() => {
@@ -1398,21 +1514,10 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
                   </button>
                 </div>
 
-                <div className="rights-checklist-grid">
-                  {AVAILABLE_RIGHTS.map((r) => {
-                    const isChecked = createForm.permissions.includes(r.id);
-                    return (
-                      <label key={r.id} className="right-checkbox-item">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleCreatePermission(r.id)}
-                        />
-                        <span>{r.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                <RightsChecklist
+                  selected={createForm.permissions}
+                  onChange={(permissions) => setCreateForm({ ...createForm, permissions })}
+                />
               </div>
 
               <div className="modal-footer">
@@ -1679,21 +1784,10 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
                   </button>
                 </div>
 
-                <div className="rights-checklist-grid">
-                  {AVAILABLE_RIGHTS.map((r) => {
-                    const isChecked = editForm.permissions.includes(r.id);
-                    return (
-                      <label key={r.id} className="right-checkbox-item">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleEditPermission(r.id)}
-                        />
-                        <span>{r.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                <RightsChecklist
+                  selected={editForm.permissions}
+                  onChange={(permissions) => setEditForm({ ...editForm, permissions })}
+                />
               </div>
 
               <div className="modal-footer">

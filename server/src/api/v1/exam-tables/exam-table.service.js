@@ -1,5 +1,11 @@
 import { AppError } from '../../../core/errors.js';
-import { ERROR_CODES } from '@exam-view/shared';
+import {
+  CENTER_CODE_KEY,
+  DEFAULT_EXAM_VIEW,
+  ERROR_CODES,
+  isExamViewKey,
+  isSharedImportedField,
+} from '@exam-view/shared';
 import * as repo from './exam-table.repository.js';
 import * as presetRepo from '../exam-presets/exam-preset.repository.js';
 
@@ -17,29 +23,60 @@ const withMeta = async (fn) => {
   return fn();
 };
 
+const normalizeView = (view) => {
+  const key = String(view || DEFAULT_EXAM_VIEW).trim() || DEFAULT_EXAM_VIEW;
+  if (!isExamViewKey(key)) throw validationError(`Unknown exam view: "${key}"`);
+  return key;
+};
+
 const requireTable = async (examId) => {
   const table = await repo.findTableByExamId(examId);
   if (!table) throw notFound('This exam has no table yet');
   return table;
 };
 
-const snapshot = async (examId) => {
+const snapshot = async (examId, view = DEFAULT_EXAM_VIEW) => {
+  const viewKey = normalizeView(view);
   const table = await repo.findTableByExamId(examId);
-  if (!table) return { exists: false, table: null, fields: [], features: null };
-  return { exists: true, table, fields: await repo.listFields(table.id), features: table.features };
+  if (!table) return { exists: false, table: null, view: viewKey, fields: [], features: null, views: {} };
+  const configs = table.viewConfigs || {};
+  const viewSummaries = {};
+  Object.entries(configs).forEach(([key, cfg]) => {
+    viewSummaries[key] = {
+      fieldCount: Array.isArray(cfg?.fields) ? cfg.fields.length : 0,
+      hasFeatures: Boolean(cfg?.features),
+    };
+  });
+  const fields = await repo.listFields(table.id, viewKey);
+  const features = configs[viewKey]?.features ?? (viewKey === DEFAULT_EXAM_VIEW ? table.features : null);
+  return {
+    exists: true,
+    table,
+    view: viewKey,
+    fields,
+    features,
+    views: viewSummaries,
+  };
 };
 
-export const getTable = (examId) => withMeta(() => snapshot(examId));
+export const getTable = (examId, view) => withMeta(() => snapshot(examId, view));
 
-/** Copy a preset's fields (and features) into a freshly created, still empty table. */
-const applyPreset = async (tableId, preset) => {
-  const fields = cleanFields(preset.fields);
-  await repo.applyFields(tableId, fields);
-  if (preset.features) await repo.saveFeatures(tableId, preset.features);
-};
-
-export const createTable = (examId, userId, { presetId } = {}) =>
+export const listAllFields = (examId) =>
   withMeta(async () => {
+    const table = await requireTable(examId);
+    return repo.listAllFields(table.id);
+  });
+
+/** Copy a preset's fields (and features) into one tab's config. */
+const applyPreset = async (tableId, preset, view) => {
+  const fields = cleanFields(preset.fields);
+  await repo.applyFields(tableId, fields, view);
+  if (preset.features) await repo.saveFeatures(tableId, preset.features, view);
+};
+
+export const createTable = (examId, userId, { presetId, view } = {}) =>
+  withMeta(async () => {
+    const viewKey = normalizeView(view);
     if (!(await repo.examExists(examId))) throw notFound('Exam not found');
     let preset = null;
     if (presetId != null) {
@@ -47,18 +84,32 @@ export const createTable = (examId, userId, { presetId } = {}) =>
       preset = await presetRepo.findById(String(presetId));
       if (!preset) throw notFound('Preset not found');
     }
-    if (!(await repo.findTableByExamId(examId))) {
+    let table = await repo.findTableByExamId(examId);
+    if (!table) {
       const tableId = await repo.createTable(examId, userId);
       if (preset) {
         try {
-          await applyPreset(tableId, preset);
+          await applyPreset(tableId, preset, viewKey);
         } catch (error) {
           await repo.dropTable(tableId);
           throw error;
         }
+      } else if (viewKey !== DEFAULT_EXAM_VIEW) {
+        // Shell starts with empty center-list; ensure requested view exists too.
+        await repo.applyFields(tableId, [], viewKey);
       }
+    } else if (preset) {
+      const current = await repo.listFields(table.id, viewKey);
+      if (current.length) {
+        throw validationError('This tab already has fields. Use Load preset or Import from another tab instead.');
+      }
+      await applyPreset(table.id, preset, viewKey);
+    } else {
+      // Ensure the view slot exists so the client can start building fields.
+      const current = await repo.listFields(table.id, viewKey);
+      if (!current.length) await repo.applyFields(table.id, [], viewKey);
     }
-    return snapshot(examId);
+    return snapshot(examId, viewKey);
   });
 
 /** Keep the builder's definition, but only plain JSON of a sane size. */
@@ -90,8 +141,9 @@ export const cleanFields = (list) => {
 
 export const saveConfig = (examId, body = {}) =>
   withMeta(async () => {
+    const viewKey = normalizeView(body.view);
     const table = await requireTable(examId);
-    const current = await repo.listFields(table.id);
+    const current = await repo.listFields(table.id, viewKey);
 
     let fields = current;
     if (body.fields !== undefined) {
@@ -99,17 +151,22 @@ export const saveConfig = (examId, body = {}) =>
       const keys = fields.map((f) => f.key);
 
       const removed = current.filter((f) => !keys.includes(f.key)).map((f) => f.key);
-      if (removed.length && body.confirmDrops !== true) {
+      const usedElsewhere = await repo.keysUsedOutsideView(table.id, viewKey);
+      const unusedRemoved = removed.filter((k) => !usedElsewhere.has(k));
+      if (unusedRemoved.length && body.confirmDrops !== true) {
         throw new AppError(
-          `Removing columns deletes their data permanently. Confirm to remove: ${removed.join(', ')}`,
+          `Removing columns deletes their data permanently. Confirm to remove: ${unusedRemoved.join(', ')}`,
           409,
           ERROR_CODES.CONFLICT,
         );
       }
       try {
-        await repo.applyFields(table.id, fields);
+        await repo.applyFields(table.id, fields, viewKey);
       } catch (error) {
         throw validationError(`Could not update the table fields: ${error.message}`);
+      }
+      if (unusedRemoved.length) {
+        await repo.stripUnusedKeysFromRows(examId, unusedRemoved);
       }
     }
 
@@ -118,9 +175,9 @@ export const saveConfig = (examId, body = {}) =>
         throw validationError('features must be an object');
       }
       if (JSON.stringify(body.features).length > MAX_FEATURES_BYTES) throw validationError('Features are too large');
-      await repo.saveFeatures(table.id, body.features);
+      await repo.saveFeatures(table.id, body.features, viewKey);
     }
-    return snapshot(examId);
+    return snapshot(examId, viewKey);
   });
 
 /* ---------- Rows ---------- */
@@ -190,20 +247,40 @@ export const cleanRowValues = (fields, input) => {
   return out;
 };
 
-const tableAndFields = async (examId) => {
+const tableAndAllFields = async (examId) => {
   const table = await requireTable(examId);
-  return { table, fields: await repo.listFields(table.id) };
+  return { table, fields: await repo.listAllFields(table.id) };
+};
+
+const tableAndViewFields = async (examId, view) => {
+  const viewKey = normalizeView(view);
+  const table = await requireTable(examId);
+  return { table, view: viewKey, fields: await repo.listFields(table.id, viewKey), allFields: await repo.listAllFields(table.id) };
+};
+
+const assertUniqueCenterCode = async (tableId, allFields, values, excludeRowId = null) => {
+  if (!allFields.some((f) => f.key === CENTER_CODE_KEY)) return;
+  if (!Object.prototype.hasOwnProperty.call(values || {}, CENTER_CODE_KEY)) return;
+  const code = values[CENTER_CODE_KEY];
+  if (isEmpty(code)) return;
+  const wanted = String(code).trim().toLowerCase();
+  const { rows } = await repo.listRows(tableId, allFields);
+  const clash = rows.find((row) => {
+    if (excludeRowId && String(row.id) === String(excludeRowId)) return false;
+    return String(row.values?.[CENTER_CODE_KEY] ?? '').trim().toLowerCase() === wanted;
+  });
+  if (clash) throw validationError(`Center code "${code}" is already used on this exam`);
 };
 
 export const listRows = (examId) =>
   withMeta(async () => {
-    const { table, fields } = await tableAndFields(examId);
+    const { table, fields } = await tableAndAllFields(examId);
     return repo.listRows(table.id, fields);
   });
 
 export const getRow = (examId, rowId) =>
   withMeta(async () => {
-    const { table, fields } = await tableAndFields(examId);
+    const { table, fields } = await tableAndAllFields(examId);
     const row = await repo.findRow(table.id, fields, rowId);
     if (!row) throw notFound('Row not found');
     return row;
@@ -211,25 +288,33 @@ export const getRow = (examId, rowId) =>
 
 export const createRow = (examId, body, userId) =>
   withMeta(async () => {
-    const { table, fields } = await tableAndFields(examId);
+    const viewKey = normalizeView(body?.view);
+    const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
     if (!fields.length) throw validationError('Add at least one column before adding rows');
-    const id = await repo.insertRow(table.id, fields, cleanRowValues(fields, body?.values), userId);
-    return repo.findRow(table.id, fields, id);
+    const cleaned = cleanRowValues(fields, body?.values);
+    await assertUniqueCenterCode(table.id, allFields, cleaned);
+    const id = await repo.insertRow(table.id, fields, cleaned, userId);
+    return repo.findRow(table.id, allFields, id);
   });
 
 export const updateRow = (examId, rowId, body, userId) =>
   withMeta(async () => {
-    const { table, fields } = await tableAndFields(examId);
-    if (!(await repo.updateRow(table.id, fields, rowId, cleanRowValues(fields, body?.values), userId))) {
+    const viewKey = normalizeView(body?.view);
+    const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
+    // Shared imports are editable on their home tab only; ignore writes here.
+    const writableFields = fields.filter((f) => !isSharedImportedField(f));
+    const cleaned = cleanRowValues(writableFields, body?.values);
+    await assertUniqueCenterCode(table.id, allFields, cleaned, rowId);
+    if (!(await repo.updateRow(table.id, writableFields, rowId, cleaned, userId))) {
       throw notFound('Row not found');
     }
-    return repo.findRow(table.id, fields, rowId);
+    return repo.findRow(table.id, allFields, rowId);
   });
 
 export const deleteRows = (examId, rowIds) =>
   withMeta(async () => {
     const table = await requireTable(examId);
-    const ids = (Array.isArray(rowIds) ? rowIds : [rowIds]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    const ids = (Array.isArray(rowIds) ? rowIds : [rowIds]).map(String).filter(Boolean);
     if (!ids.length) throw validationError('No rows to delete');
     return { success: true, deleted: await repo.deleteRows(table.id, ids) };
   });

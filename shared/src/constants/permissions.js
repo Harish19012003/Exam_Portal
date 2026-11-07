@@ -57,20 +57,27 @@ export const PERMISSIONS = Object.freeze({
 export const PERMISSION_VALUES = Object.values(PERMISSIONS);
 
 /**
- * Standard selectable rights/permissions for user administration
+ * Rights matrix: one row per feature, with an optional View and an optional Edit right.
+ * `edit` keeps the original ids (e.g. exams:manage) so rights already saved on users stay valid.
  */
-export const AVAILABLE_RIGHTS = [
-  { id: 'users:view', label: 'View Users', category: 'Users' },
-  { id: 'users:create', label: 'Create Users', category: 'Users' },
-  { id: 'users:update', label: 'Update Users', category: 'Users' },
-  { id: 'users:delete', label: 'Delete Users', category: 'Users' },
-  { id: 'roles:manage', label: 'Manage Roles & Rights', category: 'Administration' },
-  { id: 'exams:manage', label: 'Manage Exams', category: 'Examinations' },
-  { id: 'vendors:manage', label: 'Manage Vendor Database', category: 'Vendors' },
-  { id: 'seqviews:manage', label: 'Manage SeqView Data', category: 'SeqView' },
-  { id: 'settings:manage', label: 'System Settings', category: 'System' },
-  { id: 'audit_logs:view', label: 'View Audit Logs', category: 'Security' },
+export const RIGHTS_MATRIX = [
+  { category: 'Users', label: 'Users', view: 'users:view', edit: 'users:update' },
+  { category: 'Users', label: 'Create Users', edit: 'users:create' },
+  { category: 'Users', label: 'Delete Users', edit: 'users:delete' },
+  { category: 'Administration', label: 'Roles & Rights', view: 'roles:view', edit: 'roles:manage' },
+  { category: 'Examinations', label: 'Exams', view: 'exams:view', edit: 'exams:manage' },
+  { category: 'Examinations', label: 'Exam Day', view: 'examday:view', edit: 'examday:manage' },
+  { category: 'Vendors', label: 'Vendor Database', view: 'vendors:view', edit: 'vendors:manage' },
+  { category: 'SeqView', label: 'SeqView Data', view: 'seqviews:view', edit: 'seqviews:manage' },
+  { category: 'System', label: 'System Settings', view: 'settings:view', edit: 'settings:manage' },
+  { category: 'Security', label: 'Audit Logs', view: 'audit_logs:view' },
 ];
+
+/** Standard selectable rights/permissions (flat list derived from the matrix). */
+export const AVAILABLE_RIGHTS = RIGHTS_MATRIX.flatMap((row) => [
+  ...(row.view ? [{ id: row.view, label: `View ${row.label}`, category: row.category }] : []),
+  ...(row.edit ? [{ id: row.edit, label: `Edit ${row.label}`, category: row.category }] : []),
+]);
 
 /** Default rights assigned to roles */
 export const DEFAULT_ROLE_PERMISSIONS = {
@@ -79,16 +86,28 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'users:view',
     'users:create',
     'users:update',
+    'roles:view',
+    'exams:view',
     'exams:manage',
+    'examday:view',
+    'examday:manage',
+    'vendors:view',
     'vendors:manage',
+    'seqviews:view',
     'seqviews:manage',
+    'settings:view',
     'settings:manage',
     'audit_logs:view',
   ],
   admin: [
     'users:view',
+    'exams:view',
     'exams:manage',
+    'examday:view',
+    'examday:manage',
+    'vendors:view',
     'vendors:manage',
+    'seqviews:view',
     'seqviews:manage',
   ],
   user: [

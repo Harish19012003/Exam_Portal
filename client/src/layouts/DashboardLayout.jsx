@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
 import { apiClient } from '../api/client';
@@ -9,6 +10,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   FileText,
+  CalendarCheck,
   GraduationCap,
   Database,
   DatabaseZap,
@@ -29,10 +31,26 @@ import {
   Settings,
   Settings2,
   Zap,
+  MapPin,
+  ClipboardList,
+  CalendarClock,
+  PhoneCall,
+  UsersRound,
+  Smartphone,
 } from 'lucide-react';
 import { ExamSwitcher } from './ExamSwitcher';
 import './DashboardLayout.css';
 import './ExamSidebar.css';
+
+/** Shown under "Exams" while an exam is open. */
+const EXAM_SUB_ITEMS = [
+  { tab: 'center-list', label: 'Center list', icon: MapPin },
+  { tab: 'op-guard-list', label: 'Op/Guard List', icon: UsersRound },
+  { tab: 'mock-day', label: 'Mock Day', icon: ClipboardList },
+  { tab: 'operator-guard-calling', label: 'Op/Guard Calling', icon: PhoneCall },
+  { tab: 'exam-day', label: 'Exam Day', icon: CalendarClock },
+  { tab: 'device-master', label: 'Device Master', icon: Smartphone },
+];
 
 const NAV_ITEMS = [
   {
@@ -104,6 +122,8 @@ export const DashboardLayout = () => {
   const closeMobile = () => setMobileOpen(false);
   // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
   const [breadcrumbTail, setBreadcrumbTail] = useState(null);
+  // A page can portal its own control into the top bar (left of the clock).
+  const [topbarSlot, setTopbarSlot] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('theme') === 'dark';
@@ -163,11 +183,14 @@ export const DashboardLayout = () => {
 
   const getBreadcrumb = () => {
     const path = location.pathname.replace(/\/$/, '');
-    if (/^\/exams\/[^/]+$/.test(path)) {
+    if (/^\/exams\/[^/]+(\/[^/]+)?$/.test(path)) {
       return { label: 'Exams', icon: GraduationCap, to: '/exams', tail: breadcrumbTail || 'Exam' };
     }
     if (path === '/dashboard/exams' || path === '/exams') {
       return { label: 'Exams', icon: GraduationCap };
+    }
+    if (path === '/exam-day') {
+      return { label: 'Exam Day', icon: CalendarCheck };
     }
     if (path === '/dashboard/vendors' || path === '/vendors') {
       return { label: 'Vendor Data', icon: DatabaseZap };
@@ -197,9 +220,26 @@ export const DashboardLayout = () => {
   };
   const currentBreadcrumb = getBreadcrumb();
   // On /exams/:id the breadcrumb's last part becomes a quick switch between exams.
-  const examPageId = /^\/exams\/[^/]+$/.test(location.pathname.replace(/\/$/, ''))
-    ? decodeURIComponent(location.pathname.replace(/\/$/, '').split('/')[2])
+  const examPageId = /^\/exams\/[^/]+(\/[^/]+)?$/.test(location.pathname.replace(/\/$/, ''))
+    ? examIdFromUrl(decodeURIComponent(location.pathname.replace(/\/$/, '').split('/')[2]))
     : null;
+  // Remember the last opened exam so the sidebar sections stay usable from other pages.
+  const [lastExamId, setLastExamId] = useState(() => {
+    try {
+      return localStorage.getItem('lastExamId') || '';
+    } catch {
+      return '';
+    }
+  });
+  useEffect(() => {
+    if (!examPageId) return;
+    setLastExamId(examPageId);
+    try {
+      localStorage.setItem('lastExamId', examPageId);
+    } catch {
+      // ignore storage errors
+    }
+  }, [examPageId]);
 
   return (
     <div className="layout">
@@ -219,17 +259,40 @@ export const DashboardLayout = () => {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                onClick={closeMobile}
-                className={({ isActive }) => `xs-nav-item ${isActive ? 'active' : ''}`}
-                title={item.label}
-              >
-                <Icon className="xs-nav-icon" size={18} strokeWidth={2} />
-                <span className="xs-label">{item.label}</span>
-              </NavLink>
+              <React.Fragment key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  onClick={closeMobile}
+                  className={({ isActive }) => `xs-nav-item ${isActive ? 'active' : ''}${item.page === 'exams' && examPageId ? ' xs-parent-open' : ''}`}
+                  title={item.label}
+                >
+                  <Icon className="xs-nav-icon" size={18} strokeWidth={2} />
+                  <span className="xs-label">{item.label}</span>
+                </NavLink>
+                {item.page === 'exams' && (
+                  <div className="xs-subnav" role="group" aria-label="Exam sections">
+                    {EXAM_SUB_ITEMS.map((sub) => {
+                      const SubIcon = sub.icon;
+                      // Without an open exam, use the last one opened; with none, send to the exam list.
+                      const targetExam = examPageId || lastExamId;
+                      const isActive = Boolean(examPageId) && location.pathname.replace(/\/$/, '').endsWith(`/${sub.tab}`);
+                      return (
+                        <NavLink
+                          key={sub.tab}
+                          to={targetExam ? examPath(targetExam, sub.tab) : '/exams'}
+                          onClick={closeMobile}
+                          className={`xs-nav-item xs-subnav-item ${isActive ? 'active' : ''}`}
+                          title={targetExam ? sub.label : `${sub.label} — pick an exam first`}
+                        >
+                          <SubIcon className="xs-nav-icon" size={16} strokeWidth={2} />
+                          <span className="xs-label">{sub.label}</span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </React.Fragment>
             );
           })}
         </nav>
@@ -340,6 +403,8 @@ export const DashboardLayout = () => {
             {/* Network connection status indicator (shows when slow or offline) */}
             <NetworkIndicator />
 
+            <div className="topbar-page-slot" ref={setTopbarSlot} />
+
             <div className="topbar-time">
               {formatTime(currentTime)}
             </div>
@@ -366,7 +431,7 @@ export const DashboardLayout = () => {
         </header>
 
         <main className="main-content">
-          <Outlet context={{ setBreadcrumbTail }} />
+          <Outlet context={{ setBreadcrumbTail, topbarSlot }} />
         </main>
       </div>
     </div>

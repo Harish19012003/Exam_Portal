@@ -1,3 +1,4 @@
+import { DEFAULT_EXAM_VIEW } from '@exam-view/shared';
 import { getEm } from '../../../database/connection.js';
 import { Exam, ExamTable, ExamRow, User } from '../../../database/entities/index.js';
 import { encodeCellValue, decodeCellValue } from '../exams/exam.repository.js';
@@ -6,6 +7,30 @@ export const SYSTEM_COLUMNS = ['id', 'sys_created_by', 'sys_updated_by', 'sys_cr
 
 export const isSafeColumnName = (name) => /^[a-z][a-z0-9_]{0,39}$/.test(String(name || ''));
 export const isReservedKey = (key) => key === 'id' || String(key).startsWith('sys_');
+
+/** Merge legacy root fields into view_configs so older exams keep working. */
+export const readViewConfigs = (table) => {
+  const configs =
+    table?.view_configs && typeof table.view_configs === 'object' && !Array.isArray(table.view_configs)
+      ? { ...table.view_configs }
+      : {};
+  if (!configs[DEFAULT_EXAM_VIEW]) {
+    configs[DEFAULT_EXAM_VIEW] = {
+      fields: Array.isArray(table?.fields) ? table.fields : [],
+      features: table?.features ?? null,
+    };
+  }
+  return configs;
+};
+
+const normalizeFieldList = (fields) =>
+  (Array.isArray(fields) ? fields : []).map((def, i) => ({
+    ...def,
+    key: def.key,
+    label: def.label,
+    dataType: def.dataType || 'text',
+    order: def.order ?? i + 1,
+  }));
 
 export const effectiveType = (def) =>
   (def?.dataType === 'dropdown' || def?.dataType === 'status') && def?.allowMultiple
@@ -35,6 +60,7 @@ export const findTableByExamId = async (examId) => {
     examId: row.exam_id,
     tableName: null,
     features: row.features ?? null,
+    viewConfigs: readViewConfigs(row),
     createdAt: row.created_at,
   };
 };
@@ -45,6 +71,9 @@ export const createTable = async (examId, userId) => {
     exam_id: String(examId),
     fields: [],
     features: null,
+    view_configs: {
+      [DEFAULT_EXAM_VIEW]: { fields: [], features: null },
+    },
     created_by: userId || null,
   });
   await em.persist(entity).flush();
@@ -77,21 +106,44 @@ export const dropTableForExam = async (examId) => {
   }
 };
 
-export const listFields = async (tableId) => {
+export const listFields = async (tableId, view = DEFAULT_EXAM_VIEW) => {
   const em = getEm();
   const table = await em.findOne(ExamTable, { id: String(tableId) });
   if (!table) return [];
-  const fields = Array.isArray(table.fields) ? table.fields : [];
-  return fields.map((def, i) => ({
-    ...def,
-    key: def.key,
-    label: def.label,
-    dataType: def.dataType || 'text',
-    order: def.order ?? i + 1,
-  }));
+  const configs = readViewConfigs(table);
+  return normalizeFieldList(configs[view]?.fields);
 };
 
-export const applyFields = async (tableId, fields) => {
+/** Union of field defs across every tab (first occurrence wins for type decode). */
+export const listAllFields = async (tableId) => {
+  const em = getEm();
+  const table = await em.findOne(ExamTable, { id: String(tableId) });
+  if (!table) return [];
+  const configs = readViewConfigs(table);
+  const byKey = new Map();
+  Object.values(configs).forEach((cfg) => {
+    normalizeFieldList(cfg?.fields).forEach((f) => {
+      if (!byKey.has(f.key)) byKey.set(f.key, f);
+    });
+  });
+  return [...byKey.values()];
+};
+
+/** Field keys used by any tab other than `view`. */
+export const keysUsedOutsideView = async (tableId, view) => {
+  const em = getEm();
+  const table = await em.findOne(ExamTable, { id: String(tableId) });
+  if (!table) return new Set();
+  const configs = readViewConfigs(table);
+  const keys = new Set();
+  Object.entries(configs).forEach(([key, cfg]) => {
+    if (key === view) return;
+    normalizeFieldList(cfg?.fields).forEach((f) => keys.add(f.key));
+  });
+  return keys;
+};
+
+export const applyFields = async (tableId, fields, view = DEFAULT_EXAM_VIEW) => {
   const em = getEm();
   const table = await em.findOne(ExamTable, { id: String(tableId) });
   if (!table) throw new Error('Exam table not found');
@@ -102,16 +154,52 @@ export const applyFields = async (tableId, fields) => {
     dataType: def.dataType,
     order: i + 1,
   }));
-  em.assign(table, { fields: normalized, updated_at: new Date() });
+  const configs = readViewConfigs(table);
+  const prev = configs[view] || { fields: [], features: null };
+  configs[view] = { ...prev, fields: normalized };
+  const patch = { view_configs: configs, updated_at: new Date() };
+  // Keep legacy root columns in sync for center-list.
+  if (view === DEFAULT_EXAM_VIEW) patch.fields = normalized;
+  em.assign(table, patch);
   await em.flush();
 };
 
-export const saveFeatures = async (tableId, features) => {
+export const saveFeatures = async (tableId, features, view = DEFAULT_EXAM_VIEW) => {
   const em = getEm();
   const table = await em.findOne(ExamTable, { id: String(tableId) });
   if (!table) return;
-  em.assign(table, { features, updated_at: new Date() });
+  const configs = readViewConfigs(table);
+  const prev = configs[view] || { fields: [], features: null };
+  configs[view] = { ...prev, features };
+  const patch = { view_configs: configs, updated_at: new Date() };
+  if (view === DEFAULT_EXAM_VIEW) patch.features = features;
+  em.assign(table, patch);
   await em.flush();
+};
+
+/** Drop stored cell values for keys that are no longer used by any tab. */
+export const stripUnusedKeysFromRows = async (examId, keys) => {
+  const drop = (keys || []).map(String).filter(Boolean);
+  if (!drop.length) return 0;
+  const em = getEm();
+  const rows = await em.find(ExamRow, { exam_id: String(examId) });
+  let touched = 0;
+  rows.forEach((row) => {
+    const values = { ...(row.values || {}) };
+    let changed = false;
+    drop.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(values, key)) {
+        delete values[key];
+        changed = true;
+      }
+    });
+    if (changed) {
+      em.assign(row, { values, sys_updated_at: new Date() });
+      touched += 1;
+    }
+  });
+  if (touched) await em.flush();
+  return touched;
 };
 
 const ROW_LIMIT = 1000;
@@ -132,9 +220,14 @@ const mapRow = (raw, fields, userMap) => {
   const createdLabel = created
     ? userLabel(created.first_name, created.last_name, created.email)
     : '';
+  const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
   const values = {};
-  fields.forEach((f) => {
-    values[f.key] = decodeCellValue(raw.values?.[f.key], effectiveType(f));
+  // Decode every known field; also keep any extra stored keys so other tabs' data stays available.
+  const keys = new Set([...(fields || []).map((f) => f.key), ...Object.keys(raw.values || {})]);
+  keys.forEach((key) => {
+    const field = fieldByKey.get(key);
+    if (field) values[key] = decodeCellValue(raw.values?.[key], effectiveType(field));
+    else if (Object.prototype.hasOwnProperty.call(raw.values || {}, key)) values[key] = raw.values[key];
   });
   return {
     id: String(raw.id ?? raw._id),
