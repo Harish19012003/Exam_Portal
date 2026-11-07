@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useUrlState } from '../hooks/useUrlState';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { PageHeading } from '../components/PageHeading';
@@ -66,7 +67,7 @@ export const ProfilePage = () => {
   const [disableError, setDisableError] = useState('');
 
   // Active section tab: 'details' | 'security' | 'permissions'
-  const [activeTab, setActiveTab] = useState('details');
+  const [activeTab, setActiveTab] = useUrlState('tab', 'details', ['details', 'security', 'permissions']);
 
   const fetchProfile = async () => {
     try {

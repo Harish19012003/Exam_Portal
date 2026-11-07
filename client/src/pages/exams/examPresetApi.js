@@ -1,8 +1,9 @@
+import { DEFAULT_EXAM_VIEW } from '@exam-view/shared';
 import { apiClient } from '../../api/client';
 
 const unwrap = (response) => response?.data?.data ?? response?.data;
 
-/** Field presets per service: { id, name, serviceValue, fields, fieldCount, features, updatedAt } */
+/** Field presets per service + tab: { id, name, serviceValue, view, fields, fieldCount, features, updatedAt } */
 export const listExamPresets = async () => {
   const rows = unwrap(await apiClient.get('/exam-presets'));
   return Array.isArray(rows) ? rows : [];
@@ -13,11 +14,24 @@ export const updateExamPreset = async (id, preset) =>
   unwrap(await apiClient.patch(`/exam-presets/${id}`, preset));
 export const deleteExamPreset = async (id) => unwrap(await apiClient.delete(`/exam-presets/${id}`));
 
-/** Preset for a service value (same case-insensitive match the server uses), or null. */
-export const findPresetForService = (presets, serviceValue) => {
+const presetView = (preset) => String(preset?.view || DEFAULT_EXAM_VIEW);
+
+/** Preset for this exam's service on a specific tab. Legacy presets without view count as center-list. */
+export const findPresetForService = (presets, serviceValue, view = DEFAULT_EXAM_VIEW) => {
   const wanted = String(serviceValue ?? '').trim().toLowerCase();
+  const viewKey = String(view || DEFAULT_EXAM_VIEW);
   if (!wanted) return null;
-  return presets.find((p) => p.serviceValue.trim().toLowerCase() === wanted) || null;
+  return (
+    (Array.isArray(presets) ? presets : []).find(
+      (p) => p.serviceValue.trim().toLowerCase() === wanted && presetView(p) === viewKey,
+    ) || null
+  );
+};
+
+/** Presets that belong to one exam tab (for recommend / “other preset” pickers). */
+export const presetsForView = (presets, view = DEFAULT_EXAM_VIEW) => {
+  const viewKey = String(view || DEFAULT_EXAM_VIEW);
+  return (Array.isArray(presets) ? presets : []).filter((p) => presetView(p) === viewKey);
 };
 
 /* ---------- Bringing an existing center list up to date with its preset ----------
@@ -88,4 +102,26 @@ export const mergePresetIntoFields = (presetFields = [], fields = []) => {
   });
   const listOnly = fields.filter((f) => !presetKeys.has(f.key));
   return [...fromPreset, ...listOnly].map((f, i) => ({ ...f, order: i + 1 }));
+};
+
+/**
+ * Append selected field defs from another tab into the current tab.
+ * Same keys share one stored value; additions are tagged `sharedFromView` so this tab shows
+ * them read-only while the home tab remains editable.
+ */
+export const importFieldsIntoView = (selectedFields = [], fields = [], sourceView) => {
+  const have = new Set(fields.map((f) => f.key));
+  const homeView = String(sourceView || '').trim();
+  const additions = selectedFields
+    .filter((f) => f?.key && !have.has(f.key))
+    .map((f) => {
+      const { sharedFromView: priorHome, ...rest } = f;
+      return {
+        ...rest,
+        id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        // Prefer the ultimate home tab if the source field was itself an import.
+        sharedFromView: String(priorHome || homeView || '').trim() || undefined,
+      };
+    });
+  return [...fields, ...additions].map((f, i) => ({ ...f, order: i + 1 }));
 };

@@ -2063,3 +2063,49 @@
 .settings-panel-view--fill > .users-page {
   flex: 1 0 auto;
 }
+
+/* Section tabs of the active tab (e.g. Config) sit on the title row, between title and actions */
+.settings-toolbar-tabs { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; margin-left: 8px; }
+.settings-toolbar-tabs:empty { display: none; }
+
+/* In the title row the Config buttons show only their icon (the label stays as tooltip / aria-label) */
+.config-icon-actions { display: contents; }
+.config-icon-actions .config-toolbar-actions { display: flex; gap: 8px; }
+.config-icon-actions .config-add-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.config-icon-actions .config-add-btn span { display: none; }
+
+/* Config header row: tabs and the add button share one height; the active tab is soft so "+" stays the primary action */
+.settings-toolbar-tabs .config-section-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+  border-radius: 10px;
+}
+.settings-toolbar-tabs .config-section-tabs::-webkit-scrollbar { display: none; }
+.settings-toolbar-tabs .config-section-tab {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.settings-toolbar-tabs .config-section-tab.active {
+  background: var(--primary-light);
+  color: var(--primary-color);
+}
+.config-icon-actions .config-add-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-radius: 10px;
+}
+.settings-toolbar-actions:has(.config-toolbar-actions) { align-self: center; }

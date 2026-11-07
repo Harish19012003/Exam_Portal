@@ -1,3 +1,4 @@
+import { DEFAULT_EXAM_VIEW } from '@exam-view/shared';
 import { successResponse } from '../../../core/response.js';
 import * as service from './exam-table.service.js';
 import * as examService from '../exams/exam.service.js';
@@ -32,29 +33,37 @@ const ruleValues = (req, row) => ({ ...(row?.values || {}), __id: row?.id, __exa
 
 const forClient = (req, row) => (row ? { ...row, values: stripHidden(req, TABLE, row.values) } : row);
 
+const viewOf = (req, bodyFirst = false) => {
+  if (bodyFirst) return req.body?.view || req.query?.view || DEFAULT_EXAM_VIEW;
+  return req.query?.view || req.body?.view || DEFAULT_EXAM_VIEW;
+};
+
 export const getTable = handle(async (req) => {
   await assertExamVisible(req);
-  return service.getTable(req.params.examId);
+  return service.getTable(req.params.examId, viewOf(req));
 });
 
 export const createTable = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'configure');
-  return service.createTable(req.params.examId, req.user?.id, { presetId: req.body?.presetId });
+  return service.createTable(req.params.examId, req.user?.id, {
+    presetId: req.body?.presetId,
+    view: viewOf(req, true),
+  });
 }, 201);
 
 export const saveConfig = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'configure');
-  return service.saveConfig(req.params.examId, req.body);
+  return service.saveConfig(req.params.examId, { ...req.body, view: viewOf(req, true) });
 });
 
 export const listRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'view');
-  const table = await service.getTable(req.params.examId);
+  const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const result = await service.listRows(req.params.examId);
-  const fields = table?.fields || result?.fields || [];
+  const fields = allFields || [];
   const rows = (result.rows || [])
     .filter((row) => rowVisible(req, TABLE, ruleValues(req, row), fields))
     .map((row) => forClient(req, row));
@@ -64,16 +73,21 @@ export const listRows = handle(async (req) => {
 export const createRow = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'create');
-  const { fields } = await service.getTable(req.params.examId);
+  const view = viewOf(req, true);
+  const { fields } = await service.getTable(req.params.examId, view);
   const values = writableValues(req, TABLE, req.body?.values, autoFillKeys(fields));
   assertRowVisible(req, TABLE, { ...values, __exam_id: req.params.examId }, fields);
-  return forClient(req, await service.createRow(req.params.examId, { ...req.body, values }, req.user?.id));
+  return forClient(
+    req,
+    await service.createRow(req.params.examId, { ...req.body, values, view }, req.user?.id),
+  );
 }, 201);
 
 export const updateRow = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'edit');
-  const { fields } = await service.getTable(req.params.examId);
+  const view = viewOf(req, true);
+  const { fields } = await service.getTable(req.params.examId, view);
   const existing = await service.getRow(req.params.examId, req.params.rowId);
   assertRowVisible(req, TABLE, ruleValues(req, existing), fields);
   const values = req.body?.values;
@@ -81,18 +95,18 @@ export const updateRow = handle(async (req) => {
   assertRowVisible(req, TABLE, { ...ruleValues(req, existing), ...(values || {}) }, fields);
   return forClient(
     req,
-    await service.updateRow(req.params.examId, req.params.rowId, req.body, req.user?.id),
+    await service.updateRow(req.params.examId, req.params.rowId, { ...req.body, view }, req.user?.id),
   );
 });
 
 export const deleteRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'delete');
-  const { fields } = await service.getTable(req.params.examId);
+  const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const ids = req.body?.ids ?? req.params.rowId;
   for (const id of Array.isArray(ids) ? ids : [ids]) {
     const row = await service.getRow(req.params.examId, id);
-    assertRowVisible(req, TABLE, ruleValues(req, row), fields);
+    assertRowVisible(req, TABLE, ruleValues(req, row), allFields);
   }
   return service.deleteRows(req.params.examId, ids);
 });

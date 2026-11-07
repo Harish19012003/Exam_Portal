@@ -1,6 +1,7 @@
 import { useConfirm } from '../../feedback';
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { LayoutTemplate, Pencil, Plus, Trash2 } from 'lucide-react';
+import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
 import { apiClient } from '../../api/client';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
@@ -13,7 +14,16 @@ import {
 import { apiErrorMessage } from '../exams/examTableApi';
 import './FieldPresetsPanel.css';
 
-const emptyForm = () => ({ id: null, name: '', serviceValue: '', fields: [] });
+const emptyForm = () => ({
+  id: null,
+  name: '',
+  serviceValue: '',
+  view: DEFAULT_EXAM_VIEW,
+  fields: [],
+});
+
+const pairKey = (serviceValue, view) =>
+  `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
 
 /** Service choices come from the exam form's "service" field (its Config dropdown list). */
 const loadServiceOptions = async () => {
@@ -66,7 +76,13 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
   }, [createTick, openCreate]);
 
   const openEdit = (preset) => {
-    setForm({ id: preset.id, name: preset.name, serviceValue: preset.serviceValue, fields: preset.fields });
+    setForm({
+      id: preset.id,
+      name: preset.name,
+      serviceValue: preset.serviceValue,
+      view: preset.view || DEFAULT_EXAM_VIEW,
+      fields: preset.fields,
+    });
     setFormError('');
   };
 
@@ -83,9 +99,15 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
   const handleSave = async () => {
     if (!form.name.trim()) return setFormError('Preset name is required.');
     if (!form.serviceValue.trim()) return setFormError('Choose the service this preset is for.');
+    if (!form.view) return setFormError('Choose the exam page this preset is for.');
     setSaving(true);
     try {
-      const payload = { name: form.name, serviceValue: form.serviceValue, fields: form.fields };
+      const payload = {
+        name: form.name,
+        serviceValue: form.serviceValue,
+        view: form.view,
+        fields: form.fields,
+      };
       if (form.id) await updateExamPreset(form.id, payload);
       else await createExamPreset(payload);
       closeEditor();
@@ -114,10 +136,22 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
     }
   };
 
-  const usedServices = new Set(presets.filter((p) => p.id !== form?.id).map((p) => p.serviceValue.toLowerCase()));
-  const serviceChoices = serviceOptions.filter((o) => !usedServices.has(String(o).toLowerCase()));
+  // One preset per (service, page). Same service can have presets on other pages.
+  const usedPairs = new Set(
+    presets.filter((p) => p.id !== form?.id).map((p) => pairKey(p.serviceValue, p.view || DEFAULT_EXAM_VIEW)),
+  );
+  const serviceChoices = serviceOptions.filter((o) => {
+    if (!form?.view) return true;
+    return !usedPairs.has(pairKey(o, form.view));
+  });
   const hasCurrentInChoices = !form?.serviceValue || serviceChoices.includes(form.serviceValue);
-  const missingServices = serviceOptions.filter((o) => !presets.some((p) => p.serviceValue.toLowerCase() === String(o).toLowerCase()));
+
+  const missingCenterList = serviceOptions.filter(
+    (o) => !presets.some(
+      (p) => p.serviceValue.toLowerCase() === String(o).toLowerCase()
+        && String(p.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW,
+    ),
+  );
 
   return (
     <div className="fpp">
@@ -131,7 +165,8 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
           <div>
             <h4 className="config-empty-title">No field presets yet</h4>
             <p className="config-empty-hint">
-              Create one preset per service. New exams of that service get their table pre-filled with its fields.
+              Create one preset per service and exam page. Opening that page on a matching exam
+              recommends this field set.
             </p>
           </div>
           <button type="button" className="config-add-btn primary" onClick={openCreate}>
@@ -140,40 +175,44 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
           </button>
         </div>
       ) : (
-        <ul className="config-dropdown-list">
+        <ul className="fpp-grid">
           {presets.map((preset) => (
-            <li key={preset.id} className="config-dropdown-row">
-              <div className="config-dropdown-row-main">
-                <div className="config-dropdown-row-meta">
-                  <span className="config-dropdown-card-title">{preset.name}</span>
-                  <span className="config-dropdown-card-count">{preset.fieldCount} fields</span>
+            <li key={preset.id} className="fpp-card">
+              <div className="fpp-card-head">
+                <span className="fpp-card-icon" aria-hidden="true"><LayoutTemplate size={18} /></span>
+                <div className="fpp-card-titles">
+                  <span className="fpp-card-title" title={preset.name}>{preset.name}</span>
+                  <span className="fpp-card-service">
+                    Service: {preset.serviceValue}
+                    <span className="fpp-card-view"> · {examViewLabel(preset.view || DEFAULT_EXAM_VIEW)}</span>
+                  </span>
                 </div>
-                <div className="config-dropdown-options-preview">
-                  <span className="config-option-chip">Service: {preset.serviceValue}</span>
-                  {preset.fields.slice(0, 6).map((f) => (
-                    <span key={f.key} className="config-option-chip">{f.label}</span>
-                  ))}
-                  {preset.fields.length > 6 && (
-                    <span className="config-option-chip">+{preset.fields.length - 6} more</span>
-                  )}
+                <span className="fpp-count-pill">{preset.fieldCount} fields</span>
+                <div className="fpp-card-actions">
+                  <button type="button" className="config-icon-btn" title="Edit preset" aria-label={`Edit ${preset.name}`} onClick={() => openEdit(preset)}>
+                    <Pencil size={14} />
+                  </button>
+                  <button type="button" className="config-icon-btn danger" title="Delete preset" aria-label={`Delete ${preset.name}`} onClick={() => handleDelete(preset)}>
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
-              <div className="config-dropdown-card-actions">
-                <button type="button" className="config-icon-btn" title="Edit preset" aria-label={`Edit ${preset.name}`} onClick={() => openEdit(preset)}>
-                  <Pencil size={13} />
-                </button>
-                <button type="button" className="config-icon-btn danger" title="Delete preset" aria-label={`Delete ${preset.name}`} onClick={() => handleDelete(preset)}>
-                  <Trash2 size={13} />
-                </button>
+              <div className="fpp-card-chips">
+                {preset.fields.slice(0, 6).map((f) => (
+                  <span key={f.key} className="fpp-chip">{f.label}</span>
+                ))}
+                {preset.fields.length > 6 && (
+                  <span className="fpp-chip fpp-chip--more">+{preset.fields.length - 6} more</span>
+                )}
               </div>
             </li>
           ))}
         </ul>
       )}
 
-      {!loading && presets.length > 0 && missingServices.length > 0 && (
+      {!loading && presets.length > 0 && missingCenterList.length > 0 && (
         <p className="fpp-muted">
-          No preset yet for: {missingServices.join(', ')}. Exams of these services start with an empty table.
+          No Center list preset yet for: {missingCenterList.join(', ')}. Those exams start that page empty.
         </p>
       )}
 
@@ -183,11 +222,13 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
         title={form?.id ? 'Edit preset' : 'New preset'}
         subtitle={
           form
-            ? `${form.fields.length} field${form.fields.length === 1 ? '' : 's'} · new exams of this service start with them`
+            ? `${form.fields.length} field${form.fields.length === 1 ? '' : 's'} · ${examViewLabel(form.view)} · ${form.serviceValue || 'service'}`
             : undefined
         }
         examSourceFields={loadExamFields()}
         enableFromExam
+        currentView={form?.view}
+        presetSources={presets.filter((p) => p.id !== form?.id)}
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
         topSlot={
@@ -202,36 +243,57 @@ export const FieldPresetsPanel = ({ createTick = 0 }) => {
                   type="text"
                   value={form.name}
                   onChange={(e) => patchForm({ name: e.target.value })}
-                  placeholder="e.g. Frisking fields"
+                  placeholder="e.g. Bio-Metric · Mock Day"
                   maxLength={120}
                   autoFocus
                 />
               </div>
 
-              <div className="config-form-group">
-                <label htmlFor={`${formId}-service`}>Service</label>
-                {serviceOptions.length > 0 ? (
+              <div className="fpp-meta-row">
+                <div className="config-form-group">
+                  <label htmlFor={`${formId}-service`}>Service</label>
+                  {serviceOptions.length > 0 ? (
+                    <select
+                      id={`${formId}-service`}
+                      value={form.serviceValue}
+                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
+                    >
+                      <option value="">Select a service…</option>
+                      {!hasCurrentInChoices && form.serviceValue && (
+                        <option value={form.serviceValue}>{form.serviceValue}</option>
+                      )}
+                      {serviceChoices.map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id={`${formId}-service`}
+                      type="text"
+                      value={form.serviceValue}
+                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
+                      placeholder="Must match the exam's Service value"
+                      maxLength={191}
+                    />
+                  )}
+                </div>
+
+                <div className="config-form-group">
+                  <label htmlFor={`${formId}-view`}>Exam page</label>
                   <select
-                    id={`${formId}-service`}
-                    value={form.serviceValue}
-                    onChange={(e) => patchForm({ serviceValue: e.target.value })}
+                    id={`${formId}-view`}
+                    value={form.view}
+                    onChange={(e) => patchForm({ view: e.target.value })}
                   >
-                    <option value="">Select a service…</option>
-                    {!hasCurrentInChoices && <option value={form.serviceValue}>{form.serviceValue}</option>}
-                    {serviceChoices.map((o) => <option key={o} value={o}>{o}</option>)}
+                    {EXAM_VIEWS.map((v) => (
+                      <option key={v.key} value={v.key}>{v.label}</option>
+                    ))}
                   </select>
-                ) : (
-                  <input
-                    id={`${formId}-service`}
-                    type="text"
-                    value={form.serviceValue}
-                    onChange={(e) => patchForm({ serviceValue: e.target.value })}
-                    placeholder="Must match the exam's Service value"
-                    maxLength={191}
-                  />
-                )}
-                <p className="fpp-muted">Each service can have one preset.</p>
+                </div>
               </div>
+              <p className="fpp-muted">
+                One preset per service and page. An exam only recommends the preset that matches both.
+              </p>
             </div>
           )
         }

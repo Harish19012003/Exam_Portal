@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../api/queryKeys';
 import { fetchConfigLists } from './configListApi';
 import { CONFIG_LISTS_CHANGED } from './configStorage';
 
@@ -8,12 +10,13 @@ import { CONFIG_LISTS_CHANGED } from './configStorage';
  * dependency so columns and inputs pick up the options.
  */
 export const useConfigLists = () => {
+  const queryClient = useQueryClient();
   const [version, setVersion] = useState(0);
   useEffect(() => {
     const onChange = () => setVersion((v) => v + 1);
     window.addEventListener(CONFIG_LISTS_CHANGED, onChange);
-    fetchConfigLists().catch(() => {});
+    queryClient.fetchQuery({ queryKey: queryKeys.configLists, queryFn: fetchConfigLists }).catch(() => {});
     return () => window.removeEventListener(CONFIG_LISTS_CHANGED, onChange);
-  }, []);
+  }, [queryClient]);
   return version;
 };

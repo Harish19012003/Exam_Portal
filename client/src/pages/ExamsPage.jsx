@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { examPath } from './exams/examUrl';
 import { IconButton } from '../components/Button';
 import { PageTitle } from '../components/PageHeading';
 import { useConfirm } from '../feedback';
@@ -569,7 +570,7 @@ export const ExamsPage = () => {
   /** Duplicate row: copy visible field values; skip auto-fill / audit / formula. */
   const handleExploreRow = useCallback(
     (row) => {
-      if (row?.id) navigate(`/exams/${encodeURIComponent(row.id)}`);
+      if (row?.id) navigate(examPath(row.id));
     },
     [navigate],
   );

@@ -1,0 +1,200 @@
+.import-fields-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.75rem, 3vw, 1.5rem);
+  background: rgba(15, 23, 42, 0.45);
+  box-sizing: border-box;
+}
+
+.import-fields-modal {
+  width: min(560px, 92vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem 1rem;
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: var(--text, #0f172a);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.22);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.import-fields-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.import-fields-title {
+  margin: 0;
+  font-size: clamp(1rem, 2.4vw, 1.15rem);
+  font-weight: 650;
+}
+
+.import-fields-sub {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted, #64748b);
+}
+
+.import-fields-sub code {
+  font-size: 0.8em;
+}
+
+.import-fields-close {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.import-fields-close:hover {
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.import-fields-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.import-fields-source select {
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+}
+
+.import-fields-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.25rem 0;
+}
+
+.import-fields-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0.25rem 0.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.import-fields-row:hover {
+  background: rgba(124, 58, 237, 0.08);
+}
+
+.import-fields-row input {
+  width: 18px;
+  height: 18px;
+  justify-self: center;
+}
+
+.import-fields-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.import-fields-key {
+  font-size: 0.72rem;
+  color: var(--muted, #64748b);
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-fields-badge {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.12);
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.import-fields-empty,
+.import-fields-skip,
+.import-fields-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted, #64748b);
+}
+
+.import-fields-error {
+  color: #b91c1c;
+}
+
+.import-fields-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.import-fields-btn {
+  min-height: 44px;
+  padding: 0.55rem 1rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.import-fields-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.import-fields-btn.secondary {
+  background: transparent;
+  border-color: var(--border, #e2e8f0);
+  color: inherit;
+}
+
+.import-fields-btn.primary {
+  background: #7c3aed;
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .import-fields-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+
+  .import-fields-key,
+  .import-fields-badge {
+    grid-column: 2;
+  }
+}

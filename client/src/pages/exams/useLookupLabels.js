@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../api/queryKeys';
 import {
   getLookupDisplayOverride,
   subscribeLookupDisplayOverrides,
@@ -40,6 +42,7 @@ const isLikelyLookupId = (value) => {
  * `rawValues` (used by duplicate / update).
  */
 export const useLookupDisplayRows = (rows, fields) => {
+  const queryClient = useQueryClient();
   const sourceFields = useMemo(() => (fields || []).filter(isTableSourceField), [fields]);
   const [resolved, setResolved] = useState({}); // { sourceKey: { id: { text, values } | null } }
   const [seedTick, setSeedTick] = useState(0);
@@ -74,7 +77,13 @@ export const useLookupDisplayRows = (rows, fields) => {
     sourceFields.forEach((f) => {
       const { ids, columns } = wanted[f.key] || { ids: [], columns: [] };
       if (ids.length === 0) return;
-      resolveLookupRows({ ...f.tableSource, columns, ids: ids.slice(0, 500) })
+      const args = { ...f.tableSource, columns, ids: ids.slice(0, 500) };
+      queryClient
+        .fetchQuery({
+          queryKey: queryKeys.lookupResolve(JSON.stringify(args)),
+          queryFn: () => resolveLookupRows(args),
+          staleTime: 60 * 1000,
+        })
         .then((found) => {
           if (cancelled) return;
           const next = {};

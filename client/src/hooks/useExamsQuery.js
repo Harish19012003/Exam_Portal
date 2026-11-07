@@ -36,7 +36,11 @@ export const useExamRows = (examId, options = {}) =>
 export const useInvalidateExams = () => {
   const queryClient = useQueryClient();
   const invalidateList = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: queryKeys.exams.list() }),
+    () => {
+      // An exam edit also changes the cached single-exam copies the explore pages read.
+      queryClient.invalidateQueries({ queryKey: queryKeys.exams.details() });
+      return queryClient.invalidateQueries({ queryKey: queryKeys.exams.list() });
+    },
     [queryClient],
   );
   const invalidateConfig = useCallback(

@@ -2887,3 +2887,32 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 .exams-search-select-option.is-grouped {
   padding-left: 18px;
 }
+
+/* Bulk modal: tabs and the row actions share one row */
+.exams-bulk-headrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 0 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+.exams-bulk-headrow .exams-bulk-tabs { border-bottom: 0; flex: 0 0 auto; }
+.exams-bulk-headrow .exams-bulk-toolbar {
+  flex: 1 1 auto;
+  align-self: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  padding: 0 clamp(12px, 2vw, 18px) 0 0;
+  background: transparent;
+  border-bottom: 0;
+}
+.exams-bulk-headrow .exams-bulk-tip { flex: 0 0 auto; display: inline-flex; align-items: center; cursor: help; }
+.exams-bulk-headrow .exams-bulk-tip-text { display: none; }
+.exams-bulk-headrow .exams-bulk-toolbar-actions { flex-wrap: nowrap; align-items: center; }
+.exams-bulk-headrow .exams-text-add-btn { white-space: nowrap; }
+@media (max-width: 768px) {
+  .exams-bulk-headrow .exams-bulk-tip { display: inline-flex; }
+  .exams-bulk-headrow .exams-bulk-toolbar { flex: 1 1 100%; justify-content: flex-start; padding: 6px clamp(12px, 2vw, 18px); border-top: 1px solid var(--border-color, #e5e7eb); }
+  .exams-bulk-headrow .exams-bulk-toolbar-actions { flex-wrap: wrap; }
+}

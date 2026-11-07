@@ -1,16 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PageTitle } from '../components/PageHeading';
-import { useSearchParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { useSearchParams, useOutletContext } from 'react-router-dom';
 import { UsersPage } from './UsersPage';
 import { MessageTemplatesTab } from './settings/MessageTemplatesTab';
 import { ConfigTab } from './settings/ConfigTab';
-import { ExamTableConfigTab } from './settings/ExamTableConfigTab';
 import { useAccess } from '../hooks/useAccess';
 import {
   Users,
   Mail,
   SlidersHorizontal,
-  Table2,
   Search,
   Check,
   ChevronDown,
@@ -45,19 +44,18 @@ const TABS_CONFIG = [
     page: 'settings',
     description: 'Create dropdown lists and other generic settings values used across the portal.',
   },
-  {
-    id: 'exam-table',
-    title: 'Exam table',
-    icon: Table2,
-    badge: 'Admin',
-    badgeType: 'admin',
-    page: 'settings',
-    description: 'Shared Exam management fields and Feature Builder config published for all portal members.',
-  },
 ];
 
 export const SettingsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { topbarSlot } = useOutletContext() || {};
+  const [isWide, setIsWide] = useState(() => window.matchMedia('(min-width: 769px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)');
+    const onChange = (e) => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Tabs follow the page rights from the user's groups (templates are open to everyone)
   const { canPage, access } = useAccess();
@@ -99,6 +97,8 @@ export const SettingsPage = () => {
   const dropdownRef = useRef(null);
   // Empty slot left of the dropdown; the active tab can render its action buttons into it.
   const [actionsSlot, setActionsSlot] = useState(null);
+  // Between the title and the actions: the active tab can render its own section tabs here.
+  const [tabsSlot, setTabsSlot] = useState(null);
   const searchInputRef = useRef(null);
 
   // Info Tooltip state
@@ -155,8 +155,98 @@ export const SettingsPage = () => {
   const currentTabConfig = availableTabs.find((t) => t.id === activeTab) || availableTabs[0];
   const CurrentIcon = currentTabConfig.icon;
 
+  const tabDropdown = (
+    <div className="settings-dropdown-wrapper" ref={dropdownRef}>
+      <button
+        type="button"
+        className={`settings-pill-trigger ${isDropdownOpen ? 'open' : ''}`}
+        onClick={() => {
+          setIsDropdownOpen(!isDropdownOpen);
+          setTimeout(() => searchInputRef.current?.focus(), 50);
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={isDropdownOpen}
+      >
+        <CurrentIcon size={17} className="pill-icon" />
+        <span className="pill-title">{currentTabConfig.title}</span>
+        <ChevronDown size={16} className={`pill-chevron ${isDropdownOpen ? 'rotated' : ''}`} />
+      </button>
+
+      {/* FLOATING DROPDOWN MENU */}
+      {isDropdownOpen && (
+        <div className="settings-dropdown-card" role="listbox">
+          {/* Search Bar at Top */}
+          <div className="settings-dropdown-search-wrap">
+            <Search size={15} className="dropdown-search-icon" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              className="settings-dropdown-search-input"
+              placeholder="Search tabs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="dropdown-search-clear"
+                onClick={() => setSearchQuery('')}
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          {/* Tabs List */}
+          <div className="settings-dropdown-list">
+            {filteredTabs.length > 0 ? (
+              filteredTabs.map((tab) => {
+                const Icon = tab.icon;
+                const isSelected = tab.id === activeTab;
+                return (
+                  <div
+                    key={tab.id}
+                    className={`settings-dropdown-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => handleTabSelect(tab.id)}
+                    role="option"
+                    aria-selected={isSelected}
+                  >
+                    <div className="dropdown-item-left">
+                      {isSelected ? (
+                        <Check size={15} className="dropdown-check-icon" />
+                      ) : (
+                        <span className="dropdown-check-placeholder"></span>
+                      )}
+                      <Icon size={16} className="dropdown-tab-icon" />
+                      <span className="dropdown-tab-title">{tab.title}</span>
+                    </div>
+
+                    {tab.badge && (
+                      <span className={`dropdown-badge ${tab.badgeType || 'slate'}`}>
+                        {tab.badge}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="dropdown-empty-state">
+                <span>No matching tabs found</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // On wide screens the dropdown lives in the top bar, left of the clock; narrow screens keep it in the page.
+  const dropdownInTopbar = Boolean(topbarSlot) && isWide;
+
   return (
     <div className={`settings-page ${activeTab === 'users' ? 'settings-page--fill' : ''}`}>
+      {dropdownInTopbar && createPortal(tabDropdown, topbarSlot)}
       {/* TOP TOOLBAR: Left Title & Right-Aligned Tab Selector Dropdown */}
       <div className="settings-top-toolbar">
         {/* Left Side: Section Title with Info Tooltip Icon */}
@@ -164,94 +254,14 @@ export const SettingsPage = () => {
           <PageTitle title={currentTabConfig.title} info={currentTabConfig.description} />
         </div>
 
+        <div className="settings-toolbar-tabs" ref={setTabsSlot} />
+
         {/* Right Side: Dropdown Tab Selector */}
-        <div className="settings-toolbar-right" ref={dropdownRef}>
+        <div className="settings-toolbar-right">
           <div className="settings-toolbar-actions" ref={setActionsSlot} />
 
-          {/* Lime Green Pill Trigger Button */}
-          <div className="settings-dropdown-wrapper">
-            <button
-              type="button"
-              className={`settings-pill-trigger ${isDropdownOpen ? 'open' : ''}`}
-              onClick={() => {
-                setIsDropdownOpen(!isDropdownOpen);
-                setTimeout(() => searchInputRef.current?.focus(), 50);
-              }}
-              aria-haspopup="listbox"
-              aria-expanded={isDropdownOpen}
-            >
-              <CurrentIcon size={17} className="pill-icon" />
-              <span className="pill-title">{currentTabConfig.title}</span>
-              <ChevronDown size={16} className={`pill-chevron ${isDropdownOpen ? 'rotated' : ''}`} />
-            </button>
-
-            {/* FLOATING DROPDOWN MENU */}
-            {isDropdownOpen && (
-              <div className="settings-dropdown-card" role="listbox">
-                {/* Search Bar at Top */}
-                <div className="settings-dropdown-search-wrap">
-                  <Search size={15} className="dropdown-search-icon" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    className="settings-dropdown-search-input"
-                    placeholder="Search tabs..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    autoFocus
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      className="dropdown-search-clear"
-                      onClick={() => setSearchQuery('')}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                {/* Tabs List */}
-                <div className="settings-dropdown-list">
-                  {filteredTabs.length > 0 ? (
-                    filteredTabs.map((tab) => {
-                      const Icon = tab.icon;
-                      const isSelected = tab.id === activeTab;
-                      return (
-                        <div
-                          key={tab.id}
-                          className={`settings-dropdown-item ${isSelected ? 'selected' : ''}`}
-                          onClick={() => handleTabSelect(tab.id)}
-                          role="option"
-                          aria-selected={isSelected}
-                        >
-                          <div className="dropdown-item-left">
-                            {isSelected ? (
-                              <Check size={15} className="dropdown-check-icon" />
-                            ) : (
-                              <span className="dropdown-check-placeholder"></span>
-                            )}
-                            <Icon size={16} className="dropdown-tab-icon" />
-                            <span className="dropdown-tab-title">{tab.title}</span>
-                          </div>
-
-                          {tab.badge && (
-                            <span className={`dropdown-badge ${tab.badgeType || 'slate'}`}>
-                              {tab.badge}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="dropdown-empty-state">
-                      <span>No matching tabs found</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Tab dropdown renders in the top bar next to the clock (see tabDropdown) */}
+          {!dropdownInTopbar && tabDropdown}
         </div>
       </div>
 
@@ -274,14 +284,7 @@ export const SettingsPage = () => {
         {/* 3. CONFIG */}
         {activeTab === 'config' && showTab('config') && (
           <div className="settings-panel-view">
-            <ConfigTab />
-          </div>
-        )}
-
-        {/* 4. EXAM TABLE (shared Feature Builder config) */}
-        {activeTab === 'exam-table' && showTab('exam-table') && (
-          <div className="settings-panel-view">
-            <ExamTableConfigTab />
+            <ConfigTab tabsSlot={tabsSlot} actionsSlot={actionsSlot} />
           </div>
         )}
       </div>

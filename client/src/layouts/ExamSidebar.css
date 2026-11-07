@@ -19,7 +19,7 @@
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  padding: 20px 0;
+  padding: 20px 0 6px;
   overflow: hidden;
   box-sizing: border-box;
   font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -113,6 +113,64 @@
   transition: background-color 0.15s, color 0.15s;
 }
 
+/* Exam sections nested under "Exams": a guide line ties them to the parent */
+.xs-nav-item.active.xs-parent-open { background: transparent; }
+.xs-nav-item.active.xs-parent-open:hover { background: var(--bg-secondary); }
+.xs-subnav {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: -2px 0 4px;
+  box-sizing: border-box;
+}
+.xs-sidebar.expanded .xs-subnav {
+  width: calc(100% - 26px);
+  margin-left: 26px;
+  padding-left: 10px;
+  border-left: 1.5px solid var(--border-color);
+}
+.xs-subnav-item {
+  min-height: 36px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-radius: 8px;
+  position: relative;
+}
+.xs-sidebar.expanded .xs-subnav-item { padding-left: 12px; padding-right: 12px; }
+.xs-sidebar.expanded .xs-subnav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -11.75px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--primary-color);
+}
+.xs-subnav-item .xs-label { font-size: 13px; }
+.xs-subnav-item .xs-nav-icon { opacity: 0.85; }
+@media (max-width: 767px) {
+  .xs-subnav {
+    width: calc(100% - 26px);
+    margin-left: 26px;
+    padding-left: 10px;
+    border-left: 1.5px solid var(--border-color);
+  }
+  .xs-subnav-item { min-height: 44px; padding-left: 12px; padding-right: 12px; }
+  .xs-subnav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -11.75px;
+    top: 10px;
+    bottom: 10px;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--primary-color);
+  }
+}
+
 .xs-nav-item .xs-label { font-size: 14px; font-weight: 500; }
 .xs-nav-item .xs-nav-icon { flex-shrink: 0; }
 .xs-nav-item:hover { background: var(--bg-secondary); color: var(--text-primary); }
@@ -169,6 +227,7 @@
 }
 
 .xs-profile:hover { background: var(--bg-secondary); }
+.xs-sidebar:not(.expanded) .xs-profile { flex-direction: column; padding-bottom: 0; }
 
 .xs-sidebar.expanded .xs-profile {
   justify-content: space-between;
@@ -209,10 +268,11 @@
 .xs-user-role { font-size: 11px; font-weight: 500; color: var(--primary-color); text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; }
 
 .xs-logout {
-  display: none;
-  width: 28px;
-  height: 28px;
-  margin-left: 8px;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  margin-left: 0;
+  margin-top: 4px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
@@ -224,7 +284,9 @@
   transition: color 0.2s;
 }
 
-.xs-sidebar.expanded .xs-logout { display: flex; }
+.xs-sidebar.expanded .xs-logout { margin-top: 0; margin-left: 8px; }
+.xs-sidebar:not(.expanded) .xs-logout { width: 28px; height: 28px; margin-top: 0; }
+.xs-sidebar:not(.expanded) .xs-footer { gap: 6px; }
 .xs-logout:hover { color: #ef4444; }
 
 .xs-menu-btn { display: none; }
@@ -255,7 +317,10 @@
   .xs-footer { padding-left: 16px; padding-right: 16px; }
   .xs-footer-actions { flex-direction: row; justify-content: flex-end; }
   .xs-profile { justify-content: space-between; background: var(--bg-secondary); border-color: var(--border-color); }
-  .xs-logout { display: flex; width: 44px; height: 44px; }
+  .xs-logout { display: flex; width: 44px; height: 44px; margin-top: 0; margin-left: 8px; }
+  .xs-sidebar:not(.expanded) .xs-profile { flex-direction: row; }
+  .xs-sidebar:not(.expanded) .xs-logout { width: 44px; height: 44px; }
+  .xs-sidebar:not(.expanded) .xs-footer { gap: 12px; }
   .xs-icon-btn { width: 44px; height: 44px; }
 
   .xs-backdrop {

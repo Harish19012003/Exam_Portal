@@ -153,5 +153,7 @@ export const toFieldDefinition = (item, order) => {
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }
+  // Imported from another exam tab — same key/value, read-only on this page.
+  if (item.sharedFromView) def.sharedFromView = item.sharedFromView;
   return def;
 };

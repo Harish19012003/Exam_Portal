@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../api/queryKeys';
 import {
   fetchTableLayout,
   saveUserTableLayout,
@@ -12,19 +14,32 @@ import {
  * Pass a stable unique `tableId` per table (e.g. exam_management_v1, vendor_master_data_v3).
  */
 export function useTableLayoutPrefs(tableId, { enabled = true } = {}) {
-  const [bundle, setBundle] = useState(null);
-  const [ready, setReady] = useState(!enabled || !tableId);
+  const queryClient = useQueryClient();
+  const cachedBundle = tableId ? queryClient.getQueryData(queryKeys.tableLayout(tableId)) : null;
+  const [bundle, setBundleState] = useState(cachedBundle || null);
+  const [ready, setReady] = useState(!enabled || !tableId || Boolean(cachedBundle));
+  const setBundle = useCallback(
+    (next) => {
+      if (tableId && next) queryClient.setQueryData(queryKeys.tableLayout(tableId), next);
+      setBundleState(next);
+    },
+    [queryClient, tableId],
+  );
   const [epoch, setEpoch] = useState(0);
   const canSaveAsDefault = useMemo(() => isSuperAdminUser(), []);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async ({ force = true } = {}) => {
     if (!enabled || !tableId) {
       setBundle(null);
       setReady(true);
       return null;
     }
     try {
-      const next = await fetchTableLayout(tableId);
+      const next = await queryClient.fetchQuery({
+        queryKey: queryKeys.tableLayout(tableId),
+        queryFn: () => fetchTableLayout(tableId),
+        staleTime: force ? 0 : undefined,
+      });
       setBundle(next);
       setReady(true);
       return next;
@@ -39,19 +54,19 @@ export function useTableLayoutPrefs(tableId, { enabled = true } = {}) {
       setReady(true);
       return null;
     }
-  }, [enabled, tableId]);
+  }, [enabled, tableId, queryClient, setBundle]);
 
   useEffect(() => {
     let cancelled = false;
-    setReady(false);
+    if (!queryClient.getQueryData(queryKeys.tableLayout(tableId))) setReady(false);
     (async () => {
-      await reload();
+      await reload({ force: false });
       if (cancelled) return;
     })();
     return () => {
       cancelled = true;
     };
-  }, [reload]);
+  }, [reload, queryClient, tableId]);
 
   const onLayoutPrefsChange = useCallback(
     async (prefs) => {
@@ -63,7 +78,7 @@ export function useTableLayoutPrefs(tableId, { enabled = true } = {}) {
         // localStorage cache still holds the layout
       }
     },
-    [tableId],
+    [tableId, setBundle],
   );
 
   const onSaveLayoutAsDefault = useCallback(
@@ -77,7 +92,7 @@ export function useTableLayoutPrefs(tableId, { enabled = true } = {}) {
         return { ok: false, message: 'Could not save default table layout' };
       }
     },
-    [tableId],
+    [tableId, setBundle],
   );
 
   const onResetLayoutToDefault = useCallback(async () => {
@@ -90,7 +105,7 @@ export function useTableLayoutPrefs(tableId, { enabled = true } = {}) {
     } catch {
       return { ok: false, message: 'Could not reset table layout' };
     }
-  }, [tableId]);
+  }, [tableId, setBundle]);
 
   return {
     tableId,

@@ -7,7 +7,6 @@ import { DashboardLayout } from '../layouts/DashboardLayout';
 
 import { DashboardHome } from '../pages/DashboardHome';
 import { ExamsPage } from '../pages/ExamsPage';
-import { ExamExplorePage } from '../pages/ExamExplorePage';
 
 import { LoginPage } from '../pages/LoginPage';
 import { ForgotPasswordPage } from '../pages/ForgotPasswordPage';
@@ -15,6 +14,8 @@ import { ResetPasswordPage } from '../pages/ResetPasswordPage';
 import { LandingPage } from '../pages/LandingPage';
 import { UsersPage } from '../pages/UsersPage';
 import { TablesPage } from '../pages/TablesPage';
+import { ExamDayPage } from '../pages/ExamDayPage';
+import { ExamSubRoute, ExamIndexRedirect } from '../pages/ExamSubPage';
 import { VendorsPage } from '../pages/VendorsPage';
 import { SeqViewPage } from '../pages/SeqViewPage';
 import { ProfilePage } from '../pages/ProfilePage';
@@ -84,8 +85,16 @@ export const router = createBrowserRouter([
             element: <PageGate page="exams"><ExamsPage /></PageGate>,
           },
           {
+            path: '/exam-day',
+            element: <PageGate page="exam_day"><ExamDayPage /></PageGate>,
+          },
+          {
             path: '/exams/:examId',
-            element: <PageGate page="exams"><ExamExplorePage /></PageGate>,
+            element: <PageGate page="exams"><ExamIndexRedirect /></PageGate>,
+          },
+          {
+            path: '/exams/:examId/:subTab',
+            element: <PageGate page="exams"><ExamSubRoute /></PageGate>,
           },
           {
             path: '/tables',

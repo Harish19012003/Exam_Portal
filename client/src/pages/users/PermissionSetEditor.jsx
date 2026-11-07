@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  CalendarDays,
   ChevronDown,
   Database,
   Eye,
@@ -54,6 +55,7 @@ const AREAS = [
 
 const OTHER_PAGES = [
   { id: 'dashboard', label: 'Dashboard', description: 'Home page with summaries.', icon: LayoutDashboard },
+  { id: 'exam_day', label: 'Exam day', description: 'Exam day operations page.', icon: CalendarDays },
   { id: 'tables', label: 'Dynamic tables', description: 'The dynamic table playground.', icon: TableProperties },
   { id: 'settings', label: 'Settings', description: 'Config lists and the exam table settings tab.', icon: Settings },
   { id: 'users', label: 'User management', description: 'See and edit users (roles stay Super Admin only).', icon: Users },
