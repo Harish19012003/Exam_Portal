@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as examController from './exam.controller.js';
+import * as examLinkController from './exam-link.controller.js';
 import { authenticate } from '../../../core/auth.middleware.js';
 import { withAccess } from '../../../core/access.js';
 
@@ -10,6 +11,10 @@ router.use(authenticate, withAccess);
 
 router.get('/', examController.listExams);
 router.post('/import', examController.importExams);
+router.post('/links', examLinkController.linkMany);
+router.get('/:id/links', examLinkController.listLinks);
+router.put('/:id/links', examLinkController.setLinks);
+router.delete('/:id/links/:linkedExamId', examLinkController.unlink);
 router.get('/:id', examController.getExam);
 router.post('/', examController.createExam);
 router.put('/:id', examController.updateExam);

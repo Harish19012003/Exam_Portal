@@ -1,5 +1,5 @@
 import { getEm } from '../../../database/connection.js';
-import { Exam, User, ExamTable, ExamRow } from '../../../database/entities/index.js';
+import { Exam, User, ExamTable, ExamRow, ExamLink } from '../../../database/entities/index.js';
 
 const SYSTEM_COLUMNS = new Set([
   'id',
@@ -229,12 +229,15 @@ export const remove = async (id) => {
   const entity = await em.findOne(Exam, { _id: examId });
   if (!entity) return false;
 
-  // Cascade: explore metadata + all rows for this exam
+  // Cascade: explore metadata + all rows + exam links for this exam
   const tables = await em.find(ExamTable, { exam_id: examId });
   for (const table of tables) {
     em.remove(table);
   }
   await em.nativeDelete(ExamRow, { exam_id: examId });
+  await em.nativeDelete(ExamLink, {
+    $or: [{ exam_a_id: examId }, { exam_b_id: examId }],
+  });
   em.remove(entity);
   await em.flush();
   return true;
