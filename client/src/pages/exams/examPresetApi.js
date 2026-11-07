@@ -14,6 +14,10 @@ export const updateExamPreset = async (id, preset) =>
   unwrap(await apiClient.patch(`/exam-presets/${id}`, preset));
 export const deleteExamPreset = async (id) => unwrap(await apiClient.delete(`/exam-presets/${id}`));
 
+/** Upsert by service + view. Body shape: `{ presets: [...] }`. */
+export const bulkSaveExamPresets = async (presets) =>
+  unwrap(await apiClient.post('/exam-presets/bulk', { presets }));
+
 const presetView = (preset) => String(preset?.view || DEFAULT_EXAM_VIEW);
 
 /** Preset for this exam's service on a specific tab. Legacy presets without view count as center-list. */

@@ -223,7 +223,6 @@ export const ImportFieldsFromTabModal = ({
             <div className="import-fields-source">
               <span>From</span>
               <SearchableSelect
-                portal
                 ariaLabel="Source preset"
                 value={String(sourcePresetId)}
                 onChange={(v) => setSourcePresetId(v)}
@@ -239,7 +238,6 @@ export const ImportFieldsFromTabModal = ({
           <div className="import-fields-source">
             <span>From</span>
             <SearchableSelect
-              portal
               ariaLabel="Source tab"
               value={sourceView}
               onChange={(v) => setSourceView(v)}
@@ -330,7 +328,6 @@ export const ImportFieldsFromTabModal = ({
                 <div className="import-fields-source">
                   <span>Separator</span>
                   <SearchableSelect
-                    portal
                     ariaLabel="Separator"
                     value={separatorChoice}
                     searchThreshold={99}

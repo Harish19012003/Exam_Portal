@@ -597,7 +597,7 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`border-b ${theme.borderRow} px-1 ${getStickyCellClassName('right', { isSelected })}`}
+          className={`border-b ${theme.borderRow} px-1 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
         >
           <div
             className={`flex items-center justify-center gap-2 transition-opacity ${

@@ -20,6 +20,36 @@
   box-shadow: -12px 0 0 0 #ffffff, -1px 0 0 0 #ffffff !important;
 }
 
+/* Actions / checkbox headers: sit above pinned cols + opaque curtain (no letter bleed). */
+.dt-grid > thead th.dt-sticky-th {
+  background-clip: border-box !important;
+}
+
+.dt-grid > thead th.dt-sticky-th--left {
+  z-index: 30 !important;
+  box-shadow: 12px 0 0 0 #ede9fe, 1px 0 0 0 #ede9fe !important;
+}
+
+.dt-grid > thead th.dt-sticky-th--right {
+  z-index: 30 !important;
+  box-shadow: -12px 0 0 0 #ede9fe, -1px 0 0 0 #ede9fe !important;
+}
+
+[data-theme='dark'] .dt-grid > thead th.dt-sticky-th--left,
+.dark .dt-grid > thead th.dt-sticky-th--left {
+  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+}
+
+[data-theme='dark'] .dt-grid > thead th.dt-sticky-th--right,
+.dark .dt-grid > thead th.dt-sticky-th--right {
+  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
+}
+
+/* Keep the actions body cell above any right-pinned data columns. */
+.dt-grid > tbody > tr > td.dt-sticky-cell--actions {
+  z-index: 13 !important;
+}
+
 .group:hover > .dt-sticky-cell--left,
 .group:hover > .dt-sticky-cell--right {
   background-color: #f3f0ff !important;
