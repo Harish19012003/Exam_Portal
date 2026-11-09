@@ -17,8 +17,12 @@ export function useProcessedRows(
   search: string,
   page: number,
   pageSize: number,
-  columnVisibility: Record<string, boolean>
+  columnVisibility: Record<string, boolean>,
+  /** When set, rows are already one server page — do not slice again. */
+  serverTotalCount?: number | null,
 ) {
+  const serverSide = typeof serverTotalCount === 'number' && serverTotalCount >= 0;
+
   const filteredRows = useMemo(() => {
     let result = applySearch(rows, search, columns, columnVisibility);
     result = applyFilters(result, filters, columns);
@@ -27,11 +31,18 @@ export function useProcessedRows(
   }, [rows, columns, filters, sort, search, columnVisibility]);
 
   const paginatedRows = useMemo(() => {
+    if (serverSide) return filteredRows;
     const start = (page - 1) * pageSize;
     return filteredRows.slice(start, start + pageSize);
-  }, [filteredRows, page, pageSize]);
+  }, [filteredRows, page, pageSize, serverSide]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const totalCount = serverSide ? serverTotalCount : rows.length;
+  // Server mode: footer counts are exam-wide; in-page search only filters the loaded page visually.
+  const filteredCount = serverSide ? serverTotalCount : filteredRows.length;
+  const totalPages = Math.max(
+    1,
+    Math.ceil((serverSide ? serverTotalCount : filteredRows.length) / pageSize) || 1,
+  );
 
   const aggregations = useMemo(() => {
     const aggs: Record<string, number> = {};
@@ -42,5 +53,5 @@ export function useProcessedRows(
     return aggs;
   }, [filteredRows, columns]);
 
-  return { filteredRows, paginatedRows, filteredCount: filteredRows.length, totalCount: rows.length, totalPages, aggregations };
+  return { filteredRows, paginatedRows, filteredCount, totalCount, totalPages, aggregations };
 }

@@ -173,6 +173,63 @@
   color: var(--dt-head-text) !important;
 }
 
+/* Per-column accent (All day / Summary). Opaque fills only — sticky needs solid paint. */
+.dt-grid > thead > tr > th[data-col-accent],
+.dt-themed[data-dt-head] .dt-grid > thead > tr > th[data-col-accent] {
+  background-color: var(--dt-col-accent-bg) !important;
+  color: var(--dt-col-accent) !important;
+}
+
+.dt-grid > thead > tr > th[data-col-accent],
+.dt-grid > thead > tr > th[data-col-accent] *,
+.dt-themed[data-dt-head] .dt-grid > thead > tr > th[data-col-accent],
+.dt-themed[data-dt-head] .dt-grid > thead > tr > th[data-col-accent] * {
+  color: var(--dt-col-accent) !important;
+}
+
+.dt-grid > tbody > tr > td[data-col-accent],
+.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover) > td[data-col-accent] {
+  background-color: var(--dt-col-accent-bg) !important;
+  color: var(--dt-col-accent) !important;
+}
+
+.dt-grid > tbody > tr > td[data-col-accent] {
+  color: var(--dt-col-accent) !important;
+}
+
+/* Pinned accent columns: opaque curtain must match accent fill (not white). */
+.dt-grid > thead > tr > th.dt-sticky-th--left[data-col-accent] {
+  z-index: 31 !important;
+  box-shadow: 12px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
+}
+
+.dt-grid > thead > tr > th.dt-sticky-th--right[data-col-accent] {
+  z-index: 31 !important;
+  box-shadow: -12px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
+}
+
+.dt-grid > tbody > tr > td.dt-sticky-cell--left[data-col-accent] {
+  z-index: 14 !important;
+  background-color: var(--dt-col-accent-bg) !important;
+  box-shadow: 12px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
+}
+
+.dt-grid > tbody > tr > td.dt-sticky-cell--right[data-col-accent] {
+  z-index: 14 !important;
+  background-color: var(--dt-col-accent-bg) !important;
+  box-shadow: -12px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
+}
+
+.group:hover > td.dt-sticky-cell--left[data-col-accent],
+.group:hover > td.dt-sticky-cell--right[data-col-accent] {
+  background-color: var(--dt-col-accent-bg) !important;
+  box-shadow: 12px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
+}
+
+.group:hover > td.dt-sticky-cell--right[data-col-accent] {
+  box-shadow: -12px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
+}
+
 .dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']),
 .dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td {
   background-color: var(--dt-stripe-bg) !important;

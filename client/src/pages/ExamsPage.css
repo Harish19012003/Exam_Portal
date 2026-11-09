@@ -1535,7 +1535,7 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   font-size: 12.5px !important;
   font-weight: 500 !important;
   color: var(--text-secondary, #6b7280) !important;
-  max-width: 280px;
+  max-width: 320px;
 }
 
 .exams-btn:disabled {
@@ -2756,6 +2756,727 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   background: #dc2626;
 }
 
+/* Bulk modal: Date shifts template */
+.exams-bulk-date-shifts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: min(420px, 55vh);
+}
+
+.exams-date-shifts-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(12px, 2vw, 18px);
+  align-items: start;
+  min-width: 0;
+}
+
+.exams-date-shifts-panel,
+.exams-date-shifts-preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: clamp(12px, 2vw, 16px);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 14px;
+  background: var(--bg-secondary, #fff);
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-panel {
+  border-left: 3px solid var(--primary-color, #5c43fa);
+}
+
+.exams-date-shifts-preview-panel {
+  background: var(--bg-primary, #f8fafc);
+}
+
+[data-theme='dark'] .exams-date-shifts-panel,
+[data-theme='dark'] .exams-date-shifts-preview-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border-color, #1f2937);
+}
+
+.exams-date-shifts-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 2px;
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.exams-date-shifts-flow span:nth-child(odd) {
+  color: var(--text-secondary, #64748b);
+}
+
+.exams-date-shifts-px {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-secondary, #fff);
+  box-sizing: border-box;
+  margin-left: auto;
+}
+
+.exams-date-shifts-px.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.exams-date-shifts-px input {
+  width: 3.25rem;
+  min-width: 3.25rem;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  text-align: right;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #111827);
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.exams-date-shifts-px input::-webkit-outer-spin-button,
+.exams-date-shifts-px input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.exams-date-shifts-px-unit {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+}
+
+[data-theme='dark'] .exams-date-shifts-px {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.exams-date-shifts-step-head .exams-date-shifts-px {
+  margin-left: 0;
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-px,
+  .exams-date-shifts-px input {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+
+.exams-date-shifts-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  background: var(--bg-primary, #f8fafc);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.exams-date-shifts-step.is-on {
+  border-color: rgba(92, 67, 250, 0.4);
+  background: rgba(92, 67, 250, 0.05);
+}
+
+.exams-date-shifts-step.is-core {
+  border-color: rgba(92, 67, 250, 0.22);
+  background: var(--bg-secondary, #fff);
+  box-shadow: inset 0 0 0 1px rgba(92, 67, 250, 0.04);
+}
+
+[data-theme='dark'] .exams-date-shifts-step {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme='dark'] .exams-date-shifts-step.is-core {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.exams-date-shifts-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.exams-date-shifts-step-head .exams-date-shifts-option-toggle {
+  flex: 0 1 auto;
+}
+
+.exams-date-shifts-step-head .exams-date-shifts-panel-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.exams-date-shifts-step-head .exams-btn {
+  margin-left: auto;
+}
+
+.exams-date-shifts-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.12);
+}
+
+.exams-date-shifts-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+}
+
+.exams-date-shifts-panel-title .exams-bulk-info-btn {
+  flex: 0 0 auto;
+}
+
+.exams-date-shifts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exams-date-shifts-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-primary, #f9fafb);
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-row .exams-date-shifts-px {
+  margin-left: 0;
+}
+
+[data-theme='dark'] .exams-date-shifts-row {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.exams-date-shifts-num {
+  flex: 0 0 22px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  text-align: center;
+}
+
+.exams-date-shifts-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text-primary, #111827);
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-input:focus {
+  outline: none;
+  border-color: var(--primary-color, #5c43fa);
+  box-shadow: 0 0 0 3px rgba(92, 67, 250, 0.12);
+}
+
+[data-theme='dark'] .exams-date-shifts-input {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #1f2937);
+}
+
+.exams-date-shifts-grip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 34px;
+  min-width: 24px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #9ca3af);
+  cursor: grab;
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-grip:hover,
+.exams-date-shifts-grip:focus-visible {
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--primary-color, #5c43fa);
+  outline: 0;
+}
+
+.exams-date-shifts-grip:active {
+  cursor: grabbing;
+}
+
+.exams-date-shifts-row.is-dragging {
+  opacity: 0.45;
+}
+
+.exams-date-shifts-row.is-drag-over {
+  box-shadow: inset 0 2px 0 var(--primary-color, #5c43fa);
+}
+
+.exams-date-shifts-sheet-table th.exams-date-shifts-all-day,
+.exams-date-shifts-sheet-table td.exams-date-shifts-all-day {
+  min-width: 96px;
+  font-weight: 700;
+  vertical-align: middle;
+  background: rgba(92, 67, 250, 0.12);
+}
+
+.exams-date-shifts-option-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  cursor: pointer;
+  color: var(--text-primary, #111827);
+}
+
+.exams-date-shifts-option-toggle input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1.5px solid var(--border-color, #cbd5e1);
+  border-radius: 5px;
+  background: var(--bg-card, #fff) center / 12px 12px no-repeat;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.exams-date-shifts-option-toggle:hover input[type='checkbox'] {
+  border-color: var(--primary-color, #5c43fa);
+}
+
+.exams-date-shifts-option-toggle input[type='checkbox']:checked {
+  border-color: var(--primary-color, #5c43fa);
+  background-color: var(--primary-color, #5c43fa);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E");
+}
+
+.exams-date-shifts-option-toggle input[type='checkbox']:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(92, 67, 250, 0.22);
+}
+
+[data-theme='dark'] .exams-date-shifts-option-toggle input[type='checkbox']:not(:checked) {
+  background-color: transparent;
+  border-color: #4b5563;
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-option-toggle input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.exams-date-shifts-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.exams-date-shifts-option-toggle strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.exams-date-shifts-option-hint {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-secondary, #6b7280);
+}
+
+.exams-date-shifts-step .exams-date-shifts-type-seg {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.exams-date-shifts-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.exams-date-shifts-color-inline {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 4px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-secondary, #fff);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+}
+
+.exams-date-shifts-color-inline.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.exams-date-shifts-color-well {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 5px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  /* Empty = checker. Filled color comes from inline background (no pattern). */
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #d1d5db 25%, transparent 25%),
+    linear-gradient(-45deg, #d1d5db 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d1d5db 75%),
+    linear-gradient(-45deg, transparent 75%, #d1d5db 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+  overflow: hidden;
+  cursor: pointer;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.exams-date-shifts-color-well.is-filled {
+  background-image: none;
+}
+
+.exams-date-shifts-color-well input[type='color'] {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.exams-date-shifts-color-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.exams-date-shifts-color-dot {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.1);
+}
+
+.exams-date-shifts-color-dot.is-active {
+  border-color: #111827;
+  box-shadow: 0 0 0 2px rgba(92, 67, 250, 0.28);
+}
+
+.exams-date-shifts-color-clear {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.exams-date-shifts-color-clear:hover {
+  color: var(--text-primary, #111827);
+  background: rgba(148, 163, 184, 0.16);
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-color-inline {
+    height: 40px;
+    padding: 0 8px;
+  }
+
+  .exams-date-shifts-color-well,
+  .exams-date-shifts-color-clear {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+  }
+
+  .exams-date-shifts-color-dot {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+  }
+}
+
+.exams-date-shifts-type-seg {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  min-width: 0;
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-type-seg.is-disabled {
+  opacity: 0.45;
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-type-seg {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .exams-date-shifts-input {
+    min-height: 44px;
+  }
+
+  .exams-date-shifts-type-btn {
+    min-height: 40px;
+  }
+}
+
+[data-theme='dark'] .exams-date-shifts-type-seg {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #1f2937);
+}
+
+.exams-date-shifts-type-btn {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.exams-date-shifts-type-btn:hover:not(:disabled) {
+  color: var(--text-primary, #111827);
+  background: rgba(100, 116, 139, 0.1);
+}
+
+.exams-date-shifts-type-btn:disabled {
+  cursor: not-allowed;
+}
+
+.exams-date-shifts-type-btn.is-active {
+  color: #fff;
+  background: var(--primary-color, #5c43fa);
+}
+
+.exams-date-shifts-custom-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-primary, #111827);
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-custom-input:focus {
+  outline: none;
+  border-color: var(--primary-color, #5c43fa);
+  box-shadow: 0 0 0 3px rgba(92, 67, 250, 0.12);
+}
+
+[data-theme='dark'] .exams-date-shifts-custom-input {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #1f2937);
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-type-btn,
+  .exams-date-shifts-custom-input {
+    min-height: 44px;
+  }
+}
+
+.exams-date-shifts-sheet {
+  min-width: 0;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  background: var(--bg-secondary, #fff);
+  overflow: hidden;
+}
+
+[data-theme='dark'] .exams-date-shifts-sheet {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.exams-date-shifts-sheet-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.exams-date-shifts-sheet-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.exams-date-shifts-sheet-table th,
+.exams-date-shifts-sheet-table td {
+  min-width: 84px;
+  max-width: 140px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-align: center;
+  border: 1px solid var(--border-color, #e5e7eb);
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.exams-date-shifts-sheet-table thead tr:first-child th {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  background: rgba(92, 67, 250, 0.1);
+}
+
+.exams-date-shifts-sheet-table thead tr:last-child th {
+  font-weight: 600;
+  color: var(--text-secondary, #4b5563);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.exams-date-shifts-sheet-table th.is-max,
+.exams-date-shifts-sheet-table td.is-max {
+  /* Same purple as shift columns — Max all day / Max Day N are part of the format. */
+  background: rgba(92, 67, 250, 0.1);
+}
+
+.exams-date-shifts-sheet-table th.is-empty,
+.exams-date-shifts-sheet-table td.is-empty {
+  color: var(--text-secondary, #9ca3af);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.exams-date-shifts-sheet-table td {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #111827);
+  background: var(--bg-secondary, #fff);
+}
+
+[data-theme='dark'] .exams-date-shifts-sheet-table td {
+  background: transparent;
+}
+
+@media (max-width: 1024px) {
+  .exams-date-shifts-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-row {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .exams-date-shifts-input {
+    flex: 1 1 calc(100% - 40px);
+    min-height: 44px;
+  }
+
+  .exams-date-shifts-grip {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .exams-date-shifts-option,
+  .exams-date-shifts-panel-head .exams-btn {
+    min-height: 44px;
+  }
+}
+
 /* Bulk modal: dependencies manager */
 .exams-bulk-deps {
   display: flex;
@@ -3108,4 +3829,362 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 }
 @media (max-width: 768px) {
   .exams-bulk-heading .exams-bulk-sub { flex: 1 1 100%; padding-left: 0; border-left: 0; white-space: normal; }
+}
+
+/* Date shifts select modal (Center list) */
+.exams-date-shifts-select-modal {
+  max-width: min(640px, 96vw);
+}
+
+.exams-date-shifts-select-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* The table modal zeroes the body's side/top padding; this dialog has no sticky table. */
+  padding: clamp(14px, 2.5vw, 20px);
+}
+
+.exams-date-shifts-summary-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+
+.exams-date-shifts-format-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  background: var(--bg-primary, #f8fafc);
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-format-head {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.exams-date-shifts-format-bar .exams-date-shifts-summary-label {
+  white-space: nowrap;
+}
+
+.exams-date-shifts-format-bar .exams-date-shifts-preview-subs {
+  flex: 1 1 0;
+  min-width: min(100%, 200px);
+  gap: 4px;
+}
+
+.exams-date-shifts-format-bar .exams-date-shifts-preview-chip {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+}
+
+.exams-date-shifts-preview-chip--toggle {
+  gap: 4px;
+  border: 1px solid rgba(92, 67, 250, 0.28);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+}
+
+.exams-date-shifts-preview-chip--toggle:hover {
+  border-color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.16);
+}
+
+.exams-date-shifts-preview-chip.is-hidden,
+.exams-date-shifts-preview-chip--toggle.is-hidden {
+  opacity: 0.55;
+  background: transparent;
+  border: 1px dashed var(--border-color, #d1d5db);
+  color: var(--text-secondary, #6b7280);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.exams-date-shifts-preview-chip--toggle.is-hidden:hover {
+  opacity: 0.9;
+  border-color: var(--primary-color, #5c43fa);
+  color: var(--text-primary, #111827);
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-preview-chip--toggle {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Compact header: title and subtitle share one row; the subtitle truncates instead of wrapping. */
+.exams-date-shifts-select-modal .exams-bulk-header {
+  align-items: center;
+  padding: 10px clamp(12px, 2vw, 16px);
+}
+
+.exams-date-shifts-select-modal .exams-bulk-heading {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.exams-date-shifts-select-modal .exams-bulk-title {
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.exams-date-shifts-select-modal .exams-bulk-heading .exams-bulk-sub {
+  flex: 1 1 auto;
+  padding-left: 10px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exams-date-shifts-select-modal .exams-drawer-close {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-select-modal .exams-bulk-heading {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+
+  .exams-date-shifts-select-modal .exams-bulk-heading .exams-bulk-sub {
+    flex: 1 1 100%;
+    padding-left: 0;
+    border-left: 0;
+    white-space: normal;
+  }
+}
+
+/* Long date lists scroll on their own instead of scrolling the whole dialog. */
+.exams-date-shifts-select-modal .exams-date-shifts-list {
+  max-height: min(280px, 36vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.exams-date-shifts-select-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.1);
+}
+
+.exams-date-shifts-select-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 28px 16px;
+  text-align: center;
+  border: 1px dashed var(--border-color, #d1d5db);
+  border-radius: 12px;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.85rem;
+}
+
+.exams-date-shifts-select-empty strong {
+  color: var(--text-primary, #111827);
+  font-size: 0.92rem;
+}
+
+.exams-date-shifts-select-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.exams-date-shifts-select-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 280px;
+}
+
+.exams-date-shifts-select-picker input[type='date'] {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  font: inherit;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-secondary, #fff);
+  color: var(--text-primary, #111827);
+  box-sizing: border-box;
+}
+
+.exams-date-shifts-select-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  background: var(--bg-primary, #f8fafc);
+}
+
+.exams-date-shifts-preview-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(260px, 34vh);
+  overflow-y: auto;
+}
+
+.exams-date-shifts-preview-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+}
+
+[data-theme='dark'] .exams-date-shifts-preview-group {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.exams-date-shifts-preview-group-title {
+  flex: 0 0 128px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+}
+
+.exams-date-shifts-preview-group-remove {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.exams-date-shifts-preview-group .exams-date-shifts-preview-subs {
+  order: 0;
+}
+
+/* Editable date title: calendar icon + text box that looks like a field on hover/focus. */
+.exams-date-shifts-preview-group-edit {
+  display: inline-flex;
+  flex: 0 0 128px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 6px;
+  color: var(--text-secondary, #6b7280);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: var(--bg-primary, #f8fafc);
+  box-sizing: border-box;
+  cursor: text;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
+}
+
+.exams-date-shifts-preview-group-edit svg {
+  flex: 0 0 auto;
+}
+
+.exams-date-shifts-preview-group-edit input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+.exams-date-shifts-preview-group-edit:hover {
+  border-color: var(--primary-color, #5c43fa);
+  color: var(--primary-color, #5c43fa);
+}
+
+.exams-date-shifts-preview-group-edit:focus-within {
+  border-color: var(--primary-color, #5c43fa);
+  color: var(--primary-color, #5c43fa);
+  box-shadow: 0 0 0 3px rgba(92, 67, 250, 0.12);
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-preview-group-edit {
+    flex: 1 1 calc(100% - 52px);
+    min-height: 44px;
+  }
+
+  .exams-date-shifts-preview-group-remove {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+.exams-date-shifts-preview-group .exams-date-shifts-preview-subs {
+  flex: 1 1 200px;
+  gap: 4px;
+}
+
+.exams-date-shifts-preview-group .exams-date-shifts-preview-chip {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+}
+
+.exams-date-shifts-preview-subs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.exams-date-shifts-preview-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--text-primary, #111827);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.exams-date-shifts-preview-chip.is-max {
+  background: rgba(92, 67, 250, 0.1);
+}
+
+@media (max-width: 480px) {
+  .exams-date-shifts-select-picker input[type='date'],
+  .exams-date-shifts-select-toolbar .exams-btn {
+    min-height: 44px;
+  }
+
+  .exams-date-shifts-select-picker {
+    max-width: none;
+  }
 }

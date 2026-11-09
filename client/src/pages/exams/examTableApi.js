@@ -36,9 +36,17 @@ export const saveExamTableConfig = async (
     }),
   );
 
-export const listExamRows = async (examId) => unwrap(await apiClient.get(`${base(examId)}/rows`));
+/** Paginated center rows. Defaults: page=1, limit=100 (server max 500). */
+export const listExamRows = async (examId, { page = 1, limit = 100 } = {}) =>
+  unwrap(
+    await apiClient.get(`${base(examId)}/rows`, {
+      params: { page, limit },
+    }),
+  );
 export const createExamRow = async (examId, values, view = DEFAULT_EXAM_VIEW) =>
   unwrap(await apiClient.post(`${base(examId)}/rows`, { values, ...withView(view) }));
+export const createExamRowsBulk = async (examId, rows, view = DEFAULT_EXAM_VIEW) =>
+  unwrap(await apiClient.post(`${base(examId)}/rows/bulk`, { rows, ...withView(view) }));
 export const updateExamRow = async (examId, rowId, values, view = DEFAULT_EXAM_VIEW) =>
   unwrap(
     await apiClient.patch(`${base(examId)}/rows/${encodeURIComponent(rowId)}`, {

@@ -8,6 +8,8 @@ export const orderedPair = (idA, idB) => {
   return a < b ? [a, b] : [b, a];
 };
 
+const pairKey = (a, b) => `${a}|${b}`;
+
 const otherId = (link, examId) =>
   String(link.exam_a_id) === String(examId) ? String(link.exam_b_id) : String(link.exam_a_id);
 
@@ -79,7 +81,7 @@ export const removeLink = async (examId, linkedExamId) => {
 };
 
 /**
- * Replace the full set of links for one exam.
+ * Replace the full set of links for one exam in one read + one flush.
  * Returns the resulting linked exam ids.
  */
 export const setLinksForExam = async (examId, linkedExamIds = [], { createdBy = null } = {}) => {
@@ -91,32 +93,74 @@ export const setLinksForExam = async (examId, linkedExamIds = [], { createdBy = 
         .filter((id) => id && id !== source),
     ),
   ].sort();
-
-  const current = await findLinkedIds(source);
-  const currentSet = new Set(current);
   const wantedSet = new Set(wanted);
 
-  for (const id of current) {
-    if (!wantedSet.has(id)) await removeLink(source, id);
-  }
-  for (const id of wanted) {
-    if (!currentSet.has(id)) await ensureLink(source, id, { createdBy });
+  const em = getEm();
+  const existingLinks = await findForExams([source]);
+  const currentSet = new Set();
+
+  for (const link of existingLinks) {
+    const other = otherId(link, source);
+    currentSet.add(other);
+    if (!wantedSet.has(other)) em.remove(link);
   }
 
-  return findLinkedIds(source);
+  const now = new Date();
+  for (const id of wanted) {
+    if (currentSet.has(id)) continue;
+    const [exam_a_id, exam_b_id] = orderedPair(source, id);
+    em.persist(
+      em.create(ExamLink, {
+        exam_a_id,
+        exam_b_id,
+        relation: 'related',
+        created_by: createdBy || null,
+        created_at: now,
+      }),
+    );
+  }
+
+  await em.flush();
+  return wanted;
 };
 
-/** Link every unique pair among examIds (undirected clique). */
+/** Link every unique pair among examIds (undirected clique) in one read + one flush. */
 export const linkMany = async (examIds = [], { createdBy = null } = {}) => {
   const ids = [...new Set((examIds || []).map(String).filter(Boolean))].sort();
-  let created = 0;
+  if (ids.length < 2) return { linked: 0, examIds: ids };
+
+  const pairs = [];
   for (let i = 0; i < ids.length; i += 1) {
     for (let j = i + 1; j < ids.length; j += 1) {
-      const before = await findLinkedIds(ids[i]);
-      await ensureLink(ids[i], ids[j], { createdBy });
-      if (!before.includes(ids[j])) created += 1;
+      pairs.push(orderedPair(ids[i], ids[j]));
     }
   }
+
+  const existing = await findForExams(ids);
+  const existingKeys = new Set(
+    existing.map((link) => pairKey(String(link.exam_a_id), String(link.exam_b_id))),
+  );
+
+  const em = getEm();
+  const now = new Date();
+  let created = 0;
+  for (const [exam_a_id, exam_b_id] of pairs) {
+    const key = pairKey(exam_a_id, exam_b_id);
+    if (existingKeys.has(key)) continue;
+    em.persist(
+      em.create(ExamLink, {
+        exam_a_id,
+        exam_b_id,
+        relation: 'related',
+        created_by: createdBy || null,
+        created_at: now,
+      }),
+    );
+    existingKeys.add(key);
+    created += 1;
+  }
+
+  if (created) await em.flush();
   return { linked: created, examIds: ids };
 };
 

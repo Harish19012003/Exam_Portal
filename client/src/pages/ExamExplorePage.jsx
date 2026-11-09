@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconButton } from '../components/Button';
 import { PageHeading } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { ArrowLeft, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Eye, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
@@ -16,6 +16,7 @@ import { getExam } from './exams/examApi';
 import {
   apiErrorMessage,
   createExamRow,
+  createExamRowsBulk,
   createExamTable,
   deleteExamRows,
   getExamTable,
@@ -30,9 +31,20 @@ import {
   mergePresetIntoFields,
 } from './exams/examPresetApi';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
+import { DateShiftsSelectModal } from './exams/DateShiftsSelectModal';
+import { DateShiftVisibilityBar } from './exams/DateShiftVisibilityBar';
 import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import { DEFAULT_EXAM_TABLE_FEATURES } from './exams/examTableConfig';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
+import {
+  applyDateShiftColumnColors,
+  applyDateShiftColumnWidths,
+  buildDateShiftVisibilityGroups,
+  hasDateShiftTemplate,
+  mergeDateShiftFields,
+  normalizeDateShiftsConfig,
+  resolveDateShiftsConfig,
+} from './exams/dateShiftsConfig';
 import { clearLookupDisplayOverrides } from '../components/DynamicTable/editors/lookupDisplayOverrides';
 import { clearLookupPicksForRow } from '../components/DynamicTable/editors/lookupPicks';
 import { restoreAssigneeIds, useAssigneeDisplayRows } from './exams/useAssigneeLabels';
@@ -103,9 +115,11 @@ const PresetActions = ({ presets, matched, busy, onLoad, onStartBlank }) => {
             <span className="exam-explore-preset-rec-count">{matched.fieldCount} fields</span>
           </div>
           <div className="exam-explore-preset-rec-body">
-            <p className="exam-explore-preset-rec-name">{matched.name || matched.serviceValue}</p>
-            <p className="exam-explore-preset-rec-meta">
-              Matches this exam’s service “{matched.serviceValue}”
+            <p
+              className="exam-explore-preset-rec-name"
+              title={`Matches this exam’s service “${matched.serviceValue}”`}
+            >
+              {matched.name || matched.serviceValue}
             </p>
           </div>
           <button
@@ -114,23 +128,20 @@ const PresetActions = ({ presets, matched, busy, onLoad, onStartBlank }) => {
             onClick={() => onLoad(matched)}
             disabled={busy}
           >
-            {busy ? 'Loading…' : `Load “${matched.serviceValue}” preset`}
+            {busy ? 'Loading…' : 'Load preset'}
           </button>
         </div>
       )}
 
       {otherPresets.length > 0 && (
         <div className="exam-explore-preset-other">
-          <p className="exam-explore-preset-other-label">
-            {matched ? 'Or choose another preset' : 'Choose a preset'}
-          </p>
           <div className="exam-explore-preset-other-row">
             <SearchableSelect
               className="exam-explore-preset-select"
               value={picked}
               options={presetOptions}
               onChange={setPicked}
-              placeholder={matched ? 'Search presets…' : 'Search or select a preset…'}
+              placeholder={matched ? 'Or choose another preset…' : 'Choose a preset…'}
               searchPlaceholder="Search by name or service…"
               searchThreshold={1}
               portal
@@ -184,14 +195,42 @@ export const ExamExplorePage = () => {
   const [fields, setFields] = useState([]);
   const [features, setFeatures] = useState(() => tableFeaturesFor(null));
   const { invalidateRows, setRows: setRowsCache } = useInvalidateExams();
-  const rowsQuery = useExamRows(examId, { enabled: Boolean(examId) && Boolean(tableInfo) });
-  const rows = rowsQuery.data || [];
-  const rowsLoading = Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
+  const [rowsPage, setRowsPage] = useState(1);
+  const [rowsPageSize, setRowsPageSize] = useState(15);
+
+  useEffect(() => {
+    setRowsPage(1);
+  }, [examId]);
+
+  // Honor Feature Builder “Rows shown per page” for server-paginated fetches.
+  useEffect(() => {
+    const next = Number(features?.defaultPageSize);
+    if (![10, 15, 25, 50, 100, 200, 500].includes(next)) return;
+    setRowsPageSize(next);
+    setRowsPage(1);
+  }, [features?.defaultPageSize]);
+  const rowsQuery = useExamRows(examId, {
+    page: rowsPage,
+    limit: rowsPageSize,
+    enabled: Boolean(examId) && Boolean(tableInfo),
+  });
+  const rows = rowsQuery.data?.rows || [];
+  const rowsTotal = Number(rowsQuery.data?.total) || 0;
+  const rowsLoading =
+    Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
+  const rowsPageKey = { page: rowsPage, limit: rowsPageSize };
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
   const [presets, setPresets] = useState([]);
   const [message, setMessage] = useState('');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [isDateShiftsOpen, setIsDateShiftsOpen] = useState(false);
+  const [isSavingDateShifts, setIsSavingDateShifts] = useState(false);
+  const [shiftVisBarOpen, setShiftVisBarOpen] = useState(false);
+  const [shiftVisApiEpoch, setShiftVisApiEpoch] = useState(0);
+  /** Bumped when date×shift template widths/colors save — forces table remount. */
+  const [dateShiftLayoutEpoch, setDateShiftLayoutEpoch] = useState(0);
+  const tableVisibilityApiRef = useRef(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [form, setForm] = useState({});
   const [sameAsFlags, setSameAsFlags] = useState({});
@@ -225,10 +264,34 @@ export const ExamExplorePage = () => {
   } = useTableLayoutPrefs(layoutTableId, { enabled: Boolean(layoutTableId) });
 
   const label = exam ? buildExamLabel(exam) : '';
+  const viewPresets = useMemo(() => presetsForView(presets, view), [presets, view]);
+  const matchedPreset = useMemo(
+    () => findPresetForService(presets, exam?.values?.service, view),
+    [presets, exam?.values?.service, view],
+  );
+  const presetWithDateShifts = useMemo(() => {
+    if (matchedPreset && hasDateShiftTemplate(matchedPreset.features?.dateShifts)) {
+      return matchedPreset;
+    }
+    return viewPresets.find((p) => hasDateShiftTemplate(p.features?.dateShifts)) || null;
+  }, [matchedPreset, viewPresets]);
+  const effectiveDateShifts = useMemo(
+    () =>
+      resolveDateShiftsConfig(
+        features?.dateShifts,
+        presetWithDateShifts?.features?.dateShifts,
+      ),
+    [features?.dateShifts, presetWithDateShifts],
+  );
   const tableColumns = useMemo(
-    () => applyColumnAccess(buildExamTableColumns(fields), 'exam_rows', access),
+    () =>
+      applyColumnAccess(
+        buildExamTableColumns(fields, { dateShifts: effectiveDateShifts }),
+        'exam_rows',
+        access,
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fields, access, configVersion],
+    [fields, effectiveDateShifts, access, configVersion],
   );
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(
@@ -325,9 +388,10 @@ export const ExamExplorePage = () => {
   }, [examId, view, applySnapshot, queryClient]);
 
   useEffect(() => {
-    setBreadcrumbTail?.(label || null);
-    return () => setBreadcrumbTail?.(null);
-  }, [label, setBreadcrumbTail]);
+    // Not cleared on unmount: switching sections remounts this page, and the layout ignores a
+    // label that belongs to a different exam.
+    if (label) setBreadcrumbTail?.(label, examId);
+  }, [label, examId, setBreadcrumbTail]);
 
   useEffect(() => {
     const syncTheme = () => {
@@ -395,11 +459,63 @@ export const ExamExplorePage = () => {
     [saveFields],
   );
 
+  /** Apply selected dates → expand/replace date-shift columns from the Bulk-add template. */
+  const handleApplyDateShifts = useCallback(
+    async (nextDateShifts) => {
+      if (!isAdmin) return;
+      const cfg = normalizeDateShiftsConfig(nextDateShifts);
+      const nextFields = mergeDateShiftFields(fieldsRef.current, cfg);
+      if (nextFields.length > 100) {
+        setMessage('Too many columns (max 100). Remove some dates or shifts and try again.');
+        return;
+      }
+      const nextFeatures = { ...featuresRef.current, dateShifts: cfg };
+      setIsSavingDateShifts(true);
+      try {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        const snap = await saveExamTableConfig(examId, {
+          fields: nextFields,
+          features: nextFeatures,
+          confirmDrops: true,
+          view,
+        });
+        serverFieldsRef.current = snap.fields;
+        setFields(snap.fields);
+        fieldsRef.current = snap.fields;
+        const savedFeatures = tableFeaturesFor(snap.features);
+        setFeatures(savedFeatures);
+        featuresRef.current = savedFeatures;
+        lastSavedFeaturesRef.current = savedFeatures;
+        setFeaturesDirty(false);
+        setIsDateShiftsOpen(false);
+        const n = (cfg.dates || []).length;
+        setMessage(
+          n
+            ? `Date shifts applied · ${n} date${n === 1 ? '' : 's'}`
+            : 'Date-shift columns cleared',
+        );
+        await loadRows();
+      } catch (err) {
+        setMessage(apiErrorMessage(err, 'Could not apply date shifts'));
+      } finally {
+        setIsSavingDateShifts(false);
+      }
+    },
+    [isAdmin, examId, view, loadRows],
+  );
+
   /* ---------- Feature Builder ---------- */
 
   const handleFeaturesChange = useCallback((draft) => {
     if (!isAdmin) return;
-    const next = tableFeaturesFor(normalizeFeaturesDraft(draft));
+    // Feature Builder drafts omit dateShifts — keep the exam's template/colors.
+    const next = tableFeaturesFor(
+      normalizeFeaturesDraft({
+        ...featuresRef.current,
+        ...(draft || {}),
+        dateShifts: draft?.dateShifts ?? featuresRef.current?.dateShifts,
+      }),
+    );
     setFeatures(next);
     featuresRef.current = next;
     if (!featuresSyncReadyRef.current) {
@@ -412,7 +528,14 @@ export const ExamExplorePage = () => {
 
   const handleSaveFeatures = useCallback(async (draft) => {
     if (!isAdmin) return;
-    const next = tableFeaturesFor(normalizeFeaturesDraft(draft || featuresRef.current));
+    const source = draft || featuresRef.current;
+    const next = tableFeaturesFor(
+      normalizeFeaturesDraft({
+        ...featuresRef.current,
+        ...(source || {}),
+        dateShifts: source?.dateShifts ?? featuresRef.current?.dateShifts,
+      }),
+    );
     setFeatures(next);
     featuresRef.current = next;
     setIsSavingFeatures(true);
@@ -461,16 +584,21 @@ export const ExamExplorePage = () => {
       if (isSharedImportedField(f) || isCombinedField(f)) delete patched[f.key];
     });
     // Apply lookup ids (and group siblings) immediately so seeded labels paint before the API returns.
-    setRowsCache(examId, (prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, values: { ...(r.values || {}), ...patched } } : r)),
+    setRowsCache(
+      examId,
+      (prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, values: { ...(r.values || {}), ...patched } } : r)),
+      rowsPageKey,
     );
     try {
       const next = await updateExamRow(examId, rowId, patched, view);
       clearLookupPicksForRow(String(rowId));
       clearLookupDisplayOverrides(String(rowId));
-      setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? next : r)));
+      setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? next : r)), rowsPageKey);
     } catch (err) {
-      if (original) setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? original : r)));
+      if (original) {
+        setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? original : r)), rowsPageKey);
+      }
       setMessage(apiErrorMessage(err, 'Could not update the center'));
     }
   };
@@ -479,7 +607,7 @@ export const ExamExplorePage = () => {
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
     try {
       await deleteExamRows(examId, ids);
-      setRowsCache(examId, (prev) => prev.filter((r) => !ids.includes(r.id)));
+      setRowsCache(examId, (prev) => prev.filter((r) => !ids.includes(r.id)), rowsPageKey);
       setMessage(ids.length > 1 ? 'Centers deleted' : 'Center deleted');
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not delete the center'));
@@ -501,7 +629,7 @@ export const ExamExplorePage = () => {
     });
     try {
       const created = await createExamRow(examId, values, view);
-      setRowsCache(examId, (prev) => [created, ...prev]);
+      setRowsCache(examId, (prev) => [created, ...prev], rowsPageKey);
       setMessage('Center duplicated');
     } catch (err) {
       setMessage(apiErrorMessage(err, 'Could not duplicate the center'));
@@ -556,7 +684,7 @@ export const ExamExplorePage = () => {
         if (isFromExamField(f) || isLinkedField(f)) delete values[f.key];
       });
       const created = await createExamRow(examId, values, view);
-      setRowsCache(examId, (prev) => [created, ...prev]);
+      setRowsCache(examId, (prev) => [created, ...prev], rowsPageKey);
       setIsCreateOpen(false);
       setMessage('Center added');
     } catch (err) {
@@ -591,8 +719,21 @@ export const ExamExplorePage = () => {
     setCreating(true);
     setTableError('');
     try {
+      const nextFeatures = {
+        ...(featuresRef.current || {}),
+        ...(preset.features && typeof preset.features === 'object' ? preset.features : {}),
+        // Keep this exam’s selected dates; refresh shift format from the preset.
+        dateShifts: resolveDateShiftsConfig(
+          {
+            ...(preset.features?.dateShifts || {}),
+            dates: featuresRef.current?.dateShifts?.dates,
+          },
+          preset.features?.dateShifts,
+        ),
+      };
       const snap = await saveExamTableConfig(examId, {
         fields: mergePresetIntoFields(preset.fields, fields),
+        features: nextFeatures,
         view,
       });
       applySnapshot(snap);
@@ -666,22 +807,22 @@ export const ExamExplorePage = () => {
 
     let done = 0;
     const failures = [];
-    let next = 0;
-    const report = () => handlers?.onProgress?.(done, prepared.length);
-    const worker = async () => {
-      while (next < prepared.length) {
-        const index = next;
-        next += 1;
+    const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
+    await importRowsInChunks(
+      prepared,
+      async (batch, { offset }) => {
         try {
-          await createExamRow(examId, prepared[index], view);
-          done += 1;
-          report();
+          const res = await createExamRowsBulk(examId, batch, view);
+          done += res?.created ?? 0;
+          (res?.failures || []).forEach((f) =>
+            failures.push(`row ${offset + f.index + 1}: ${f.message}`),
+          );
         } catch (err) {
-          failures.push(`row ${index + 1}: ${apiErrorMessage(err, 'could not be saved')}`);
+          failures.push(`rows ${offset + 1}-${offset + batch.length}: ${apiErrorMessage(err, 'could not be saved')}`);
         }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(5, prepared.length) }, worker));
+      },
+      { chunkSize: 200, onProgress: handlers?.onProgress },
+    );
     await loadRows();
 
     if (done === 0) throw new Error(`Nothing was imported. ${failures[0] || ''}`.trim());
@@ -743,9 +884,11 @@ export const ExamExplorePage = () => {
   }
 
   const hasTable = Boolean(tableInfo);
-  // Only presets for this tab; recommended = exact service + page match.
-  const viewPresets = presetsForView(presets, view);
-  const matchedPreset = findPresetForService(presets, exam?.values?.service, view);
+  const shiftVisGroups =
+    view === DEFAULT_EXAM_VIEW
+      ? buildDateShiftVisibilityGroups(effectiveDateShifts, fields)
+      : [];
+  const canToggleShiftColumns = shiftVisGroups.length > 0;
   // Plain computation (not a hook): this runs after the early returns above.
   const presetDiff = matchedPreset && fields.length ? diffPresetAgainstFields(matchedPreset.fields, fields) : null;
   const presetOutdated = Boolean(presetDiff && (presetDiff.changed.length || presetDiff.added.length || presetDiff.reordered));
@@ -760,10 +903,33 @@ export const ExamExplorePage = () => {
             <ExamSubNav examId={examId} />
             {hasTable ? (
             <>
-              {isAdmin && (
-                <IconButton label="Field builder (admin)" onClick={() => setIsBuilderOpen(true)}>
-                  <SlidersHorizontal size={16} strokeWidth={2} />
+              {view === DEFAULT_EXAM_VIEW && canToggleShiftColumns && (
+                <IconButton
+                  label={shiftVisBarOpen ? 'Hide shift filters' : 'Show / hide shift columns'}
+                  onClick={() => setShiftVisBarOpen((v) => !v)}
+                  aria-pressed={shiftVisBarOpen}
+                >
+                  <Eye size={16} strokeWidth={2} />
                 </IconButton>
+              )}
+              {isAdmin && (
+                <>
+                  {view === DEFAULT_EXAM_VIEW && (
+                    <IconButton
+                      label={
+                        hasDateShiftTemplate(effectiveDateShifts)
+                          ? 'Date shifts — select exam dates and create columns'
+                          : 'Date shifts — add shift format on the Field preset first'
+                      }
+                      onClick={() => setIsDateShiftsOpen(true)}
+                    >
+                      <CalendarDays size={16} strokeWidth={2} />
+                    </IconButton>
+                  )}
+                  <IconButton label="Field builder (admin)" onClick={() => setIsBuilderOpen(true)}>
+                    <SlidersHorizontal size={16} strokeWidth={2} />
+                  </IconButton>
+                </>
               )}
               {canCreateRow && (
                 <IconButton variant="primary" label="Add center" onClick={openCreate} disabled={createFields.length === 0}>
@@ -811,6 +977,21 @@ export const ExamExplorePage = () => {
         </div>
       )}
 
+      {view === DEFAULT_EXAM_VIEW &&
+        shiftVisBarOpen &&
+        canToggleShiftColumns &&
+        hasTable &&
+        fields.length > 0 &&
+        !rowsLoading &&
+        layoutReady && (
+        <DateShiftVisibilityBar
+          key={shiftVisApiEpoch}
+          dateShifts={effectiveDateShifts}
+          fields={fields}
+          visibilityApiRef={tableVisibilityApiRef}
+        />
+      )}
+
       <div className="exams-table-panel">
         {!hasTable ? (
           <div className="exam-explore-state">
@@ -844,9 +1025,7 @@ export const ExamExplorePage = () => {
             <p className="exam-explore-empty-title">No fields yet</p>
             <p className="exam-explore-empty-hint">
               {isAdmin
-                ? matchedPreset
-                  ? 'Load the recommended preset, or use the sliders icon → Bulk add → Import from tab.'
-                  : 'Load a preset for this page, or use the sliders icon → Bulk add → Import from tab.'
+                ? 'Load a preset to get started.'
                 : `Ask an admin to build the fields for this exam’s ${viewTitle.toLowerCase()}.`}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
@@ -864,7 +1043,7 @@ export const ExamExplorePage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exam_table_${layoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}:${f.width || ''}`).join('|')}_${JSON.stringify(effectiveDateShifts?.columnWidths || {})}_${JSON.stringify((effectiveDateShifts?.shifts || []).map((s) => `${s?.id}:${s?.width || ''}`))}`}
               tableId={layoutTableId}
               shareState={false}
               usePortalFeatures
@@ -873,6 +1052,12 @@ export const ExamExplorePage = () => {
               initialRows={tableRows}
               layoutPrefs={layoutPrefs}
               defaultDensity="compact"
+              visibilityApiRef={view === DEFAULT_EXAM_VIEW ? tableVisibilityApiRef : undefined}
+              onVisibilityApiReady={
+                view === DEFAULT_EXAM_VIEW
+                  ? () => setShiftVisApiEpoch((n) => n + 1)
+                  : undefined
+              }
               onLayoutPrefsChange={onLayoutPrefsChange}
               canSaveLayoutAsDefault={canSaveLayoutAsDefault}
               hasUserLayoutOverride={hasUserLayoutOverride}
@@ -890,6 +1075,16 @@ export const ExamExplorePage = () => {
               isSavingFeatures={isSavingFeatures}
               featuresDirty={featuresDirty}
               features={features}
+              serverPagination={{
+                totalRowCount: rowsTotal,
+                page: rowsPage,
+                pageSize: rowsPageSize,
+                onPageChange: setRowsPage,
+                onPageSizeChange: (size) => {
+                  setRowsPageSize(size);
+                  setRowsPage(1);
+                },
+              }}
             />
           </div>
         )}
@@ -947,7 +1142,53 @@ export const ExamExplorePage = () => {
         bulkWorkingContext={[label || 'Exam', viewTitle].filter(Boolean).join(' · ')}
         onClose={() => setIsBuilderOpen(false)}
         onChange={handleFieldsChange}
+        dateShifts={view === DEFAULT_EXAM_VIEW ? effectiveDateShifts : null}
+        onDateShiftsChange={
+          view === DEFAULT_EXAM_VIEW
+            ? (dateShifts) => {
+                // Preserve selected exam dates when editing the format from the builder.
+                const merged = normalizeDateShiftsConfig({
+                  ...dateShifts,
+                  dates: featuresRef.current?.dateShifts?.dates ?? dateShifts?.dates ?? [],
+                });
+                const nextFeatures = { ...featuresRef.current, dateShifts: merged };
+                // Stamp All day / Summary colors onto existing columns (and remesh if dates exist).
+                let nextFields = applyDateShiftColumnWidths(
+                  applyDateShiftColumnColors(fieldsRef.current, merged),
+                  merged,
+                );
+                if ((merged.dates || []).length && hasDateShiftTemplate(merged)) {
+                  const remeshed = mergeDateShiftFields(nextFields, merged);
+                  if (remeshed.length <= 100) nextFields = remeshed;
+                }
+                if (nextFields !== fieldsRef.current) {
+                  handleFieldsChange(nextFields);
+                }
+                setDateShiftLayoutEpoch((n) => n + 1);
+                handleSaveFeatures(nextFeatures);
+              }
+            : null
+        }
       />
+
+      {view === DEFAULT_EXAM_VIEW && isDateShiftsOpen && (
+        <DateShiftsSelectModal
+          dateShifts={effectiveDateShifts}
+          presets={viewPresets}
+          fields={fields}
+          visibilityApiRef={tableVisibilityApiRef}
+          templateSource={
+            hasDateShiftTemplate(features?.dateShifts)
+              ? 'this exam'
+              : presetWithDateShifts
+                ? `preset · ${presetWithDateShifts.name}`
+                : null
+          }
+          saving={isSavingDateShifts}
+          onClose={() => !isSavingDateShifts && setIsDateShiftsOpen(false)}
+          onSave={handleApplyDateShifts}
+        />
+      )}
     </div>
   );
 };

@@ -3,7 +3,7 @@ import { Edit2, Trash2, X, Check, PanelRightOpen, ExternalLink, Copy } from 'luc
 import { isCompositeColumn, isFieldColumn } from '../types';
 import type { ColumnConfig, ConditionalFormatRule, DataRow, RowActionsConfig, SelectionColumnConfig } from '../types';
 import type { TableThemeTokens } from '../utils/tableTheme';
-import { getStickyCellClassName, getStickyCellBackground } from '../utils/tableTheme';
+import { getStickyCellClassName, getStickyCellBackground, opaqueAccentBackground } from '../utils/tableTheme';
 import '../stickyCells.css';
 import {
   getCellFormatStyle,
@@ -396,27 +396,37 @@ function TableDataRowComponent({
         const isLeftPinned = offset?.left !== undefined;
         const isRightPinned = offset?.right !== undefined;
         const isPinned = isLeftPinned || isRightPinned;
+        const accentHex = /^#[0-9a-f]{6}$/i.test(String(col.accentColor || ''))
+          ? String(col.accentColor)
+          : '';
+        const accentBg =
+          !accentHex || formatCss.backgroundColor
+            ? undefined
+            : opaqueAccentBackground(accentHex, isDarkMode, isDarkMode ? 0.3 : 0.14) || undefined;
         const stickyStyle: React.CSSProperties = isLeftPinned
           ? {
               left: offset.left,
               backgroundColor: formatCss.backgroundColor
                 ? undefined
-                : getStickyCellBackground(isDarkMode, { isSelected }),
+                : accentBg || getStickyCellBackground(isDarkMode, { isSelected }),
             }
           : isRightPinned
             ? {
                 right: offset.right,
                 backgroundColor: formatCss.backgroundColor
                   ? undefined
-                  : getStickyCellBackground(isDarkMode, { isSelected }),
+                  : accentBg || getStickyCellBackground(isDarkMode, { isSelected }),
               }
-            : {};
+            : accentBg
+              ? { backgroundColor: accentBg }
+              : {};
 
         return (
           <td
             id={`cell-${row.rowId}-${col.key}`}
             key={col.key}
             data-col-key={col.key}
+            data-col-accent={accentHex ? '' : undefined}
             style={
               {
                 width: actualW,
@@ -426,6 +436,12 @@ function TableDataRowComponent({
                 paddingRight: isHiding ? 0 : undefined,
                 opacity: isHiding ? 0 : 1,
                 '--target-width': `${colWidth}px`,
+                ...(accentHex
+                  ? ({
+                      '--dt-col-accent': accentHex,
+                      '--dt-col-accent-bg': accentBg,
+                    } as React.CSSProperties)
+                  : null),
                 ...stickyStyle,
                 ...formatCss,
               } as React.CSSProperties
@@ -453,7 +469,7 @@ function TableDataRowComponent({
               style={{
                 height: rowHeight - 1,
                 minHeight: rowHeight - 1,
-                color: formatCss.color,
+                color: formatCss.color || accentHex || undefined,
                 fontWeight: formatCss.fontWeight,
               }}
               onClick={() => {

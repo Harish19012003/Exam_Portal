@@ -256,6 +256,10 @@ export function useTableFeatureConfig({
     setCustomFeatures((prev) => ({ ...prev, defaultPageSize: rows }));
   }, []);
 
+  const setHeaderTextWrap = useCallback((mode: import('../types').HeaderTextWrap) => {
+    setCustomFeatures((prev) => ({ ...prev, headerTextWrap: mode }));
+  }, []);
+
   const patchGridLines = useCallback((patch: GridLinesConfig) => {
     setCustomFeatures((prev) => {
       const cur = resolveGridLines(prev.gridLines);
@@ -413,6 +417,7 @@ export function useTableFeatureConfig({
     patchGridLines,
     setRowHeight,
     setDefaultPageSize,
+    setHeaderTextWrap,
     patchTableColors,
     updateSummaryChips,
     resolvedFeatures,

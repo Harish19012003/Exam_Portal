@@ -72,3 +72,22 @@ export function getStickyCellClassName(
     .filter(Boolean)
     .join(' ');
 }
+
+/**
+ * Opaque tint of an accent hex (never rgba). Sticky/pinned columns need
+ * solid fills or scrolled text shows through.
+ */
+export function opaqueAccentBackground(hex: string, isDarkMode: boolean, strength = 0.16): string | null {
+  const raw = String(hex || '').trim();
+  if (!/^#[0-9a-f]{6}$/i.test(raw)) return null;
+  const n = Number.parseInt(raw.slice(1), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const t = Math.min(1, Math.max(0, strength));
+  const baseR = isDarkMode ? 17 : 255;
+  const baseG = isDarkMode ? 24 : 255;
+  const baseB = isDarkMode ? 39 : 255;
+  const mix = (c: number, base: number) => Math.round(c * t + base * (1 - t));
+  return `rgb(${mix(r, baseR)}, ${mix(g, baseG)}, ${mix(b, baseB)})`;
+}

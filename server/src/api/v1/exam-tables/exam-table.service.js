@@ -264,18 +264,18 @@ const assertUniqueCenterCode = async (tableId, allFields, values, excludeRowId =
   const code = values[CENTER_CODE_KEY];
   if (isEmpty(code)) return;
   const wanted = String(code).trim().toLowerCase();
-  const { rows } = await repo.listRows(tableId, allFields);
-  const clash = rows.find((row) => {
+  const existing = await repo.listCenterCodes(tableId, CENTER_CODE_KEY);
+  const clash = existing.find((row) => {
     if (excludeRowId && String(row.id) === String(excludeRowId)) return false;
-    return String(row.values?.[CENTER_CODE_KEY] ?? '').trim().toLowerCase() === wanted;
+    return String(row.code ?? '').trim().toLowerCase() === wanted;
   });
   if (clash) throw validationError(`Center code "${code}" is already used on this exam`);
 };
 
-export const listRows = (examId) =>
+export const listRows = (examId, options = {}) =>
   withMeta(async () => {
     const { table, fields } = await tableAndAllFields(examId);
-    return repo.listRows(table.id, fields);
+    return repo.listRows(table.id, fields, options);
   });
 
 export const getRow = (examId, rowId) =>
@@ -306,6 +306,46 @@ export const createRow = (examId, body, userId) =>
     return repo.findRow(table.id, allFields, id);
   });
 
+/** Bulk create: validates every row, loads existing center codes once, inserts valid rows in one flush. */
+export const createRows = (examId, body, userId) =>
+  withMeta(async () => {
+    const viewKey = normalizeView(body?.view);
+    const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
+    if (!fields.length) throw validationError('Add at least one column before adding rows');
+    const writable = writableViewFields(fields);
+    if (!writable.length) throw validationError('Add at least one editable column before adding rows');
+    const input = Array.isArray(body?.rows) ? body.rows : [];
+
+    const checkCode = allFields.some((f) => f.key === CENTER_CODE_KEY);
+    const seen = new Set();
+    if (checkCode) {
+      const existing = await repo.listCenterCodes(table.id, CENTER_CODE_KEY);
+      existing.forEach((r) => {
+        const c = String(r.code ?? '').trim().toLowerCase();
+        if (c) seen.add(c);
+      });
+    }
+
+    const valid = [];
+    const failures = [];
+    input.forEach((raw, index) => {
+      try {
+        const cleaned = cleanRowValues(writable, raw);
+        if (checkCode && Object.prototype.hasOwnProperty.call(cleaned, CENTER_CODE_KEY) && !isEmpty(cleaned[CENTER_CODE_KEY])) {
+          const code = String(cleaned[CENTER_CODE_KEY]).trim().toLowerCase();
+          if (seen.has(code)) throw validationError(`Center code "${cleaned[CENTER_CODE_KEY]}" is already used on this exam`);
+          seen.add(code);
+        }
+        valid.push(cleaned);
+      } catch (err) {
+        failures.push({ index, message: err?.message || 'Invalid row' });
+      }
+    });
+
+    const created = valid.length ? await repo.insertRows(table.id, writable, valid, userId) : 0;
+    return { created, failures };
+  });
+
 export const updateRow = (examId, rowId, body, userId) =>
   withMeta(async () => {
     const viewKey = normalizeView(body?.view);
@@ -317,6 +357,12 @@ export const updateRow = (examId, rowId, body, userId) =>
       throw notFound('Row not found');
     }
     return repo.findRow(table.id, allFields, rowId);
+  });
+
+export const getRowsByIds = (examId, rowIds) =>
+  withMeta(async () => {
+    const { table, fields } = await tableAndAllFields(examId);
+    return repo.findRowsByIds(table.id, fields, rowIds);
   });
 
 export const deleteRows = (examId, rowIds) =>

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { ColumnConfig, RowActionsConfig, SelectionColumnConfig } from '../types';
+import { resolveActionsColumnWidthPx, type ColumnConfig, type RowActionsConfig, type SelectionColumnConfig } from '../types';
 
 interface UseVisibleColumnsOptions {
   columns: ColumnConfig[];
@@ -62,13 +62,12 @@ export function useVisibleColumns({
     : Math.max(32, columnWidths['__checkbox'] ?? selectionColumn?.width ?? defaultCheckboxW);
 
 
-  const activeBtnCount = rowActions?.customButtons?.filter(b => b.enabled).length ?? 3;
-  const defaultActionsW = Math.max(110, activeBtnCount * 32 + 16);
+  const presetActionsW = resolveActionsColumnWidthPx(rowActions);
 
   const ACTIONS_WIDTH =
     enableActionsColumn === false
       ? 0
-      : Math.max(40, columnWidths['__actions'] ?? rowActions?.width ?? defaultActionsW);
+      : Math.max(40, columnWidths['__actions'] ?? presetActionsW);
 
   const ADD_COLUMN_WIDTH = enableAddColumn ? 44 : 0;
 
