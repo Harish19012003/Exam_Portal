@@ -39,7 +39,6 @@ import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdap
 import {
   dedupeRowsByUniqueKeys,
   normalizeUniqueRowKeys,
-  uniqueRowKeysLabel,
 } from './exams/examUniqueRows';
 import {
   applyDateShiftColumnColors,
@@ -341,10 +340,6 @@ export const ExamExplorePage = () => {
     return uniqueAllRows.slice(start, start + rowsPageSize);
   }, [uniqueImportActive, tableRows, uniqueAllRows, rowsPage, rowsPageSize]);
   const displayTotal = uniqueImportActive ? uniqueAllRows.length : rowsTotal;
-  const uniqueImportLabel = useMemo(
-    () => (uniqueImportActive ? uniqueRowKeysLabel(fields, uniqueRowKeys) : ''),
-    [uniqueImportActive, fields, uniqueRowKeys],
-  );
 
   const applySnapshot = useCallback((snap) => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
@@ -1075,14 +1070,6 @@ export const ExamExplorePage = () => {
           <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, fields.length || 5)} />
         ) : (
           <div className="exams-dynamic-table-wrap">
-            {uniqueImportActive && uniqueImportLabel ? (
-              <p className="exam-explore-unique-banner" role="status">
-                Unique import · one row per <strong>{uniqueImportLabel}</strong>
-                {rowsTotal > uniqueAllRows.length
-                  ? ` · ${uniqueAllRows.length} of ${rowsTotal} centers`
-                  : null}
-              </p>
-            ) : null}
             <DynamicTable
               key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}:${f.width || ''}`).join('|')}_${JSON.stringify(effectiveDateShifts?.columnWidths || {})}_${JSON.stringify((effectiveDateShifts?.shifts || []).map((s) => `${s?.id}:${s?.width || ''}`))}`}
               tableId={layoutTableId}

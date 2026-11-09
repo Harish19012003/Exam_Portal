@@ -231,3 +231,29 @@
 .user-group-info .page-info-popover {
   width: min(320px, calc(92vw - 48px));
 }
+
+/* Group switcher dropdown */
+.user-group-tabs { flex-wrap: wrap; overflow: visible; }
+.user-group-select { width: clamp(200px, 22vw, 260px); min-width: 0; max-width: 100%; }
+.user-group-select .exams-form-group { margin: 0; }
+.user-group-select .exams-search-select-trigger {
+  min-height: 40px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 12px;
+}
+@media (max-width: 768px) {
+  .user-group-select { width: 100%; }
+}
+@media (max-width: 480px) {
+  .user-group-select .exams-search-select-trigger { min-height: 44px; }
+}
+
+/* Inside the page header actions: sits left of the icon buttons, no wrapping. */
+.users-header-actions .user-group-tabs { flex-wrap: nowrap; padding: 0; margin-right: 4px; }
+.users-header-actions .user-group-select { width: clamp(170px, 16vw, 220px); }
+@media (max-width: 768px) {
+  .users-header-actions { flex-wrap: wrap; }
+  .users-header-actions .user-group-tabs { flex-wrap: wrap; width: 100%; margin: 0; }
+  .users-header-actions .user-group-select { width: 100%; }
+}

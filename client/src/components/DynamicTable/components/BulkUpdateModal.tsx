@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Layers, Search, Type, Hash, ToggleLeft, List, Check } from 'lucide-react';
 import type { ColumnConfig, FieldColumn } from '../types';
 import { DYNAMIC_DROPDOWN_PORTAL_CLASS, DynamicDropdown } from '../../DynamicData/fields';
+import { BulkLookupPicker } from './BulkLookupPicker';
 
 interface BulkUpdateModalProps {
   columns: ColumnConfig[];
@@ -51,6 +52,8 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
           let defaultVal: unknown = '';
           if (col) {
             if (col.dataType === 'boolean') defaultVal = false;
+            // Group / table-source fields load options live — leave blank until the user picks.
+            else if (col.lookup) defaultVal = '';
             else if (col.dataType === 'status' || col.dataType === 'dropdown') defaultVal = col.options?.[0] || '';
           }
           return { ...u, [colKey]: defaultVal };
@@ -66,6 +69,16 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
     setUpdates(prev => ({ ...prev, [colKey]: val }));
   };
 
+  /** Group select pick: write primary + sibling columns and enable them for apply. */
+  const handleLookupPatch = (patch: Record<string, unknown>) => {
+    setUpdates((prev) => ({ ...prev, ...patch }));
+    setEnabledFields((prev) => {
+      const next = new Set(prev);
+      Object.keys(patch).forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (enabledFields.size === 0) return;
@@ -78,13 +91,15 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
     onApply(finalUpdates);
   };
 
-  const getDataTypeIcon = (type: string) => {
-    switch (type) {
+  const getDataTypeIcon = (col: FieldColumn) => {
+    if (col.lookup) return <List className="w-3.5 h-3.5" />;
+    switch (col.dataType) {
       case 'number':
       case 'currency': return <Hash className="w-3.5 h-3.5" />;
       case 'boolean': return <ToggleLeft className="w-3.5 h-3.5" />;
       case 'dropdown':
-      case 'status': return <List className="w-3.5 h-3.5" />;
+      case 'status':
+      case 'multiselect': return <List className="w-3.5 h-3.5" />;
       default: return <Type className="w-3.5 h-3.5" />;
     }
   };
@@ -95,6 +110,18 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
       ${isDarkMode 
         ? 'bg-gray-900 border-gray-700 text-gray-100 focus:border-[#13C296]' 
         : 'bg-white border-gray-200 text-gray-900 focus:border-[#13C296]'}`;
+
+    // Group / table-source fields (Vendor Code, Name, Phone, …) — live search, not static options.
+    if (col.lookup) {
+      return (
+        <BulkLookupPicker
+          column={col}
+          value={String(value ?? '')}
+          isDarkMode={isDarkMode}
+          onPick={handleLookupPatch}
+        />
+      );
+    }
 
     switch (col.dataType) {
       case 'boolean':
@@ -235,7 +262,7 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
                         </div>
                         
                         <div className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors ${isEnabled ? (isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700') : (isDarkMode ? 'bg-gray-800 text-gray-500' : 'bg-gray-100 text-gray-400 group-hover:text-gray-600 group-hover:bg-gray-200')}`}>
-                          {getDataTypeIcon(col.dataType)}
+                          {getDataTypeIcon(col)}
                         </div>
 
                         <span className={`text-[13px] font-bold tracking-wide flex-1 transition-colors ${isEnabled ? (isDarkMode ? 'text-gray-200' : 'text-gray-900') : (isDarkMode ? 'text-gray-400 group-hover:text-gray-300' : 'text-gray-600 group-hover:text-gray-900')}`}>

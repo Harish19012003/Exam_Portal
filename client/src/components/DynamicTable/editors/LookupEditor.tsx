@@ -18,6 +18,13 @@ interface Item {
 const PAGE = 20;
 const textOf = (it: Item) => (it.detail ? `${it.label} · ${it.detail}` : it.label);
 
+/** Only one lookup menu may be open — multi-row edit mounts many editors at once. */
+let activeLookupEditorId: string | null = null;
+const lookupActiveListeners = new Set<() => void>();
+const notifyLookupActiveChange = () => {
+  lookupActiveListeners.forEach((fn) => fn());
+};
+
 const isAbort = (err: unknown) =>
   Boolean(
     err &&
@@ -47,6 +54,8 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
   const hasMoreRef = useRef(false);
   const loadingRef = useRef(false);
   const loadingMoreRef = useRef(false);
+  const editorIdRef = useRef(`lookup-${row.rowId}-${column.key}`);
+  editorIdRef.current = `lookup-${row.rowId}-${column.key}`;
 
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<Item[]>([]);
@@ -57,6 +66,32 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
   // mounts an editor, so each one waits until it is focused.
   const [active, setActive] = useState(false);
   const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
+
+  const openMenu = useCallback(() => {
+    activeLookupEditorId = editorIdRef.current;
+    notifyLookupActiveChange();
+    setActive(true);
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    if (activeLookupEditorId === editorIdRef.current) {
+      activeLookupEditorId = null;
+      notifyLookupActiveChange();
+    }
+    setActive(false);
+  }, []);
+
+  // Another lookup opened (e.g. autoFocus race across multi-edit rows) — close this one.
+  useEffect(() => {
+    const sync = () => {
+      if (activeLookupEditorId !== editorIdRef.current) setActive(false);
+    };
+    lookupActiveListeners.add(sync);
+    return () => {
+      lookupActiveListeners.delete(sync);
+      if (activeLookupEditorId === editorIdRef.current) activeLookupEditorId = null;
+    };
+  }, []);
 
   itemsRef.current = items;
   hasMoreRef.current = hasMore;
@@ -183,11 +218,11 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
       const t = e.target as Node;
       if (inputRef.current?.contains(t) || menuRef.current?.contains(t)) return;
       // Just close the list: cancelling here would also end editing of the other cells in the row.
-      setActive(false);
+      closeMenu();
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [active]);
+  }, [active, closeMenu]);
 
   const pick = (item: Item) => {
     const id = item.id;
@@ -226,7 +261,7 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
     });
     setLookupDisplayOverrides(rowId, displayPatch);
     setQuery(chosen);
-    setActive(false);
+    closeMenu();
 
     flushSync(() => {
       if (onSaveBatch && Object.keys(patch).length > 1) onSaveBatch(patch);
@@ -249,9 +284,9 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
         type="search"
         value={query}
         placeholder={String(value ?? '') || 'Search…'}
-        onFocus={() => setActive(true)}
+        onFocus={openMenu}
         onChange={(e) => {
-          setActive(true);
+          openMenu();
           // New search text invalidates "already loaded" so the debounced effect may fetch.
           if (e.target.value.trim() !== loadedQueryRef.current) {
             loadedQueryRef.current = null;
@@ -261,6 +296,7 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.stopPropagation();
+            closeMenu();
             onCancel();
           }
         }}
@@ -308,7 +344,7 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
                 type="button"
                 onClick={() => {
                   setLookupPick(String(row.rowId), column.key, '');
-                  setActive(false);
+                  closeMenu();
                   onSave('');
                 }}
                 style={optionStyle(muted)}
