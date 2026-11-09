@@ -4,6 +4,7 @@ import { InfoTip } from '../../components/PageHeading';
 import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
 import { CENTER_CODE_KEY, DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
 import { buildCombinedField, COMBINE_SEPARATORS, DEFAULT_COMBINE_SEPARATOR, separatorForLabel } from './examCombinedFields';
+import { normalizeUniqueRowKeys, uniqueRowKeysLabel } from './examUniqueRows';
 import { getExamTable } from './examTableApi';
 import { SearchableSelect } from './SearchableSelect';
 import './ImportFieldsFromTabModal.css';
@@ -41,9 +42,11 @@ export const ImportFieldsFromTabModal = ({
   const [sourceView, setSourceView] = useState(tabOptions[0]?.key || DEFAULT_EXAM_VIEW);
   const [sourcePresetId, setSourcePresetId] = useState(presetSources?.[0]?.id || '');
   const [sourceFields, setSourceFields] = useState([]);
-  /** Ordered selection (tick order = join order by default). */
+  /** Ordered selection (tick order = join / unique-key order by default). */
   const [selectedOrder, setSelectedOrder] = useState([]);
   const [combineMode, setCombineMode] = useState(false);
+  /** Selected fields also define a composite unique row key (e.g. State + City + Vendor). */
+  const [uniqueMode, setUniqueMode] = useState(false);
   const [combineLabel, setCombineLabel] = useState('');
   const [combineSeparator, setCombineSeparator] = useState(DEFAULT_COMBINE_SEPARATOR);
   const [separatorChoice, setSeparatorChoice] = useState('comma'); // a COMBINE_SEPARATORS id, or 'custom'
@@ -57,6 +60,7 @@ export const ImportFieldsFromTabModal = ({
     setSourcePresetId(presetSourcesRef.current?.[0]?.id || '');
     setSelectedOrder([]);
     setCombineMode(false);
+    setUniqueMode(false);
     setCombineLabel('');
     setCombineSeparator(DEFAULT_COMBINE_SEPARATOR);
     setSeparatorChoice('comma');
@@ -109,6 +113,10 @@ export const ImportFieldsFromTabModal = ({
   }, [selectedOrder, combineMode]);
 
   useEffect(() => {
+    if (selectedOrder.length < 1 && uniqueMode) setUniqueMode(false);
+  }, [selectedOrder, uniqueMode]);
+
+  useEffect(() => {
     if (!combineMode || combineLabel.trim()) return;
     const labels = selectedOrder
       .map((key) => sourceFields.find((f) => f.key === key)?.label || key)
@@ -137,8 +145,8 @@ export const ImportFieldsFromTabModal = ({
     });
   };
 
-  // Normal import skips keys already on this page; combine can use any source field.
-  const baseFields = combineMode
+  // Normal import skips keys already on this page; combine / unique can use any source field.
+  const baseFields = combineMode || uniqueMode
     ? sourceFields
     : sourceFields.filter((f) => !currentKeys.has(f.key));
   const q = query.trim().toLowerCase();
@@ -149,6 +157,7 @@ export const ImportFieldsFromTabModal = ({
   const sourceHomeView = presetMode
     ? (presetSources || []).find((p) => String(p.id) === String(sourcePresetId))?.view || DEFAULT_EXAM_VIEW
     : sourceView;
+  const uniqueKeysPreview = uniqueRowKeysLabel(sourceFields, selectedOrder);
 
   const handleImport = () => {
     if (!selectedOrder.length) {
@@ -178,14 +187,23 @@ export const ImportFieldsFromTabModal = ({
       return;
     }
 
+    const uniqueRowKeys = uniqueMode ? normalizeUniqueRowKeys(selectedOrder) : [];
     const picked = selectedOrder
       .map((key) => sourceFields.find((f) => f.key === key))
       .filter((f) => f && !currentKeys.has(f.key));
-    if (!picked.length) {
+    if (!picked.length && !uniqueRowKeys.length) {
       setError('Select at least one field that is not already on this page.');
       return;
     }
-    onImport?.({ fields: picked, sourceView: sourceHomeView });
+    if (uniqueMode && uniqueRowKeys.length < 1) {
+      setError('Pick at least one field for the unique key.');
+      return;
+    }
+    onImport?.({
+      fields: picked,
+      sourceView: sourceHomeView,
+      ...(uniqueRowKeys.length ? { uniqueRowKeys } : {}),
+    });
     onClose?.();
   };
 
@@ -203,8 +221,9 @@ export const ImportFieldsFromTabModal = ({
             <h2 className="import-fields-title">
               {presetMode ? 'Import fields from another preset' : 'Import fields from another tab'}
               <InfoTip title="About importing" label="About importing fields">
-                Imported columns are shared: one value, edited on the home page. Tick 2 or more fields to join
-                them into one read-only column.
+                Imported columns are shared: one value, edited on the home page. Tick fields and turn on Unique
+                import to keep only one row per combination (e.g. State · City · Vendor). Or tick 2+ fields to
+                combine them into one read-only column.
               </InfoTip>
             </h2>
           </div>
@@ -280,7 +299,7 @@ export const ImportFieldsFromTabModal = ({
             </p>
           ) : (
             listFields.map((f) => (
-              <label key={f.key} className="import-fields-row">
+              <label key={f.key} className={`import-fields-row${uniqueMode && selected.has(f.key) ? ' is-unique' : ''}`}>
                 <input
                   type="checkbox"
                   checked={selected.has(f.key)}
@@ -289,13 +308,16 @@ export const ImportFieldsFromTabModal = ({
                 <span className="import-fields-label">{f.label || f.key}</span>
                 <code className="import-fields-key">{f.key}</code>
                 {f.key === CENTER_CODE_KEY && <span className="import-fields-badge">shared key</span>}
-                {combineMode && selected.has(f.key) && (
+                {uniqueMode && selected.has(f.key) && (
+                  <span className="import-fields-badge unique">unique key</span>
+                )}
+                {(combineMode || uniqueMode) && selected.has(f.key) && (
                   <span className="import-fields-ord">#{selectedOrder.indexOf(f.key) + 1}</span>
                 )}
               </label>
             ))
           )}
-          {!combineMode && alreadyHere.length > 0 && listFields.length > 0 && (
+          {!combineMode && !uniqueMode && alreadyHere.length > 0 && listFields.length > 0 && (
             <details className="import-fields-skipped">
               <summary>{alreadyHere.length} already on this page</summary>
               <p className="import-fields-skip">{alreadyHere.map((f) => f.label || f.key).join(', ')}</p>
@@ -303,16 +325,85 @@ export const ImportFieldsFromTabModal = ({
           )}
         </div>
 
-        {selectedOrder.length >= 2 && (
+        {selectedOrder.length >= 1 && (
           <div className="import-fields-combine">
             <label className="import-fields-combine-toggle">
               <input
                 type="checkbox"
-                checked={combineMode}
-                onChange={(e) => setCombineMode(e.target.checked)}
+                checked={uniqueMode}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setUniqueMode(on);
+                  if (on) setCombineMode(false);
+                }}
               />
-              <span>Combine into one column</span>
+              <span>Unique import</span>
             </label>
+            {uniqueMode && (
+              <>
+                <p className="import-fields-skip">
+                  Only one row per combination of the selected fields will show on this page
+                  {uniqueKeysPreview ? (
+                    <>
+                      {' '}
+                      (<strong>{uniqueKeysPreview}</strong>)
+                    </>
+                  ) : null}
+                  . The first matching center is kept; duplicates stay on{' '}
+                  {examViewLabel(sourceHomeView)}.
+                </p>
+                {selectedOrder.length >= 2 && (
+                  <div className="import-fields-parts" role="list" aria-label="Unique key order">
+                    <span className="import-fields-parts-label">Unique key order</span>
+                    {selectedOrder.map((key, index) => {
+                      const field = sourceFields.find((f) => f.key === key);
+                      return (
+                        <div key={key} className="import-fields-part" role="listitem">
+                          <span className="import-fields-part-label">
+                            {field?.label || key}
+                            <code>{key}</code>
+                          </span>
+                          <span className="import-fields-part-actions">
+                            <button
+                              type="button"
+                              className="import-fields-part-btn"
+                              disabled={index === 0}
+                              onClick={() => movePart(key, -1)}
+                              aria-label={`Move ${field?.label || key} up`}
+                            >
+                              <ArrowUp size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="import-fields-part-btn"
+                              disabled={index === selectedOrder.length - 1}
+                              onClick={() => movePart(key, 1)}
+                              aria-label={`Move ${field?.label || key} down`}
+                            >
+                              <ArrowDown size={14} />
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+            {selectedOrder.length >= 2 && (
+              <label className="import-fields-combine-toggle">
+                <input
+                  type="checkbox"
+                  checked={combineMode}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setCombineMode(on);
+                    if (on) setUniqueMode(false);
+                  }}
+                />
+                <span>Combine into one column</span>
+              </label>
+            )}
             {combineMode && (
               <>
                 <label className="import-fields-source">
@@ -400,7 +491,11 @@ export const ImportFieldsFromTabModal = ({
 
         <footer className="import-fields-footer">
           <span className="import-fields-count" aria-live="polite">
-            {selectedOrder.length ? `${selectedOrder.length} selected` : 'None selected'}
+            {selectedOrder.length
+              ? uniqueMode
+                ? `${selectedOrder.length} unique key field${selectedOrder.length === 1 ? '' : 's'}`
+                : `${selectedOrder.length} selected`
+              : 'None selected'}
           </span>
           <button type="button" className="import-fields-btn secondary" onClick={onClose}>
             Cancel
@@ -413,7 +508,9 @@ export const ImportFieldsFromTabModal = ({
           >
             {combineMode
               ? 'Add combined column'
-              : `Import ${selectedOrder.length || ''} field${selectedOrder.length === 1 ? '' : 's'}`}
+              : uniqueMode
+                ? 'Import unique fields'
+                : `Import ${selectedOrder.length || ''} field${selectedOrder.length === 1 ? '' : 's'}`}
           </button>
         </footer>
       </div>

@@ -481,7 +481,16 @@ export const FieldPresetsPanel = ({
         title={form?.id ? 'Edit preset' : 'New preset'}
         subtitle={
           form
-            ? `${form.fields.length} field${form.fields.length === 1 ? '' : 's'} · ${examViewLabel(form.view)} · ${form.serviceValue || 'service'}`
+            ? [
+                `${form.fields.length} field${form.fields.length === 1 ? '' : 's'}`,
+                examViewLabel(form.view),
+                form.serviceValue || 'service',
+                Array.isArray(form.features?.uniqueRowKeys) && form.features.uniqueRowKeys.length
+                  ? `unique · ${form.features.uniqueRowKeys.join(' · ')}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')
             : undefined
         }
         examSourceFields={loadExamFields()}
@@ -502,22 +511,16 @@ export const FieldPresetsPanel = ({
         }
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
-        dateShifts={
-          String(form?.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW
-            ? form?.features?.dateShifts || null
-            : null
-        }
-        onDateShiftsChange={
-          String(form?.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW
-            ? (dateShifts) =>
-                setForm((prev) => ({
-                  ...prev,
-                  features: {
-                    ...(prev?.features && typeof prev.features === 'object' ? prev.features : {}),
-                    dateShifts,
-                  },
-                }))
-            : null
+        enableDateShifts={false}
+        dateShifts={null}
+        onDateShiftsChange={null}
+        onUniqueRowKeysChange={(uniqueRowKeys) =>
+          patchForm({
+            features: {
+              ...(form?.features && typeof form.features === 'object' ? form.features : {}),
+              uniqueRowKeys,
+            },
+          })
         }
         topSlot={
           form && (

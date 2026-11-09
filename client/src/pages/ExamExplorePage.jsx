@@ -37,6 +37,11 @@ import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import { DEFAULT_EXAM_TABLE_FEATURES } from './exams/examTableConfig';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
 import {
+  dedupeRowsByUniqueKeys,
+  normalizeUniqueRowKeys,
+  uniqueRowKeysLabel,
+} from './exams/examUniqueRows';
+import {
   applyDateShiftColumnColors,
   applyDateShiftColumnWidths,
   buildDateShiftVisibilityGroups,
@@ -198,9 +203,20 @@ export const ExamExplorePage = () => {
   const [rowsPage, setRowsPage] = useState(1);
   const [rowsPageSize, setRowsPageSize] = useState(15);
 
+  const uniqueRowKeys = useMemo(
+    () => normalizeUniqueRowKeys(features?.uniqueRowKeys),
+    [features?.uniqueRowKeys],
+  );
+  const uniqueImportActive = uniqueRowKeys.length > 0;
+
   useEffect(() => {
     setRowsPage(1);
   }, [examId]);
+
+  const uniqueRowKeysSig = uniqueRowKeys.join('|');
+  useEffect(() => {
+    if (uniqueImportActive) setRowsPage(1);
+  }, [uniqueImportActive, uniqueRowKeysSig]);
 
   // Honor Feature Builder “Rows shown per page” for server-paginated fetches.
   useEffect(() => {
@@ -209,16 +225,19 @@ export const ExamExplorePage = () => {
     setRowsPageSize(next);
     setRowsPage(1);
   }, [features?.defaultPageSize]);
+  // Unique import needs the full center set to dedupe; page after collapsing duplicates.
   const rowsQuery = useExamRows(examId, {
-    page: rowsPage,
-    limit: rowsPageSize,
+    page: uniqueImportActive ? 1 : rowsPage,
+    limit: uniqueImportActive ? 500 : rowsPageSize,
     enabled: Boolean(examId) && Boolean(tableInfo),
   });
   const rows = rowsQuery.data?.rows || [];
   const rowsTotal = Number(rowsQuery.data?.total) || 0;
   const rowsLoading =
     Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
-  const rowsPageKey = { page: rowsPage, limit: rowsPageSize };
+  const rowsPageKey = uniqueImportActive
+    ? { page: 1, limit: 500 }
+    : { page: rowsPage, limit: rowsPageSize };
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
   const [presets, setPresets] = useState([]);
@@ -312,6 +331,20 @@ export const ExamExplorePage = () => {
   const assigneeDisplayRows = useAssigneeDisplayRows(lookupDisplayRows, fields);
   // From-exam fields mirror parent exam.values onto every center row.
   const tableRows = useExamValueDisplayRows(assigneeDisplayRows, fields, exam?.values, examSourceFields);
+  const uniqueAllRows = useMemo(
+    () => (uniqueImportActive ? dedupeRowsByUniqueKeys(tableRows, uniqueRowKeys) : tableRows),
+    [tableRows, uniqueImportActive, uniqueRowKeys],
+  );
+  const displayTableRows = useMemo(() => {
+    if (!uniqueImportActive) return tableRows;
+    const start = (rowsPage - 1) * rowsPageSize;
+    return uniqueAllRows.slice(start, start + rowsPageSize);
+  }, [uniqueImportActive, tableRows, uniqueAllRows, rowsPage, rowsPageSize]);
+  const displayTotal = uniqueImportActive ? uniqueAllRows.length : rowsTotal;
+  const uniqueImportLabel = useMemo(
+    () => (uniqueImportActive ? uniqueRowKeysLabel(fields, uniqueRowKeys) : ''),
+    [uniqueImportActive, fields, uniqueRowKeys],
+  );
 
   const applySnapshot = useCallback((snap) => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
@@ -919,7 +952,7 @@ export const ExamExplorePage = () => {
                       label={
                         hasDateShiftTemplate(effectiveDateShifts)
                           ? 'Date shifts — select exam dates and create columns'
-                          : 'Date shifts — add shift format on the Field preset first'
+                          : 'Date shifts — add shift format in Field builder → Bulk add first'
                       }
                       onClick={() => setIsDateShiftsOpen(true)}
                     >
@@ -1042,6 +1075,14 @@ export const ExamExplorePage = () => {
           <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, fields.length || 5)} />
         ) : (
           <div className="exams-dynamic-table-wrap">
+            {uniqueImportActive && uniqueImportLabel ? (
+              <p className="exam-explore-unique-banner" role="status">
+                Unique import · one row per <strong>{uniqueImportLabel}</strong>
+                {rowsTotal > uniqueAllRows.length
+                  ? ` · ${uniqueAllRows.length} of ${rowsTotal} centers`
+                  : null}
+              </p>
+            ) : null}
             <DynamicTable
               key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}:${f.width || ''}`).join('|')}_${JSON.stringify(effectiveDateShifts?.columnWidths || {})}_${JSON.stringify((effectiveDateShifts?.shifts || []).map((s) => `${s?.id}:${s?.width || ''}`))}`}
               tableId={layoutTableId}
@@ -1049,7 +1090,7 @@ export const ExamExplorePage = () => {
               usePortalFeatures
               isDarkMode={isDarkMode}
               initialColumns={tableColumns}
-              initialRows={tableRows}
+              initialRows={displayTableRows}
               layoutPrefs={layoutPrefs}
               defaultDensity="compact"
               visibilityApiRef={view === DEFAULT_EXAM_VIEW ? tableVisibilityApiRef : undefined}
@@ -1076,7 +1117,7 @@ export const ExamExplorePage = () => {
               featuresDirty={featuresDirty}
               features={features}
               serverPagination={{
-                totalRowCount: rowsTotal,
+                totalRowCount: displayTotal,
                 page: rowsPage,
                 pageSize: rowsPageSize,
                 onPageChange: setRowsPage,
@@ -1169,6 +1210,12 @@ export const ExamExplorePage = () => {
               }
             : null
         }
+        onUniqueRowKeysChange={(keys) => {
+          handleSaveFeatures({
+            ...featuresRef.current,
+            uniqueRowKeys: normalizeUniqueRowKeys(keys),
+          });
+        }}
       />
 
       {view === DEFAULT_EXAM_VIEW && isDateShiftsOpen && (
