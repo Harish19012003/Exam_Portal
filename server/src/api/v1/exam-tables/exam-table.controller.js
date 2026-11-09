@@ -62,12 +62,15 @@ export const listRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'view');
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
-  const result = await service.listRows(req.params.examId);
+  const page = req.query?.page;
+  const limit = req.query?.limit;
+  const result = await service.listRows(req.params.examId, { page, limit });
   const fields = allFields || [];
   const rows = (result.rows || [])
     .filter((row) => rowVisible(req, TABLE, ruleValues(req, row), fields))
     .map((row) => forClient(req, row));
-  return { ...result, rows, total: rows.length };
+  // Keep DB total for pagination; ACL may hide a few rows on the current page.
+  return { ...result, rows };
 });
 
 export const createRow = handle(async (req) => {
@@ -81,6 +84,37 @@ export const createRow = handle(async (req) => {
     req,
     await service.createRow(req.params.examId, { ...req.body, values, view }, req.user?.id),
   );
+}, 201);
+
+export const createRows = handle(async (req) => {
+  await assertExamVisible(req);
+  assertTable(req, TABLE, 'create');
+  const view = viewOf(req, true);
+  const { fields } = await service.getTable(req.params.examId, view);
+  const autoKeys = autoFillKeys(fields);
+  const list = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  const rows = [];
+  const denied = [];
+  list.forEach((raw, index) => {
+    try {
+      const values = writableValues(req, TABLE, raw, autoKeys);
+      assertRowVisible(req, TABLE, { ...values, __exam_id: req.params.examId }, fields);
+      rows.push({ index, values });
+    } catch (err) {
+      denied.push({ index, message: err?.message || 'Not allowed' });
+    }
+  });
+  const result = await service.createRows(
+    req.params.examId,
+    { rows: rows.map((r) => r.values), view },
+    req.user?.id,
+  );
+  // Map failures back to original indexes.
+  const failures = [
+    ...denied,
+    ...result.failures.map((f) => ({ index: rows[f.index]?.index ?? f.index, message: f.message })),
+  ].sort((a, b) => a.index - b.index);
+  return { created: result.created, failures };
 }, 201);
 
 export const updateRow = handle(async (req) => {
@@ -104,9 +138,8 @@ export const deleteRows = handle(async (req) => {
   assertTable(req, TABLE, 'delete');
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const ids = req.body?.ids ?? req.params.rowId;
-  for (const id of Array.isArray(ids) ? ids : [ids]) {
-    const row = await service.getRow(req.params.examId, id);
-    assertRowVisible(req, TABLE, ruleValues(req, row), allFields);
-  }
+  const idList = Array.isArray(ids) ? ids : [ids];
+  const found = await service.getRowsByIds(req.params.examId, idList);
+  found.forEach((row) => assertRowVisible(req, TABLE, ruleValues(req, row), allFields));
   return service.deleteRows(req.params.examId, ids);
 });

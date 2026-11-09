@@ -155,6 +155,9 @@ export const ExamFieldBuilder = ({
   presetSources = null,
   /** Shown in Bulk add so the user knows which preset / exam page they are editing. */
   bulkWorkingContext = '',
+  /** Date × shift template from features.dateShifts (Bulk add → Date shifts). */
+  dateShifts = null,
+  onDateShiftsChange = null,
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -370,17 +373,26 @@ export const ExamFieldBuilder = ({
 
   const closeBulk = () => setBulkOpen(false);
 
-  const handleBulkAdd = (newFields, updatedFields = [], removedIds = [], order = []) => {
-    const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
-    const gone = new Set(removedIds);
-    const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter((f) => !gone.has(f.id));
-    // The bulk grid's row order is the field order (`id:<id>` for existing, `key:<key>` for new).
-    const rank = new Map(order.map((token, i) => [token, i]));
-    const rankOf = (f, i) => rank.get(`id:${f.id}`) ?? rank.get(`key:${f.key}`) ?? order.length + i;
-    const ordered = order.length
-      ? merged.map((f, i) => ({ f, r: rankOf(f, i) })).sort((a, b) => a.r - b.r).map((x) => x.f)
-      : merged;
-    onChange(ordered.map((f, i) => ({ ...f, order: i + 1 })));
+  const handleBulkAdd = (newFields, updatedFields = [], removedIds = [], order = [], meta = {}) => {
+    const hasFieldEdits =
+      (Array.isArray(newFields) && newFields.length > 0) ||
+      (Array.isArray(updatedFields) && updatedFields.length > 0) ||
+      (Array.isArray(removedIds) && removedIds.length > 0);
+    if (hasFieldEdits) {
+      const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
+      const gone = new Set(removedIds);
+      const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter((f) => !gone.has(f.id));
+      // The bulk grid's row order is the field order (`id:<id>` for existing, `key:<key>` for new).
+      const rank = new Map(order.map((token, i) => [token, i]));
+      const rankOf = (f, i) => rank.get(`id:${f.id}`) ?? rank.get(`key:${f.key}`) ?? order.length + i;
+      const ordered = order.length
+        ? merged.map((f, i) => ({ f, r: rankOf(f, i) })).sort((a, b) => a.r - b.r).map((x) => x.f)
+        : merged;
+      onChange(ordered.map((f, i) => ({ ...f, order: i + 1 })));
+    }
+    if (meta?.dateShifts !== undefined) {
+      onDateShiftsChange?.(meta.dateShifts);
+    }
     closeBulk();
   };
 
@@ -1446,6 +1458,7 @@ export const ExamFieldBuilder = ({
         examId={examId}
         currentView={currentView}
         presetSources={presetSources}
+        dateShifts={dateShifts}
         workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
         onClose={closeBulk}
         onAdd={handleBulkAdd}

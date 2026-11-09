@@ -76,6 +76,10 @@ interface BaseColumn {
   allowCustom?: boolean;
   aggregation?: AggregationType;
   composedOf?: { field: string; role: CompositeRole }[];
+  /** Optional header/cell accent (hex). Used by date-shift All day / Summary columns. */
+  accentColor?: string;
+  /** Center-list date×shift column — width comes from features.dateShifts template. */
+  dateShiftTemplate?: boolean;
 }
 
 export interface FieldColumn extends BaseColumn {
@@ -354,8 +358,32 @@ export interface CustomRowActionButton {
   targetColumnKey?: string;
 }
 
+/** Feature Builder presets for the sticky Actions column width. */
+export type ActionsColumnWidthPreset = 'compact' | 'default' | 'comfortable';
+
+export const ACTIONS_COLUMN_WIDTH_PRESETS: Record<ActionsColumnWidthPreset, number> = {
+  compact: 96,
+  default: 132,
+  comfortable: 168,
+};
+
+export const ACTIONS_COLUMN_WIDTH_OPTIONS = [
+  { value: 'compact' as const, label: 'Compact', hint: 'Tight — Edit + Delete only' },
+  { value: 'default' as const, label: 'Default', hint: 'Balanced for typical action sets' },
+  { value: 'comfortable' as const, label: 'Comfortable', hint: 'Room for Explore / Duplicate / extras' },
+];
+
+export const DEFAULT_ACTIONS_COLUMN_WIDTH_PRESET: ActionsColumnWidthPreset = 'default';
+
+export const resolveActionsColumnWidthPreset = (value: unknown): ActionsColumnWidthPreset => {
+  if (value === 'compact' || value === 'default' || value === 'comfortable') return value;
+  return DEFAULT_ACTIONS_COLUMN_WIDTH_PRESET;
+};
+
 export interface RowActionsConfig {
   width?: number;
+  /** Feature Builder size preset — preferred over freeform width. */
+  widthPreset?: ActionsColumnWidthPreset;
   label?: string;
   showLabel?: boolean;
   showOnHover?: boolean;
@@ -371,6 +399,30 @@ export interface RowActionsConfig {
   customButtons?: CustomRowActionButton[];
   renderCustomActions?: (row: DataRow) => React.ReactNode;
 }
+
+/** Resolve Actions column px from preset and optional explicit width. */
+export const resolveActionsColumnWidthPx = (
+  rowActions?: Pick<RowActionsConfig, 'width' | 'widthPreset'> | null,
+): number => {
+  const preset = resolveActionsColumnWidthPreset(rowActions?.widthPreset);
+  const fromPreset = ACTIONS_COLUMN_WIDTH_PRESETS[preset];
+  const explicit = Number(rowActions?.width);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    // Prefer preset when width matches a known preset (Feature Builder sets both).
+    const matched = (Object.keys(ACTIONS_COLUMN_WIDTH_PRESETS) as ActionsColumnWidthPreset[]).find(
+      (k) => ACTIONS_COLUMN_WIDTH_PRESETS[k] === explicit,
+    );
+    if (matched) return ACTIONS_COLUMN_WIDTH_PRESETS[matched];
+    // Legacy numeric width (e.g. 168) without preset.
+    if (!rowActions?.widthPreset) {
+      if (explicit >= 160) return ACTIONS_COLUMN_WIDTH_PRESETS.comfortable;
+      if (explicit <= 110) return ACTIONS_COLUMN_WIDTH_PRESETS.compact;
+      return ACTIONS_COLUMN_WIDTH_PRESETS.default;
+    }
+    return Math.max(40, Math.round(explicit));
+  }
+  return fromPreset;
+};
 
 export interface SummaryChipConfig {
   id: string;
@@ -449,6 +501,22 @@ export const DEFAULT_PAGE_SIZE = 15;
 export const ROW_HEIGHT_MIN_PX = 28;
 export const ROW_HEIGHT_MAX_PX = 200;
 
+/** How column header labels behave when text is wider than the column. */
+export type HeaderTextWrap = 'ellipsis' | 'wrap2' | 'wrap3';
+
+export const HEADER_TEXT_WRAP_OPTIONS = [
+  { value: 'ellipsis' as const, label: 'Ellipsis', hint: 'One line; overflow shows …' },
+  { value: 'wrap2' as const, label: '2 lines', hint: 'Wrap up to 2 lines, then clip' },
+  { value: 'wrap3' as const, label: '3 lines', hint: 'Wrap up to 3 lines, then clip' },
+];
+
+export const DEFAULT_HEADER_TEXT_WRAP: HeaderTextWrap = 'wrap2';
+
+export const resolveHeaderTextWrap = (value: unknown): HeaderTextWrap => {
+  if (value === 'wrap2' || value === 'wrap3' || value === 'ellipsis') return value;
+  return DEFAULT_HEADER_TEXT_WRAP;
+};
+
 export interface TableFeaturesConfig {
   gridLines?: GridLinesConfig;
   tableColors?: TableColorsConfig;
@@ -456,6 +524,8 @@ export interface TableFeaturesConfig {
   rowHeight?: number;
   /** Rows shown per page when the table opens (users can still change it in the footer). */
   defaultPageSize?: number;
+  /** Column header label overflow: ellipsis (1 line) or wrap 2 / 3 lines. */
+  headerTextWrap?: HeaderTextWrap;
   enableRowSelection?: boolean;
   enableActionsColumn?: boolean;
   selectionColumn?: SelectionColumnConfig;
@@ -518,6 +588,7 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
   },
   rowHeight: 0,
   defaultPageSize: DEFAULT_PAGE_SIZE,
+  headerTextWrap: DEFAULT_HEADER_TEXT_WRAP,
   tableColors: { preset: 'default', stripe: false, light: {}, dark: {} },
   enableRowSelection: true,
   enableActionsColumn: true,
@@ -533,6 +604,8 @@ export const DEFAULT_FEATURES: Required<Omit<TableFeaturesConfig, 'rowActions' |
     showDelete: true,
     showExplore: false,
     showDuplicate: false,
+    widthPreset: DEFAULT_ACTIONS_COLUMN_WIDTH_PRESET,
+    width: ACTIONS_COLUMN_WIDTH_PRESETS[DEFAULT_ACTIONS_COLUMN_WIDTH_PRESET],
     renderCustomActions: undefined,
   },
   enableSearch: false,

@@ -1,6 +1,7 @@
 export { DynamicDropdown, DYNAMIC_DROPDOWN_PORTAL_CLASS } from './DynamicDropdown';
 export { DynamicMultiSelectDropdown, DYNAMIC_MULTISELECT_PORTAL_CLASS } from './DynamicMultiSelectDropdown';
 export { DynamicDatePicker, DYNAMIC_DATE_PICKER_PORTAL_CLASS } from './DynamicDatePicker';
+export { DynamicMultiDatePicker, DYNAMIC_MULTI_DATE_PICKER_PORTAL_CLASS } from './DynamicMultiDatePicker';
 export { DynamicDateTimePicker, DYNAMIC_DATETIME_PICKER_PORTAL_CLASS } from './DynamicDateTimePicker';
 export { DynamicTimePicker, DYNAMIC_TIME_PICKER_PORTAL_CLASS } from './DynamicTimePicker';
 export { CalendarPanel } from './CalendarPanel';

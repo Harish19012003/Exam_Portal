@@ -187,6 +187,21 @@ export const findById = async (id, fieldsHint = []) => {
   return mapExam(exam, typeMap, userMap);
 };
 
+/** Batch fetch exams by id (preserves requested order, drops missing). */
+export const findByIds = async (ids = [], fieldsHint = []) => {
+  const unique = [...new Set((ids || []).map(String).filter(Boolean))];
+  if (!unique.length) return [];
+  const em = getEm();
+  const typeMap = await getFieldTypeMap(fieldsHint);
+  const exams = await em.find(Exam, { _id: { $in: unique } });
+  const userMap = await loadUserMap(
+    em,
+    exams.flatMap((e) => [e.created_by, e.updated_by]),
+  );
+  const byId = new Map(exams.map((e) => [String(e._id), mapExam(e, typeMap, userMap)]));
+  return unique.map((id) => byId.get(id)).filter(Boolean);
+};
+
 export const create = async ({ id, values, fields, createdBy }) => {
   await syncFieldColumns(fields);
   const em = getEm();

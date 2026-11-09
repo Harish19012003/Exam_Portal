@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, Download, GripVertical, Info, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
-import { examViewLabel } from '@exam-view/shared';
+import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { DEFAULT_EXAM_VIEW, examViewLabel } from '@exam-view/shared';
 import {
   EXAM_FIELD_TYPES,
   AUTO_FILL_OPTIONS,
@@ -25,6 +25,106 @@ import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
+import {
+  DATE_SHIFT_ALL_DAY_TYPES,
+  DATE_SHIFT_COLUMN_COLORS,
+  DATE_SHIFT_COLUMN_WIDTH_MAX,
+  DATE_SHIFT_COLUMN_WIDTH_MIN,
+  DATE_SHIFT_SUMMARY_TYPES,
+  aggregateShiftValues,
+  allDayColumnLabel,
+  dateShiftsConfigEqual,
+  emptyAllDayColumn,
+  emptyDateShiftColumnWidths,
+  emptyDateShiftsConfig,
+  emptySummaryColumn,
+  hexWithAlpha,
+  newShiftColumn,
+  normalizeColumnColor,
+  normalizeDateShiftColumnWidths,
+  normalizeDateShiftsConfig,
+  resolveDateShiftColumnWidth,
+  summaryColumnLabel,
+} from './dateShiftsConfig';
+
+/** Compact px width field for All day / Shifts / Summary (right side). */
+const DateShiftPxInput = ({ value, onChange, disabled = false, label = 'Width' }) => {
+  const px = resolveDateShiftColumnWidth(value);
+  return (
+    <label className={`exams-date-shifts-px${disabled ? ' is-disabled' : ''}`} title={`${label} in pixels`}>
+      <span className="exams-date-shifts-px-label sr-only">{label}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={DATE_SHIFT_COLUMN_WIDTH_MIN}
+        max={DATE_SHIFT_COLUMN_WIDTH_MAX}
+        step={4}
+        value={px}
+        disabled={disabled}
+        onChange={(e) => onChange?.(e.target.value)}
+        onBlur={(e) => onChange?.(resolveDateShiftColumnWidth(e.target.value))}
+        aria-label={label}
+      />
+      <span className="exams-date-shifts-px-unit" aria-hidden="true">
+        px
+      </span>
+    </label>
+  );
+};
+
+/** Inline color: 2 presets + free picker — sits on the type row. */
+const DateShiftColumnColorPicker = ({ value, onChange, disabled = false, label = 'Column color' }) => {
+  const color = normalizeColumnColor(value);
+  const isCustom = Boolean(color) && !DATE_SHIFT_COLUMN_COLORS.includes(color);
+  return (
+    <div
+      className={`exams-date-shifts-color-inline${disabled ? ' is-disabled' : ''}`}
+      role="group"
+      aria-label={label}
+    >
+      <div className="exams-date-shifts-color-presets">
+        {DATE_SHIFT_COLUMN_COLORS.map((hex) => (
+          <button
+            key={hex}
+            type="button"
+            className={`exams-date-shifts-color-dot${color === hex ? ' is-active' : ''}`}
+            style={{ backgroundColor: hex }}
+            disabled={disabled}
+            aria-pressed={color === hex}
+            aria-label={`Use ${hex}`}
+            title={hex}
+            onClick={() => onChange(color === hex ? '' : hex)}
+          />
+        ))}
+      </div>
+      <label
+        className={`exams-date-shifts-color-well${color ? ' is-filled' : ''}${isCustom ? ' is-custom' : ''}`}
+        title={color ? `${label}: ${color}` : `${label} (pick any color)`}
+        style={color ? { backgroundColor: color } : undefined}
+      >
+        <input
+          type="color"
+          value={color || '#5c43fa'}
+          disabled={disabled}
+          onChange={(e) => onChange(normalizeColumnColor(e.target.value))}
+          aria-label={`${label} picker`}
+        />
+      </label>
+      {color ? (
+        <button
+          type="button"
+          className="exams-date-shifts-color-clear"
+          disabled={disabled}
+          onClick={() => onChange('')}
+          title="Clear color"
+          aria-label={`Clear ${label}`}
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
+  );
+};
 
 const OPTIONS_SOURCES = [
   { value: 'manual', label: 'Typed' },
@@ -461,6 +561,13 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  /** Date × shift column template stored on features.dateShifts. */
+  dateShifts = null,
+  /**
+   * Date shifts are Center list only. Defaults from `currentView === center-list`.
+   * Pass false to hide even on Center list.
+   */
+  enableDateShifts = null,
 }) => {
   const examFieldOptions = (examSourceFields || [])
     .filter((f) => f?.key)
@@ -494,7 +601,47 @@ export const BulkFieldsModal = ({
   const tableRef = useRef(null);
   const focusRidRef = useRef(null);
 
-  const [tab, setTab] = useState('fields'); // 'fields' | 'deps'
+  const [tab, setTab] = useState('fields'); // 'fields' | 'dateShifts' | 'deps'
+  const showDateShifts =
+    enableDateShifts == null
+      ? String(currentView || '') === DEFAULT_EXAM_VIEW
+      : Boolean(enableDateShifts);
+  useEffect(() => {
+    if (!showDateShifts && tab === 'dateShifts') setTab('fields');
+  }, [showDateShifts, tab]);
+  const initialDateShifts = useMemo(
+    () => normalizeDateShiftsConfig(dateShifts || emptyDateShiftsConfig()),
+    // Only seed from the prop when the modal mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const [shiftDraft, setShiftDraft] = useState(() => {
+    const cfg = normalizeDateShiftsConfig(dateShifts || emptyDateShiftsConfig());
+    return {
+      summaryColumn: { ...cfg.summaryColumn },
+      allDayColumn: { ...cfg.allDayColumn },
+      columnWidths: { ...cfg.columnWidths },
+      // Keep one blank row so the user can type immediately.
+      shifts: cfg.shifts.length ? cfg.shifts.map((s) => ({ ...s })) : [newShiftColumn()],
+    };
+  });
+  const dateShiftsDirty = useMemo(() => {
+    if (!showDateShifts) return false;
+    const next = normalizeDateShiftsConfig({
+      summaryColumn: shiftDraft.summaryColumn,
+      allDayColumn: shiftDraft.allDayColumn,
+      columnWidths: shiftDraft.columnWidths,
+      shifts: shiftDraft.shifts,
+      dates: initialDateShifts.dates,
+    });
+    return !dateShiftsConfigEqual(initialDateShifts, next);
+  }, [shiftDraft, initialDateShifts, showDateShifts]);
+  const columnWidths = normalizeDateShiftColumnWidths(shiftDraft.columnWidths);
+  const filledShiftCount = shiftDraft.shifts.filter((s) => String(s.label || '').trim()).length;
+  const summaryOn = Boolean(shiftDraft.summaryColumn?.enabled);
+  const allDayOn = Boolean(shiftDraft.allDayColumn?.enabled);
+  const summaryHeader = summaryColumnLabel(shiftDraft.summaryColumn);
+  const allDayHeader = allDayColumnLabel(shiftDraft.allDayColumn);
   const [removedIds, setRemovedIds] = useState([]); // existing field ids to delete on save
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
@@ -540,7 +687,8 @@ export const BulkFieldsModal = ({
   );
   const newCount = rows.filter((r, i) => !r.existingId && !validation[i].blank).length;
   const updateCount = changedIds.size;
-  const pending = newCount + updateCount + removedIds.length;
+  const fieldPending = newCount + updateCount + removedIds.length;
+  const pending = fieldPending + (dateShiftsDirty ? 1 : 0);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -898,17 +1046,126 @@ export const BulkFieldsModal = ({
     }
   };
 
+  const addShiftRow = (afterId) => {
+    setShiftDraft((prev) => {
+      const row = newShiftColumn();
+      const idx = afterId ? prev.shifts.findIndex((s) => s.id === afterId) : prev.shifts.length - 1;
+      const next = [...prev.shifts];
+      next.splice(Math.max(idx, -1) + 1, 0, row);
+      return { ...prev, shifts: next };
+    });
+  };
+
+  const updateShiftLabel = (id, label) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      shifts: prev.shifts.map((s) => (s.id === id ? { ...s, label } : s)),
+    }));
+
+  const updateShiftWidth = (id, px) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      shifts: prev.shifts.map((s) =>
+        s.id === id ? { ...s, width: resolveDateShiftColumnWidth(px) } : s,
+      ),
+    }));
+
+  const removeShiftRow = (id) =>
+    setShiftDraft((prev) => {
+      const next = prev.shifts.filter((s) => s.id !== id);
+      return { ...prev, shifts: next.length ? next : [newShiftColumn()] };
+    });
+
+  const [dragShiftId, setDragShiftId] = useState(null);
+  const [dragOverShiftId, setDragOverShiftId] = useState(null);
+
+  const moveShift = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    setShiftDraft((prev) => {
+      const from = prev.shifts.findIndex((s) => s.id === fromId);
+      const to = prev.shifts.findIndex((s) => s.id === toId);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev.shifts];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return { ...prev, shifts: next };
+    });
+  };
+
+  const nudgeShift = (id, delta) =>
+    setShiftDraft((prev) => {
+      const from = prev.shifts.findIndex((s) => s.id === id);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= prev.shifts.length) return prev;
+      const next = [...prev.shifts];
+      [next[from], next[to]] = [next[to], next[from]];
+      return { ...prev, shifts: next };
+    });
+
+  const clearShifts = () =>
+    setShiftDraft({
+      summaryColumn: emptySummaryColumn(),
+      allDayColumn: emptyAllDayColumn(),
+      columnWidths: emptyDateShiftColumnWidths(),
+      shifts: [newShiftColumn()],
+    });
+
+  const patchSummary = (patch) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      summaryColumn: { ...emptySummaryColumn(), ...prev.summaryColumn, ...patch },
+    }));
+
+  const patchAllDay = (patch) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      allDayColumn: { ...emptyAllDayColumn(), ...prev.allDayColumn, ...patch },
+    }));
+
+  const patchColumnWidth = (kind, px) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      columnWidths: {
+        ...emptyDateShiftColumnWidths(),
+        ...prev.columnWidths,
+        [kind]: resolveDateShiftColumnWidth(px),
+      },
+    }));
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (errorCount || !pending) return;
-    const items = resolvedRows.filter((r, i) => !r.existingId && !validation[i].blank).map((r) => rowToItem(r, allowUnique));
-    const updated = resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
+    if (!pending) return;
+    // Date-shift-only saves must not be blocked by Fields-tab validation errors.
+    const dateShiftsOnly = dateShiftsDirty && fieldPending === 0 && removedIds.length === 0;
+    if (errorCount && !dateShiftsOnly) return;
+    const items = dateShiftsOnly
+      ? []
+      : resolvedRows
+          .filter((r, i) => !r.existingId && !validation[i].blank)
+          .map((r) => rowToItem(r, allowUnique));
+    const updated = dateShiftsOnly
+      ? []
+      : resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
     const newDefs = items.map((item, i) => toFieldDefinition(item, fields.length + i + 1));
     // Row order = field order: existing fields by id, new ones by key.
-    const order = resolvedRows
-      .filter((r, i) => r.existingId || !validation[i].blank)
-      .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
-    onAdd(newDefs, updated, removedIds, order);
+    const order = dateShiftsOnly
+      ? []
+      : resolvedRows
+          .filter((r, i) => r.existingId || !validation[i].blank)
+          .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
+    const meta = dateShiftsDirty
+      ? {
+          // Keep previously selected Center-list dates; this tab only edits the template.
+          dateShifts: normalizeDateShiftsConfig({
+            summaryColumn: shiftDraft.summaryColumn,
+            allDayColumn: shiftDraft.allDayColumn,
+            columnWidths: shiftDraft.columnWidths,
+            shifts: shiftDraft.shifts,
+            dates: initialDateShifts.dates,
+          }),
+        }
+      : {};
+    onAdd(newDefs, updated, dateShiftsOnly ? [] : removedIds, order, meta);
   };
 
   /* ---------- Dependencies: lookup fields and the Linked values that follow them ---------- */
@@ -1042,6 +1299,18 @@ export const BulkFieldsModal = ({
             <ListPlus size={14} /> Fields
             <span className="exams-bulk-tab-count">{rows.filter((r, i) => !validation[i].blank).length}</span>
           </button>
+          {showDateShifts && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'dateShifts'}
+            className={`exams-bulk-tab${tab === 'dateShifts' ? ' active' : ''}`}
+            onClick={() => setTab('dateShifts')}
+          >
+            <CalendarDays size={14} /> Date shifts
+            <span className="exams-bulk-tab-count">{filledShiftCount}</span>
+          </button>
+          )}
           <button
             type="button"
             role="tab"
@@ -1100,10 +1369,459 @@ export const BulkFieldsModal = ({
           </span>
         </div>
         )}
+
+        {tab === 'dateShifts' && (
+        <div className="exams-bulk-toolbar">
+          <span
+            className="exams-bulk-tip"
+            title="Define shift column labels once. On Center list, each selected exam date gets this same set. Renaming a date later keeps the shift values. Labels are yours — nothing is hardcoded."
+          >
+            <Info size={14} aria-hidden="true" />
+          </span>
+          <span className="exams-bulk-toolbar-actions">
+            <button type="button" className="exams-text-add-btn" onClick={() => addShiftRow()}>
+              <Plus size={14} /> Add shift
+            </button>
+            <button type="button" className="exams-text-add-btn" onClick={clearShifts}>
+              Clear shifts
+            </button>
+          </span>
+        </div>
+        )}
         </div>
         {notice && (
           <div className="exams-bulk-notice" role="status">
             {notice}
+          </div>
+        )}
+
+        {tab === 'dateShifts' && (
+          <div className="exams-bulk-body exams-bulk-date-shifts">
+            <div className="exams-date-shifts-layout">
+              <section className="exams-date-shifts-panel" aria-label="Date shift columns">
+                <p className="exams-date-shifts-flow" aria-hidden="true">
+                  <span>All day</span>
+                  <span aria-hidden="true">→</span>
+                  <span>Shifts</span>
+                  <span aria-hidden="true">→</span>
+                  <span>Summary</span>
+                </p>
+
+                {/* 1. All day — before date groups */}
+                <div className={`exams-date-shifts-step${allDayOn ? ' is-on' : ''}`}>
+                  <div className="exams-date-shifts-step-head">
+                    <span className="exams-date-shifts-step-badge">1</span>
+                    <label className="exams-date-shifts-option-toggle" title="Before all date columns">
+                      <input
+                        type="checkbox"
+                        checked={allDayOn}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            patchAllDay({
+                              enabled: true,
+                              type: shiftDraft.allDayColumn?.type || 'max',
+                            });
+                          } else {
+                            patchAllDay({ enabled: false });
+                          }
+                        }}
+                      />
+                      <strong>All day</strong>
+                    </label>
+                    <button
+                      type="button"
+                      className="exams-bulk-info-btn"
+                      title="Aggregate across every date’s shifts. Placed before all date columns."
+                      aria-label="About all-day column"
+                    >
+                      <Info size={13} />
+                    </button>
+                  </div>
+                  <div className="exams-date-shifts-type-row">
+                    <div
+                      className={`exams-date-shifts-type-seg${allDayOn ? '' : ' is-disabled'}`}
+                      role="radiogroup"
+                      aria-label="All-day column type"
+                      aria-disabled={!allDayOn}
+                    >
+                      {DATE_SHIFT_ALL_DAY_TYPES.map((t) => {
+                        const active = allDayOn && (shiftDraft.allDayColumn?.type || 'max') === t.value;
+                        return (
+                          <button
+                            key={t.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            disabled={!allDayOn}
+                            className={`exams-date-shifts-type-btn${active ? ' is-active' : ''}`}
+                            onClick={() => patchAllDay({ enabled: true, type: t.value })}
+                            title={t.hint}
+                          >
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <DateShiftColumnColorPicker
+                      value={shiftDraft.allDayColumn?.color}
+                      onChange={(color) => patchAllDay({ color })}
+                      disabled={!allDayOn}
+                      label="All day column color"
+                    />
+                    <DateShiftPxInput
+                      label="All day width"
+                      value={columnWidths.allDay}
+                      disabled={!allDayOn}
+                      onChange={(px) => patchColumnWidth('allDay', px)}
+                    />
+                  </div>
+                  {allDayOn && (shiftDraft.allDayColumn?.type || 'max') === 'custom' && (
+                    <input
+                      type="text"
+                      className="exams-date-shifts-custom-input"
+                      value={shiftDraft.allDayColumn?.customLabel || ''}
+                      onChange={(e) => patchAllDay({ customLabel: e.target.value })}
+                      placeholder="Type column name"
+                      aria-label="Custom all-day column name"
+                      autoFocus
+                    />
+                  )}
+                </div>
+
+                {/* 2. Shift columns — repeat under each date */}
+                <div className="exams-date-shifts-step is-core">
+                  <div className="exams-date-shifts-step-head">
+                    <span className="exams-date-shifts-step-badge">2</span>
+                    <h3 className="exams-date-shifts-panel-title">
+                      Shift columns
+                      <button
+                        type="button"
+                        className="exams-bulk-info-btn"
+                        title="Type each column name. The same set repeats under every exam date on Center list."
+                        aria-label="About shift columns"
+                      >
+                        <Info size={13} />
+                      </button>
+                    </h3>
+                    <button type="button" className="exams-btn secondary compact" onClick={() => addShiftRow()}>
+                      <Plus size={14} /> Add
+                    </button>
+                  </div>
+
+                  <div className="exams-date-shifts-list" role="list">
+                    {shiftDraft.shifts.map((shift, index) => {
+                      const isLast = index === shiftDraft.shifts.length - 1;
+                      const dragging = dragShiftId === shift.id;
+                      const dragOver =
+                        dragOverShiftId === shift.id && dragShiftId && dragShiftId !== shift.id;
+                      return (
+                        <div
+                          key={shift.id}
+                          className={`exams-date-shifts-row${dragging ? ' is-dragging' : ''}${dragOver ? ' is-drag-over' : ''}`}
+                          role="listitem"
+                          onDragOver={(e) => {
+                            if (!dragShiftId) return;
+                            e.preventDefault();
+                            if (dragOverShiftId !== shift.id) setDragOverShiftId(shift.id);
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            moveShift(dragShiftId, shift.id);
+                            setDragShiftId(null);
+                            setDragOverShiftId(null);
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="exams-date-shifts-grip"
+                            draggable
+                            data-shift-grip={shift.id}
+                            onDragStart={(e) => {
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', shift.id);
+                              setDragShiftId(shift.id);
+                            }}
+                            onDragEnd={() => {
+                              setDragShiftId(null);
+                              setDragOverShiftId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                                e.preventDefault();
+                                nudgeShift(shift.id, e.key === 'ArrowUp' ? -1 : 1);
+                              }
+                            }}
+                            aria-label={`Reorder shift ${index + 1}. Drag, or press Alt and an arrow key`}
+                            title="Drag to reorder (Alt + ↑ / ↓)"
+                          >
+                            <GripVertical size={15} aria-hidden="true" />
+                          </button>
+                          <span className="exams-date-shifts-num" aria-hidden="true">
+                            {index + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={shift.label}
+                            onChange={(e) => updateShiftLabel(shift.id, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault();
+                              if (isLast) addShiftRow(shift.id);
+                              else {
+                                const next = e.currentTarget
+                                  .closest('.exams-date-shifts-row')
+                                  ?.nextElementSibling?.querySelector('input[type="text"]');
+                                next?.focus();
+                              }
+                            }}
+                            placeholder="Shift column name"
+                            aria-label={`Shift column ${index + 1} label`}
+                            className="exams-date-shifts-input"
+                            autoFocus={
+                              index === 0 &&
+                              !String(shift.label || '').trim() &&
+                              shiftDraft.shifts.length === 1
+                            }
+                          />
+                          <DateShiftPxInput
+                            label={`Shift ${index + 1} width`}
+                            value={shift.width ?? columnWidths.shift}
+                            onChange={(px) => updateShiftWidth(shift.id, px)}
+                          />
+                          <button
+                            type="button"
+                            className="exams-bulk-remove"
+                            onClick={() => removeShiftRow(shift.id)}
+                            aria-label={`Remove shift ${index + 1}`}
+                            title="Remove"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. Summary — after shifts under each date */}
+                <div className={`exams-date-shifts-step${summaryOn ? ' is-on' : ''}`}>
+                  <div className="exams-date-shifts-step-head">
+                    <span className="exams-date-shifts-step-badge">3</span>
+                    <label className="exams-date-shifts-option-toggle" title="After the shifts for each date">
+                      <input
+                        type="checkbox"
+                        checked={summaryOn}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            patchSummary({
+                              enabled: true,
+                              type: shiftDraft.summaryColumn?.type || 'max',
+                            });
+                          } else {
+                            patchSummary({ enabled: false });
+                          }
+                        }}
+                      />
+                      <strong>Summary</strong>
+                    </label>
+                    <button
+                      type="button"
+                      className="exams-bulk-info-btn"
+                      title="One extra column after the shifts for each date (e.g. Max Day 1)."
+                      aria-label="About summary column"
+                    >
+                      <Info size={13} />
+                    </button>
+                  </div>
+                  <div className="exams-date-shifts-type-row">
+                    <div
+                      className={`exams-date-shifts-type-seg${summaryOn ? '' : ' is-disabled'}`}
+                      role="radiogroup"
+                      aria-label="Summary column type"
+                      aria-disabled={!summaryOn}
+                    >
+                      {DATE_SHIFT_SUMMARY_TYPES.map((t) => {
+                        const active = summaryOn && (shiftDraft.summaryColumn?.type || 'max') === t.value;
+                        return (
+                          <button
+                            key={t.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            disabled={!summaryOn}
+                            className={`exams-date-shifts-type-btn${active ? ' is-active' : ''}`}
+                            onClick={() => patchSummary({ enabled: true, type: t.value })}
+                            title={t.hint}
+                          >
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <DateShiftColumnColorPicker
+                      value={shiftDraft.summaryColumn?.color}
+                      onChange={(color) => patchSummary({ color })}
+                      disabled={!summaryOn}
+                      label="Summary column color"
+                    />
+                    <DateShiftPxInput
+                      label="Summary width"
+                      value={columnWidths.summary}
+                      disabled={!summaryOn}
+                      onChange={(px) => patchColumnWidth('summary', px)}
+                    />
+                  </div>
+                  {summaryOn && (shiftDraft.summaryColumn?.type || 'max') === 'custom' && (
+                    <input
+                      type="text"
+                      className="exams-date-shifts-custom-input"
+                      value={shiftDraft.summaryColumn?.customLabel || ''}
+                      onChange={(e) => patchSummary({ customLabel: e.target.value })}
+                      placeholder="Type column name"
+                      aria-label="Custom summary column name"
+                      autoFocus
+                    />
+                  )}
+                </div>
+              </section>
+
+              <aside className="exams-date-shifts-preview-panel" aria-label="Column preview">
+                <header className="exams-date-shifts-panel-head">
+                  <h3 className="exams-date-shifts-panel-title">
+                    How it looks
+                    <button
+                      type="button"
+                      className="exams-bulk-info-btn"
+                      title={`Each selected date gets this group. Renaming a date later keeps the values. Dates are chosen later on the Center list. ${filledShiftCount} shift${filledShiftCount === 1 ? '' : 's'}${summaryOn ? ` + ${summaryHeader}` : ''} per date.${allDayOn ? ` ${allDayHeader} sits before all date columns.` : ''}`}
+                      aria-label="About preview"
+                    >
+                      <Info size={13} />
+                    </button>
+                  </h3>
+                </header>
+
+                <div className="exams-date-shifts-sheet" role="presentation">
+                  <div className="exams-date-shifts-sheet-scroll">
+                    {(() => {
+                      const filledShifts = shiftDraft.shifts.filter((s) =>
+                        String(s.label || '').trim(),
+                      );
+                      const labels = filledShifts.map((s) => String(s.label).trim());
+                      const days = [
+                        { key: 'd1', title: '10-Nov-2026', dayIndex: 1 },
+                        { key: 'd2', title: '11-Nov-2026', dayIndex: 2 },
+                      ];
+                      const colCount = Math.max(labels.length + (summaryOn ? 1 : 0), 1);
+                      const sampleVals = (di) => labels.map((_, i) => 8 + ((di + i) % 3));
+                      const allShiftVals = days.flatMap((_, di) => sampleVals(di));
+                      const allDaySample = aggregateShiftValues(
+                        shiftDraft.allDayColumn?.type || 'max',
+                        allShiftVals,
+                      );
+                      const emptyDay = labels.length === 0 && !summaryOn;
+                      const allDayColor = normalizeColumnColor(shiftDraft.allDayColumn?.color);
+                      const summaryColor = normalizeColumnColor(shiftDraft.summaryColumn?.color);
+                      const tintStyle = (hex) =>
+                        hex
+                          ? {
+                              color: hex,
+                              backgroundColor: hexWithAlpha(hex, 0.12),
+                            }
+                          : undefined;
+                      return (
+                        <table className="exams-date-shifts-sheet-table">
+                          <thead>
+                            <tr>
+                              {allDayOn && (
+                                <th
+                                  rowSpan={2}
+                                  className="is-max exams-date-shifts-all-day"
+                                  style={tintStyle(allDayColor)}
+                                >
+                                  {allDayHeader}
+                                </th>
+                              )}
+                              {days.map((d) => (
+                                <th key={d.key} colSpan={colCount}>
+                                  {d.title}
+                                </th>
+                              ))}
+                            </tr>
+                            <tr>
+                              {days.flatMap((d) =>
+                                emptyDay
+                                  ? [
+                                      <th key={`${d.key}-empty`} className="is-empty">
+                                        Add a shift name →
+                                      </th>,
+                                    ]
+                                  : [
+                                      ...labels.map((label, i) => (
+                                        <th key={`${d.key}-s${i}`}>{label}</th>
+                                      )),
+                                      ...(summaryOn
+                                        ? [
+                                            <th
+                                              key={`${d.key}-sum`}
+                                              className="is-max"
+                                              style={tintStyle(summaryColor)}
+                                            >
+                                              {summaryColumnLabel(
+                                                shiftDraft.summaryColumn,
+                                                d.dayIndex,
+                                              )}
+                                            </th>,
+                                          ]
+                                        : []),
+                                    ],
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              {allDayOn && (
+                                <td
+                                  className="is-max exams-date-shifts-all-day"
+                                  style={tintStyle(allDayColor)}
+                                >
+                                  {allDaySample}
+                                </td>
+                              )}
+                              {days.flatMap((d, di) => {
+                                const vals = sampleVals(di);
+                                return emptyDay
+                                  ? [
+                                      <td key={`${d.key}-v`} className="is-empty">
+                                        —
+                                      </td>,
+                                    ]
+                                  : [
+                                      ...vals.map((v, i) => <td key={`${d.key}-v${i}`}>{v}</td>),
+                                      ...(summaryOn
+                                        ? [
+                                            <td
+                                              key={`${d.key}-vmax`}
+                                              className="is-max"
+                                              style={tintStyle(summaryColor)}
+                                            >
+                                              {aggregateShiftValues(
+                                                shiftDraft.summaryColumn?.type || 'max',
+                                                vals,
+                                              )}
+                                            </td>,
+                                          ]
+                                        : []),
+                                    ];
+                              })}
+                            </tr>
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </aside>
+            </div>
           </div>
         )}
 
@@ -1745,18 +2463,40 @@ export const BulkFieldsModal = ({
         <div className="exams-bulk-footer">
           <span className={`exams-bulk-status${errorCount || error ? ' has-error' : ''}`}>
             {error ? `${error} ` : ''}
-            {rows.length} rows ·{' '}
-            {errorCount
-              ? `${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`
-              : pending
-                ? [newCount && `${newCount} new`, updateCount && `${updateCount} to update`].filter(Boolean).join(' · ')
-                : 'Edit a field or fill a new row'}
+            {tab === 'dateShifts'
+              ? `${filledShiftCount} shift column${filledShiftCount === 1 ? '' : 's'}${
+                  allDayOn ? ` · ${allDayHeader}` : ''
+                }${summaryOn ? ` · ${summaryHeader}` : ''}${dateShiftsDirty ? ' · unsaved' : ''}`
+              : `${rows.length} rows · `}
+            {tab !== 'dateShifts' &&
+              (errorCount
+                ? `${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`
+                : fieldPending
+                  ? [
+                      newCount && `${newCount} new`,
+                      updateCount && `${updateCount} to update`,
+                      removedIds.length && `${removedIds.length} to remove`,
+                      dateShiftsDirty && 'date shifts',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : dateShiftsDirty
+                    ? 'Date shifts changed'
+                    : 'Edit a field or fill a new row')}
           </span>
           <div className="exams-bulk-footer-actions">
             <button type="button" className="exams-btn secondary compact" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="exams-btn primary compact" disabled={!pending || errorCount > 0 || saving}>
+            <button
+              type="submit"
+              className="exams-btn primary compact"
+              disabled={
+                !pending ||
+                saving ||
+                (errorCount > 0 && !(dateShiftsDirty && fieldPending === 0 && removedIds.length === 0))
+              }
+            >
               <ListPlus size={14} />
               <span>
                 {saving

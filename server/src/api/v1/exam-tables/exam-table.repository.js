@@ -202,7 +202,8 @@ export const stripUnusedKeysFromRows = async (examId, keys) => {
   return touched;
 };
 
-const ROW_LIMIT = 1000;
+const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 500;
 
 const userLabel = (first, last, email) =>
   [first, last].filter(Boolean).join(' ').trim() || email || '';
@@ -247,21 +248,61 @@ const resolveExamId = async (tableId) => {
   return table?.exam_id || null;
 };
 
-export const listRows = async (tableId, fields) => {
+const normalizePage = (page) => Math.max(1, Number.parseInt(page, 10) || 1);
+const normalizeLimit = (limit) =>
+  Math.min(MAX_PAGE_SIZE, Math.max(1, Number.parseInt(limit, 10) || DEFAULT_PAGE_SIZE));
+
+/**
+ * Paginated center rows for one exam.
+ * Pass `{ all: true }` only for rare internal scans (e.g. uniqueness) — not for list APIs.
+ */
+export const listRows = async (tableId, fields, options = {}) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);
-  if (!examId) return { rows: [], total: 0, limit: ROW_LIMIT };
+  if (!examId) {
+    return { rows: [], total: 0, page: 1, limit: DEFAULT_PAGE_SIZE, totalPages: 0 };
+  }
   const total = await em.count(ExamRow, { exam_id: examId });
-  const rows = await em.find(
-    ExamRow,
-    { exam_id: examId },
-    { orderBy: { sys_created_at: 'DESC' }, limit: ROW_LIMIT },
-  );
+  const findOpts = { orderBy: { sys_created_at: 'DESC' } };
+  let page = 1;
+  let limit = total;
+
+  if (!options.all) {
+    page = normalizePage(options.page);
+    limit = normalizeLimit(options.limit);
+    findOpts.limit = limit;
+    findOpts.offset = (page - 1) * limit;
+  }
+
+  const rows = await em.find(ExamRow, { exam_id: examId }, findOpts);
   const userMap = await loadUsers(
     em,
     rows.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
   );
-  return { rows: rows.map((r) => mapRow(r, fields, userMap)), total, limit: ROW_LIMIT };
+  const totalPages = options.all ? 1 : Math.max(1, Math.ceil(total / limit) || 1);
+  return {
+    rows: rows.map((r) => mapRow(r, fields, userMap)),
+    total,
+    page,
+    limit: options.all ? total : limit,
+    totalPages,
+  };
+};
+
+/** Lightweight center_code scan for uniqueness (no full row decode). */
+export const listCenterCodes = async (tableId, fieldKey = 'center_code') => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const key = String(fieldKey || 'center_code');
+  const docs = await em.aggregate(ExamRow, [
+    { $match: { exam_id: examId } },
+    { $project: { id: 1, code: `$values.${key}` } },
+  ]);
+  return (docs || []).map((d) => ({
+    id: String(d.id ?? d._id),
+    code: d.code,
+  }));
 };
 
 export const findRow = async (tableId, fields, rowId) => {
@@ -272,6 +313,16 @@ export const findRow = async (tableId, fields, rowId) => {
   if (!row) return null;
   const userMap = await loadUsers(em, [row.sys_created_by, row.sys_updated_by]);
   return mapRow(row, fields, userMap);
+};
+
+export const findRowsByIds = async (tableId, fields, rowIds) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const ids = (rowIds || []).map(String);
+  const rows = await em.find(ExamRow, { exam_id: examId, id: { $in: ids } });
+  const userMap = await loadUsers(em, rows.flatMap((r) => [r.sys_created_by, r.sys_updated_by]));
+  return rows.map((r) => mapRow(r, fields, userMap));
 };
 
 export const insertRow = async (tableId, fields, values, userId) => {
@@ -291,6 +342,29 @@ export const insertRow = async (tableId, fields, values, userId) => {
   });
   await em.persist(entity).flush();
   return String(entity.id ?? entity._id);
+};
+
+/** Insert many rows with a single flush. */
+export const insertRows = async (tableId, fields, valuesList, userId) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) throw new Error('Exam table not found');
+  const entities = valuesList.map((values) => {
+    const encoded = {};
+    fields.forEach((f) => {
+      if (!(f.key in values)) return;
+      encoded[f.key] = encodeCellValue(values[f.key], effectiveType(f));
+    });
+    return em.create(ExamRow, {
+      exam_id: examId,
+      values: encoded,
+      sys_created_by: userId || null,
+      sys_updated_by: userId || null,
+    });
+  });
+  entities.forEach((e) => em.persist(e));
+  await em.flush();
+  return entities.length;
 };
 
 export const updateRow = async (tableId, fields, rowId, values, userId) => {

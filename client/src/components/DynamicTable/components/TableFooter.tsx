@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { PAGE_SIZE_OPTIONS } from '../types';
+import { DynamicDropdown } from '../../DynamicData/fields';
 
 interface TableFooterProps {
   page: number;
@@ -81,20 +82,22 @@ export function TableFooter({
             <span className="hidden sm:inline">Rows per page:</span>
             <span className="sm:hidden">Row:</span>
           </span>
-          <select
-            value={pageSize}
-            onChange={e => { onPageSizeChange(Number(e.target.value)); onPageChange(1); }}
-            className={`text-[12px] font-bold rounded-lg border px-2 py-1 outline-none transition-all
-              focus:ring-2 focus:ring-[#13C296]/20 focus:border-[#13C296] cursor-pointer
-              ${isDarkMode
-                ? 'bg-gray-800 border-gray-700 text-gray-200'
-                : 'bg-white border-gray-200 text-gray-700'}`}
-            aria-label="Rows per page"
-          >
-            {PAGE_SIZES.map(ps => (
-              <option key={ps} value={ps}>{ps}</option>
-            ))}
-          </select>
+          <div className="w-[84px]">
+            <DynamicDropdown
+              value={String(pageSize)}
+              options={PAGE_SIZES.map(String)}
+              required
+              variant="form"
+              isDarkMode={isDarkMode}
+              minMenuWidth={84}
+              onChange={(v) => {
+                const next = Number(v);
+                if (!next || next === pageSize) return;
+                onPageSizeChange(next);
+                onPageChange(1);
+              }}
+            />
+          </div>
         </div>
       </div>
 

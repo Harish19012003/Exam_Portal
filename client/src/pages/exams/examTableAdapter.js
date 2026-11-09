@@ -1,5 +1,12 @@
 import { isSharedImportedField } from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
+import {
+  isAllDayDateShiftField,
+  isDateShiftField,
+  isSummaryDateShiftField,
+  resolveDateShiftFieldAccent,
+  resolveDateShiftWidthForField,
+} from './dateShiftsConfig';
 import { getEffectiveDataType, resolveFieldOptions } from './examFieldTypes';
 import {
   isTableSourceField,
@@ -57,13 +64,15 @@ const MODIFY_BY_KEYS = new Set([
 ]);
 
 /** DynamicTable columns for field-builder defs only (no audit columns); shared by exams and vendors */
-export const buildFieldColumns = (fields = []) =>
+export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
   (fields || []).map((field, index) => {
     const userTagsField = isUserTagsField(field);
     // Assignee fields always store user id[]; force multiselect-shaped cells.
     const dataType = userTagsField ? 'multiselect' : toTableDataType(field);
     const isAuto = field.autoFill && field.autoFill !== 'none';
     const options = userTagsField ? [] : resolveFieldOptions(field);
+    const accentColor = resolveDateShiftFieldAccent(field, dateShifts);
+    const dateShiftCol = isDateShiftField(field);
     return {
       key: field.key,
       label: field.label || field.key,
@@ -71,7 +80,25 @@ export const buildFieldColumns = (fields = []) =>
       order: field.order ?? index + 1,
       visible: true,
       pinned: null,
-      width: dataType === 'date' || dataType === 'datetime' ? 150 : 180,
+      // Date×shift: always resolve from features.dateShifts template (per-shift / allDay / summary).
+      width: dateShiftCol
+        ? resolveDateShiftWidthForField(field, dateShifts)
+        : dataType === 'date' || dataType === 'datetime'
+          ? 150
+          : 180,
+      ...(dateShiftCol
+        ? {
+            dateShiftTemplate: true,
+            // Keep key recognizable even if dateShift meta was stripped.
+            dateShiftKind:
+              field?.dateShift?.kind ||
+              (isAllDayDateShiftField(field)
+                ? 'allDay'
+                : isSummaryDateShiftField(field)
+                  ? 'summary'
+                  : 'shift'),
+          }
+        : {}),
       // Linked / fromExam / combined / shared-from-another-tab values are display-only here.
       editable:
         !isAuto &&
@@ -99,12 +126,14 @@ export const buildFieldColumns = (fields = []) =>
       options: options.length ? options : undefined,
       formula: field.formula,
       resultType: dataType === 'formula' ? 'text' : undefined,
+      // All day / Summary accent from field.color or features.dateShifts.
+      ...(accentColor ? { accentColor } : {}),
     };
   });
 
 /** Build exam DynamicTable columns: builder fields plus the audit columns */
-export const buildExamTableColumns = (fields = []) => {
-  const dynamic = buildFieldColumns(fields);
+export const buildExamTableColumns = (fields = [], options = {}) => {
+  const dynamic = buildFieldColumns(fields, options);
 
   // Avoid duplicating if builder already defined these keys
   const keys = new Set(dynamic.map((c) => c.key));

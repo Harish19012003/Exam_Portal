@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
@@ -121,7 +121,10 @@ export const DashboardLayout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
   // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
-  const [breadcrumbTail, setBreadcrumbTail] = useState(null);
+  // The label is remembered together with the exam it belongs to, so switching sections of the same
+  // exam (which remounts the page) keeps the name on screen instead of flashing "Exam".
+  const [tailState, setTailState] = useState({ text: null, forId: null });
+  const setBreadcrumbTail = useCallback((text, forId = null) => setTailState({ text, forId }), []);
   // A page can portal its own control into the top bar (left of the clock).
   const [topbarSlot, setTopbarSlot] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -184,7 +187,9 @@ export const DashboardLayout = () => {
   const getBreadcrumb = () => {
     const path = location.pathname.replace(/\/$/, '');
     if (/^\/exams\/[^/]+(\/[^/]+)?$/.test(path)) {
-      return { label: 'Exams', icon: GraduationCap, to: '/exams', tail: breadcrumbTail || 'Exam' };
+      const pageExamId = examIdFromUrl(decodeURIComponent(path.split('/')[2]));
+      const tail = tailState.forId === pageExamId ? tailState.text : null;
+      return { label: 'Exams', icon: GraduationCap, to: '/exams', tail: tail || 'Exam' };
     }
     if (path === '/dashboard/exams' || path === '/exams') {
       return { label: 'Exams', icon: GraduationCap };

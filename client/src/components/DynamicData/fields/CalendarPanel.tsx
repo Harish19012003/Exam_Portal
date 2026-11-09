@@ -7,6 +7,8 @@ export interface CalendarPanelProps {
   viewMonth: Date;
   onViewMonthChange: (next: Date) => void;
   selectedDate: string;
+  /** Multi-select: highlights every key in the list; onSelectDate toggles a day ('' = clear all). */
+  selectedDates?: string[];
   onSelectDate: (dateKey: string) => void;
   isDarkMode: boolean;
   min?: string;
@@ -18,6 +20,7 @@ export function CalendarPanel({
   viewMonth,
   onViewMonthChange,
   selectedDate,
+  selectedDates,
   onSelectDate,
   isDarkMode,
   min,
@@ -70,7 +73,7 @@ export function CalendarPanel({
         {grid.map(({ date, inMonth }) => {
           const key = dateToKey(date);
           const disabled = !isDateInRange(key, min, max);
-          const isSelected = selectedDate === key;
+          const isSelected = selectedDates ? selectedDates.includes(key) : selectedDate === key;
           const isToday = todayKey === key;
 
           return (

@@ -14,7 +14,13 @@ export const queryKeys = {
     all: ['exams'],
     list: () => [...queryKeys.exams.all, 'list'],
     config: () => [...queryKeys.exams.all, 'config'],
-    rows: (examId) => [...queryKeys.exams.all, 'rows', String(examId || '')],
+    rows: (examId, page = 1, limit = 100) => [
+      ...queryKeys.exams.all,
+      'rows',
+      String(examId || ''),
+      Number(page) || 1,
+      Number(limit) || 100,
+    ],
     details: () => [...queryKeys.exams.all, 'detail'],
     detail: (examId) => [...queryKeys.exams.details(), String(examId || '')],
     table: (examId, view = 'center-list') => [

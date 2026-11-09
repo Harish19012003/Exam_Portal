@@ -163,7 +163,10 @@ export function DynamicDropdown({
         <div
           className={`${DYNAMIC_DROPDOWN_PORTAL_CLASS} fixed z-[9999]`}
           style={{
-            top: rect.bottom + 4,
+            // Flip above the trigger when there is not enough room below (e.g. table footers).
+            ...(window.innerHeight - rect.bottom < 270 && rect.top > window.innerHeight - rect.bottom
+              ? { bottom: window.innerHeight - rect.top + 4 }
+              : { top: rect.bottom + 4 }),
             left: Math.min(rect.left, window.innerWidth - Math.max(rect.width, minMenuWidth) - 16),
             width: Math.max(rect.width, minMenuWidth),
           }}

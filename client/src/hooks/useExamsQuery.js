@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queryKeys';
 import { listExams } from '../pages/exams/examApi';
 import { listExamRows } from '../pages/exams/examTableApi';
@@ -19,17 +19,39 @@ export const useExamTableConfig = (options = {}) =>
     ...options,
   });
 
-export const useExamRows = (examId, options = {}) =>
+/**
+ * Server-paginated center rows for one exam.
+ * Returns `{ rows, total, page, limit, totalPages }`.
+ */
+export const useExamRows = (examId, { page = 1, limit = 100, enabled, ...options } = {}) =>
   useQuery({
-    queryKey: queryKeys.exams.rows(examId),
+    queryKey: queryKeys.exams.rows(examId, page, limit),
     queryFn: async () => {
-      const data = await listExamRows(examId);
+      const data = await listExamRows(examId, { page, limit });
       if (Array.isArray(data)) {
-        return data;
+        return {
+          rows: data,
+          total: data.length,
+          page,
+          limit,
+          totalPages: Math.max(1, Math.ceil(data.length / limit) || 1),
+        };
       }
-      return Array.isArray(data?.rows) ? data.rows : [];
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      const total = Number(data?.total) || rows.length;
+      const resolvedLimit = Number(data?.limit) || limit;
+      const resolvedPage = Number(data?.page) || page;
+      return {
+        rows,
+        total,
+        page: resolvedPage,
+        limit: resolvedLimit,
+        totalPages:
+          Number(data?.totalPages) || Math.max(1, Math.ceil(total / resolvedLimit) || 1),
+      };
     },
-    enabled: Boolean(examId),
+    enabled: enabled !== undefined ? enabled : Boolean(examId),
+    placeholderData: keepPreviousData,
     ...options,
   });
 
@@ -48,7 +70,10 @@ export const useInvalidateExams = () => {
     [queryClient],
   );
   const invalidateRows = useCallback(
-    (examId) => queryClient.invalidateQueries({ queryKey: queryKeys.exams.rows(examId) }),
+    (examId) =>
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.exams.all, 'rows', String(examId || '')],
+      }),
     [queryClient],
   );
   const refetchList = useCallback(
@@ -63,11 +88,31 @@ export const useInvalidateExams = () => {
     },
     [queryClient],
   );
+  /** Patch the current page cache: updater receives/returns the rows array. */
   const setRows = useCallback(
-    (examId, updater) => {
-      queryClient.setQueryData(queryKeys.exams.rows(examId), (prev) =>
-        typeof updater === 'function' ? updater(prev || []) : updater,
-      );
+    (examId, updater, { page = 1, limit = 100 } = {}) => {
+      queryClient.setQueryData(queryKeys.exams.rows(examId, page, limit), (prev) => {
+        const base =
+          prev && !Array.isArray(prev)
+            ? prev
+            : {
+                rows: Array.isArray(prev) ? prev : [],
+                total: Array.isArray(prev) ? prev.length : 0,
+                page,
+                limit,
+                totalPages: 1,
+              };
+        const nextRows =
+          typeof updater === 'function' ? updater(base.rows || []) : updater;
+        const totalDelta = (nextRows?.length || 0) - (base.rows?.length || 0);
+        const total = Math.max(0, (Number(base.total) || 0) + totalDelta);
+        return {
+          ...base,
+          rows: nextRows,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / (base.limit || limit)) || 1),
+        };
+      });
     },
     [queryClient],
   );

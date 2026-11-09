@@ -32,6 +32,7 @@ const emptyForm = () => ({
   serviceValue: '',
   view: DEFAULT_EXAM_VIEW,
   fields: [],
+  features: {},
 });
 
 const pairKey = (serviceValue, view) =>
@@ -221,6 +222,10 @@ export const FieldPresetsPanel = ({
       serviceValue: preset.serviceValue,
       view: preset.view || DEFAULT_EXAM_VIEW,
       fields: preset.fields,
+      features:
+        preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
+          ? { ...preset.features }
+          : {},
     });
     setFormError('');
   };
@@ -246,6 +251,10 @@ export const FieldPresetsPanel = ({
         serviceValue: form.serviceValue,
         view: form.view,
         fields: form.fields,
+        features:
+          form.features != null && typeof form.features === 'object' && !Array.isArray(form.features)
+            ? form.features
+            : {},
       };
       if (form.id) await updateExamPreset(form.id, payload);
       else await createExamPreset(payload);
@@ -493,6 +502,23 @@ export const FieldPresetsPanel = ({
         }
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
+        dateShifts={
+          String(form?.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW
+            ? form?.features?.dateShifts || null
+            : null
+        }
+        onDateShiftsChange={
+          String(form?.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW
+            ? (dateShifts) =>
+                setForm((prev) => ({
+                  ...prev,
+                  features: {
+                    ...(prev?.features && typeof prev.features === 'object' ? prev.features : {}),
+                    dateShifts,
+                  },
+                }))
+            : null
+        }
         topSlot={
           form && (
             <div className="fpp-meta">

@@ -26,6 +26,7 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
   enableSettings: false,
   enableOpenDetail: true,
   defaultPageSize: 15,
+  headerTextWrap: 'wrap2',
   summaryChips: [],
   quickFilterFieldKeys: [],
   gridLines: {
@@ -38,7 +39,8 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
     showDelete: true,
     showExplore: true,
     showDuplicate: false,
-    width: 168,
+    widthPreset: 'default',
+    width: 132,
   },
 };
 

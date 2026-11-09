@@ -1,8 +1,22 @@
-import { useRef } from 'react';
-import { ChevronDown, Filter, Info, Pin, PinOff, GripVertical, X, Layers, Plus } from 'lucide-react';
-import { isFieldColumn, isCompositeColumn } from '../types';
-import type { ColumnConfig, DataRow, FilterValue, RowActionsConfig, SelectionColumnConfig, SortConfig } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  ArrowDown,
+  ArrowUp,
+  EyeOff,
+  Filter,
+  GripVertical,
+  Info,
+  Layers,
+  MoreVertical,
+  Pin,
+  Plus,
+  X,
+} from 'lucide-react';
+import { isFieldColumn, isCompositeColumn, resolveHeaderTextWrap } from '../types';
+import type { ColumnConfig, DataRow, FilterValue, HeaderTextWrap, RowActionsConfig, SelectionColumnConfig, SortConfig } from '../types';
 import { calculateAutoFitColumnWidth } from '../utils/textWidth';
+import { opaqueAccentBackground } from '../utils/tableTheme';
 
 interface TableHeaderProps {
   columns: ColumnConfig[];
@@ -14,11 +28,15 @@ interface TableHeaderProps {
   someRowsSelected: boolean;
   onSelectAll: () => void;
   onSort: (key: string, shiftKey: boolean) => void;
+  /** Explicit sort direction for the column ⋯ menu (avoids toggle cycling). */
+  onSetSortDirection?: (key: string, direction: 'asc' | 'desc' | null) => void;
   onOpenFilter: (key: string, rect: DOMRect) => void;
   onColumnWidthChange: (key: string, width: number) => void;
   onColumnReorder: (fromKey: string, toKey: string) => void;
   onPinColumn: (key: string, pin: 'left' | 'right' | null) => void;
   onDeleteCompositeColumn: (key: string) => void;
+  /** Hide this column (column picker / shift chips can show it again). */
+  onHideColumn?: (key: string) => void;
   dragColKey: string | null;
   setDragColKey: (k: string | null) => void;
   highlightedColKey?: string | null;
@@ -35,6 +53,8 @@ interface TableHeaderProps {
   onAddColumn?: () => void;
   enableSubRows?: boolean;
   isTransposed?: boolean;
+  /** Feature Builder: ellipsis (1 line) or wrap 2 / 3 lines. */
+  headerTextWrap?: HeaderTextWrap;
 }
 
 export function TableHeader({
@@ -47,11 +67,13 @@ export function TableHeader({
   someRowsSelected,
   onSelectAll,
   onSort,
+  onSetSortDirection,
   onOpenFilter,
   onColumnWidthChange,
   onColumnReorder,
   onPinColumn,
   onDeleteCompositeColumn,
+  onHideColumn,
   dragColKey,
   setDragColKey,
   highlightedColKey,
@@ -68,7 +90,16 @@ export function TableHeader({
   onAddColumn,
   enableSubRows = true,
   isTransposed = false,
+  headerTextWrap: headerTextWrapProp,
 }: TableHeaderProps) {
+  const headerTextWrap = resolveHeaderTextWrap(headerTextWrapProp);
+  const headerWraps = headerTextWrap !== 'ellipsis';
+  const headerLabelClass =
+    headerTextWrap === 'wrap3'
+      ? 'line-clamp-3 whitespace-normal break-words'
+      : headerTextWrap === 'wrap2'
+        ? 'line-clamp-2 whitespace-normal break-words'
+        : 'truncate whitespace-nowrap';
   const resizingRef = useRef<{
     key: string;
     startX: number;
@@ -80,6 +111,32 @@ export function TableHeader({
     startMinWidth: number;
   } | null>(null);
   const resizeRafRef = useRef<number | null>(null);
+  const [menuKey, setMenuKey] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuKey) return undefined;
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(`[data-col-menu-btn="${menuKey}"]`)) return;
+      setMenuKey(null);
+      setMenuPos(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuKey(null);
+        setMenuPos(null);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuKey]);
 
   const hasSelectionIcon = Boolean(selectionColumn?.iconName || selectionColumn?.renderIcon);
   const selectionMode = selectionColumn?.mode ?? (enableRowSelection ? (hasSelectionIcon ? 'checkbox-and-icon' : 'checkbox') : (hasSelectionIcon ? 'icon-only' : 'none'));
@@ -93,6 +150,14 @@ export function TableHeader({
   const resizeLineCls = isDarkMode
     ? 'bg-blue-400/70 group-hover/resize:bg-[var(--primary-color,#3b82f6)] group-active/resize:bg-[var(--primary-color,#3b82f6)]'
     : 'bg-violet-500/50 group-hover/resize:bg-[var(--primary-color,#5c43fa)] group-active/resize:bg-[var(--primary-color,#5c43fa)]';
+
+  const resolveAccent = (col: ColumnConfig) => {
+    const raw = String(col.accentColor || '').trim();
+    if (!/^#[0-9a-f]{6}$/i.test(raw)) return null;
+    const bg = opaqueAccentBackground(raw, isDarkMode, isDarkMode ? 0.34 : 0.18);
+    if (!bg) return null;
+    return { fg: raw, bg };
+  };
 
   const handleAutoFit = (e: React.MouseEvent, col: ColumnConfig) => {
     e.stopPropagation();
@@ -258,7 +323,23 @@ export function TableHeader({
 
   const hasFilter = (key: string) => Boolean(filters[key]);
 
+  const menuCol = menuKey ? columns.find((c) => c.key === menuKey) : null;
+  const menuSort = menuKey ? sort.find((s) => s.key === menuKey) : null;
+  const menuFiltered = menuKey ? hasFilter(menuKey) : false;
+  const menuItemCls = `flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium cursor-pointer transition-colors w-full text-left min-h-[36px]
+    ${isDarkMode
+      ? 'text-gray-300 hover:bg-gray-800 hover:text-white'
+      : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`;
+  const menuActiveCls = isDarkMode
+    ? 'bg-[rgba(59,130,246,0.15)] text-[var(--primary-color,#60a5fa)]'
+    : 'bg-[rgba(92,67,250,0.08)] text-[var(--primary-color,#5c43fa)]';
+  const closeMenu = () => {
+    setMenuKey(null);
+    setMenuPos(null);
+  };
+
   return (
+    <>
     <thead
       className={`${isTransposed ? '' : 'sticky top-0'} z-20 ${thBg}`}
       style={{ backgroundColor: thStyleBg, color: thStyleFg }}
@@ -325,11 +406,13 @@ export function TableHeader({
               : 'transition-[background-color,box-shadow,color] duration-300';
 
           const actualW = isHiding ? 0 : colWidth;
+          const accent = resolveAccent(col);
 
           return (
             <th
               key={col.key}
               data-col-key={col.key}
+              data-col-accent={accent ? '' : undefined}
               style={{
                 width: actualW,
                 minWidth: actualW,
@@ -337,16 +420,29 @@ export function TableHeader({
                 paddingLeft: isHiding ? 0 : undefined,
                 paddingRight: isHiding ? 0 : undefined,
                 opacity: isHiding ? 0 : 1,
-                backgroundColor: thStyleBg,
-                color: thStyleFg,
+                backgroundColor: accent?.bg || thStyleBg,
+                color: accent?.fg || thStyleFg,
+                ...(accent
+                  ? ({
+                      '--dt-col-accent': accent.fg,
+                      '--dt-col-accent-bg': accent.bg,
+                    } as React.CSSProperties)
+                  : null),
                 '--target-width': `${colWidth}px`,
-                ...(offset?.left !== undefined ? { position: 'sticky', left: offset.left, zIndex: 22 } : {}),
-                ...(offset?.right !== undefined ? { position: 'sticky', right: offset.right, zIndex: 22 } : {}),
+                ...(offset?.left !== undefined
+                  ? { position: 'sticky', left: offset.left, zIndex: accent ? 31 : 22 }
+                  : {}),
+                ...(offset?.right !== undefined
+                  ? { position: 'sticky', right: offset.right, zIndex: accent ? 31 : 22 }
+                  : {}),
               } as React.CSSProperties}
-              className={`${isHighlighted || isHiding ? '' : thBg} overflow-hidden whitespace-nowrap border-b ${borderCls} select-none relative group/th ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
+              className={`${isHighlighted || isHiding ? '' : thBg} overflow-hidden border-b ${borderCls} select-none relative group/th ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
+                ${headerWraps ? 'whitespace-normal' : 'whitespace-nowrap'}
                 ${isDragging ? 'opacity-40' : ''}
-                ${isLastLeftPinned ? 'shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}
-                ${isFirstRightPinned ? 'shadow-[-4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}`}
+                ${offset?.left !== undefined ? 'dt-sticky-th dt-sticky-th--left' : ''}
+                ${offset?.right !== undefined ? 'dt-sticky-th dt-sticky-th--right' : ''}
+                ${isLastLeftPinned && !accent ? 'shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}
+                ${isFirstRightPinned && !accent ? 'shadow-[-4px_0_12px_-4px_rgba(0,0,0,0.1)]' : ''}`}
               draggable={!isTransposed}
               onDragStart={e => {
                 if (isTransposed) return;
@@ -366,8 +462,8 @@ export function TableHeader({
               }}
               onDragEnd={() => setDragColKey(null)}
             >
-              <div className="flex items-center justify-between px-3 py-3 min-w-0 w-full h-full gap-2 relative">
-                <div className={`flex items-center gap-1 min-w-0 ${col.dataType === 'boolean' || col.dataType === 'checkbox' ? 'w-full justify-center pl-6' : ''}`}>
+              <div className={`flex px-1.5 py-3 min-w-0 w-full h-full relative ${headerWraps ? 'items-start' : 'items-center'} ${!isTransposed ? 'pl-3.5 pr-5' : ''}`}>
+                <div className={`flex gap-0.5 min-w-0 flex-1 ${headerWraps ? 'items-start' : 'items-center'} ${col.dataType === 'boolean' || col.dataType === 'checkbox' ? 'w-full justify-center pl-5' : ''}`}>
                   {!isTransposed && (
                     <GripVertical
                       className={`w-3 h-3 absolute left-0.5 opacity-0 group-hover/th:opacity-100 transition-opacity cursor-grab
@@ -375,20 +471,15 @@ export function TableHeader({
                       aria-hidden="true"
                     />
                   )}
-                  <button
-                    className={`flex items-center gap-1 min-w-0 max-w-full text-left transition-colors group/sort
+                  <div
+                    className={`flex gap-0.5 min-w-0 max-w-full text-left ${headerWraps ? 'items-start' : 'items-center'}
                       ${isSorted
                         ? (isDarkMode ? 'text-[var(--primary-color,#60a5fa)]' : 'text-[var(--primary-color,#5c43fa)]')
-                        : textCls}
-                      ${!isTransposed && isFieldColumn(col) && col.sortable !== false ? 'cursor-pointer hover:text-[var(--primary-color,#5c43fa)]' : 'cursor-default'}`}
-                    onClick={e => {
-                      if (!isTransposed && isFieldColumn(col) && col.sortable !== false) onSort(col.key, e.shiftKey);
-                    }}
-                    title={!isTransposed && isFieldColumn(col) && col.sortable !== false ? "Click to sort (Shift+click for multiple)" : undefined}
+                        : textCls}`}
+                    title={col.label}
                     aria-sort={isSorted ? (sort.find(s => s.key === col.key)?.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    aria-label={`${col.label}${!isTransposed && isFieldColumn(col) && col.sortable !== false ? ' — click to sort, shift-click for multi-sort' : ''}`}
                   >
-                    <span className="text-[12px] font-bold uppercase tracking-wide truncate">
+                    <span className={`text-[12px] font-bold uppercase tracking-wide ${headerLabelClass}`}>
                       {col.label}
                     </span>
                     {col.description && (
@@ -400,98 +491,74 @@ export function TableHeader({
                       </span>
                     )}
                     {!isTransposed && sortIcon && (
-                      <span className="text-[11px] font-bold flex-shrink-0 leading-none">
+                      <span className="text-[11px] font-bold flex-shrink-0 leading-none" aria-hidden="true">
                         {sortIcon}
                         {sortIdx && <sup className="text-[9px]">{sortIdx}</sup>}
                       </span>
                     )}
-                    {!isTransposed && isFieldColumn(col) && col.sortable !== false && !isSorted && (
-                      <ChevronDown
-                        className="w-3 h-3 flex-shrink-0 hidden group-hover/sort:block opacity-60"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {/* Filter icon */}
-                  {!isTransposed && isFieldColumn(col) && col.filterable !== false && (
-                    <button
-                      onClick={e => {
-                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        onOpenFilter(col.key, rect);
-                      }}
-                      className={`flex-shrink-0 p-1 rounded transition-colors relative
-                        ${isFiltered
-                          ? 'flex text-[var(--primary-color,#5c43fa)]'
-                          : (isDarkMode
-                            ? 'hidden group-hover/th:flex text-gray-400 hover:text-blue-300'
-                            : 'hidden group-hover/th:flex text-gray-400 hover:text-[var(--primary-color,#5c43fa)]')}`}
-                      aria-label={`Filter ${col.label}${isFiltered ? ' (active)' : ''}`}
-                      aria-pressed={isFiltered}
-                    >
-                      <Filter className="w-3 h-3" aria-hidden="true" />
-                      {isFiltered && (
-                        <span
-                          className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--primary-color,#5c43fa)]"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </button>
-                  )}
-
-                  {/* Pin toggle */}
-                  {!isTransposed && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (col.pinned) {
-                        onPinColumn(col.key, null);
-                      } else {
-                        onPinColumn(col.key, 'left');
-                      }
-                    }}
-                    className={`flex-shrink-0 p-1 rounded transition-colors
-                      ${col.pinned 
-                        ? (isDarkMode
-                            ? 'flex text-[var(--primary-color,#60a5fa)] hover:bg-[rgba(59,130,246,0.15)]'
-                            : 'flex text-[var(--primary-color,#5c43fa)] hover:bg-[rgba(92,67,250,0.1)]') 
-                        : (isDarkMode ? 'hidden group-hover/th:flex text-gray-400 hover:text-blue-300' : 'hidden group-hover/th:flex text-gray-400 hover:text-[var(--primary-color,#5c43fa)]')}`}
-                    title={col.pinned ? "Unpin column" : "Pin column"}
-                    aria-label={col.pinned ? "Unpin column" : "Pin column"}
-                  >
-                    {col.pinned ? (
-                      <PinOff className="w-3.5 h-3.5" aria-hidden="true" />
-                    ) : (
-                      <Pin className="w-3.5 h-3.5" aria-hidden="true" />
-                    )}
-                  </button>
-                  )}
-
-                  {/* Composite badge + ungroup button */}
-                  {!isTransposed && isCompositeColumn(col) && (
-                    <>
+                    {!isTransposed && isCompositeColumn(col) && (
                       <span
-                        className={`flex-shrink-0 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded
+                        className={`flex-shrink-0 flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded
                           ${isDarkMode ? 'bg-indigo-900/40 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}
                         title={`Group: ${col.composedOf.map(p => p.field).join(', ')}`}
                       >
                         <Layers className="w-2.5 h-2.5" aria-hidden="true" />
                         {col.composedOf.length}
                       </span>
-                      <button
-                        onClick={e => { e.stopPropagation(); onDeleteCompositeColumn(col.key); }}
-                        className={`flex-shrink-0 p-1 rounded hidden group-hover/th:flex
-                          ${isDarkMode ? 'text-gray-400 hover:text-red-400 hover:bg-red-900/20' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'}`}
-                        title="Ungroup — restores individual columns"
-                        aria-label={`Ungroup ${col.label}`}
-                      >
-                        <X className="w-3 h-3" aria-hidden="true" />
-                      </button>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </div>
+
+                {!isTransposed && (() => {
+                  const menuActive = isSorted || isFiltered || Boolean(col.pinned);
+                  const menuOpen = menuKey === col.key;
+                  return (
+                    <button
+                      type="button"
+                      data-col-menu-btn={col.key}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (menuOpen) {
+                          setMenuKey(null);
+                          setMenuPos(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        const width = 200;
+                        const left = Math.min(
+                          Math.max(8, rect.right - width),
+                          window.innerWidth - width - 8,
+                        );
+                        const top = Math.min(rect.bottom + 4, window.innerHeight - 280);
+                        setMenuPos({ top, left });
+                        setMenuKey(col.key);
+                      }}
+                      className={`absolute top-1/2 right-1 -translate-y-1/2 z-[1] flex items-center justify-center w-4 h-4 rounded transition-opacity
+                        ${menuOpen || menuActive
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover/th:opacity-100 [@media(hover:none)]:opacity-100'}
+                        ${menuActive || menuOpen
+                          ? (isDarkMode
+                              ? 'text-[var(--primary-color,#60a5fa)]'
+                              : 'text-[var(--primary-color,#5c43fa)]')
+                          : (isDarkMode
+                              ? 'text-gray-400 hover:text-blue-300'
+                              : 'text-gray-500 hover:text-[var(--primary-color,#5c43fa)]')}`}
+                      title={`Column options for ${col.label}`}
+                      aria-label={`Column options for ${col.label}`}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                    >
+                      <MoreVertical className="w-3 h-3" aria-hidden="true" />
+                      {menuActive && (
+                        <span
+                          className="absolute -top-0.5 -right-0.5 w-1 h-1 rounded-full bg-[var(--primary-color,#5c43fa)]"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </button>
+                  );
+                })()}
               </div>
 
               {resizeHandle(col.key, {
@@ -562,6 +629,145 @@ export function TableHeader({
         )}
       </tr>
     </thead>
+    {menuCol && menuPos && createPortal(
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label={`Options for ${menuCol.label}`}
+        style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 10000 }}
+        className={`min-w-[200px] max-w-[min(92vw,240px)] rounded-xl border shadow-xl py-1 px-1
+          ${isDarkMode ? 'bg-gray-900 border-gray-700/80 shadow-black/40' : 'bg-white border-gray-200 shadow-gray-200/80'}`}
+      >
+        <div className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider truncate
+          ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+          {menuCol.label}
+        </div>
+
+        {isFieldColumn(menuCol) && menuCol.sortable !== false && (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              className={`${menuItemCls} ${menuSort?.direction === 'asc' ? menuActiveCls : ''}`}
+              onClick={() => {
+                closeMenu();
+                if (onSetSortDirection) onSetSortDirection(menuCol.key, 'asc');
+                else if (menuSort?.direction !== 'asc') onSort(menuCol.key, false);
+              }}
+            >
+              <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" />
+              Sort ascending
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={`${menuItemCls} ${menuSort?.direction === 'desc' ? menuActiveCls : ''}`}
+              onClick={() => {
+                closeMenu();
+                if (onSetSortDirection) onSetSortDirection(menuCol.key, 'desc');
+                else if (menuSort?.direction === 'asc') onSort(menuCol.key, false);
+                else if (!menuSort) {
+                  onSort(menuCol.key, false);
+                  onSort(menuCol.key, false);
+                }
+              }}
+            >
+              <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
+              Sort descending
+            </button>
+            {menuSort && (
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItemCls}
+                onClick={() => {
+                  closeMenu();
+                  if (onSetSortDirection) onSetSortDirection(menuCol.key, null);
+                  else onSort(menuCol.key, false);
+                }}
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+                Clear sort
+              </button>
+            )}
+          </>
+        )}
+
+        {isFieldColumn(menuCol) && menuCol.filterable !== false && (
+          <button
+            type="button"
+            role="menuitem"
+            className={`${menuItemCls} ${menuFiltered ? menuActiveCls : ''}`}
+            onClick={() => {
+              const btn = document.querySelector(`[data-col-menu-btn="${menuCol.key}"]`) as HTMLElement | null;
+              const rect = btn?.getBoundingClientRect() || new DOMRect(menuPos.left, menuPos.top, 0, 0);
+              closeMenu();
+              onOpenFilter(menuCol.key, rect);
+            }}
+          >
+            <Filter className="w-3.5 h-3.5" aria-hidden="true" />
+            {menuFiltered ? 'Edit filter' : 'Filter…'}
+          </button>
+        )}
+
+        <button
+          type="button"
+          role="menuitem"
+          className={`${menuItemCls} ${menuCol.pinned === 'left' ? menuActiveCls : ''}`}
+          onClick={() => {
+            closeMenu();
+            onPinColumn(menuCol.key, menuCol.pinned === 'left' ? null : 'left');
+          }}
+        >
+          <Pin className="w-3.5 h-3.5" aria-hidden="true" />
+          {menuCol.pinned === 'left' ? 'Unpin' : 'Pin left'}
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          className={`${menuItemCls} ${menuCol.pinned === 'right' ? menuActiveCls : ''}`}
+          onClick={() => {
+            closeMenu();
+            onPinColumn(menuCol.key, menuCol.pinned === 'right' ? null : 'right');
+          }}
+        >
+          <Pin className="w-3.5 h-3.5 rotate-45" aria-hidden="true" />
+          {menuCol.pinned === 'right' ? 'Unpin' : 'Pin right'}
+        </button>
+
+        {isCompositeColumn(menuCol) && (
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemCls}
+            onClick={() => {
+              closeMenu();
+              onDeleteCompositeColumn(menuCol.key);
+            }}
+          >
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+            Ungroup columns
+          </button>
+        )}
+
+        {onHideColumn && (
+          <button
+            type="button"
+            role="menuitem"
+            className={`${menuItemCls} ${isDarkMode ? 'text-red-400 hover:bg-red-900/30' : 'text-red-600 hover:bg-red-50'}`}
+            onClick={() => {
+              closeMenu();
+              onHideColumn(menuCol.key);
+            }}
+          >
+            <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
+            Hide column
+          </button>
+        )}
+      </div>,
+      document.body,
+    )}
+    </>
   );
 }
 

@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { FeatureBuilderPanel, SectionLabel, ToggleRow } from '../../DynamicData/FeatureBuilderParts';
-import { Check, Palette, X, Table, Rows3, SlidersHorizontal, Layers, Columns, GripVertical, Settings, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { Check, Palette, X, Table, Rows3, SlidersHorizontal, Layers, Columns, GripVertical, Settings, ChevronDown, Plus, Trash2, Type } from 'lucide-react';
 import {
   type FirstColumnElementKey,
 } from '../hooks/useTableFeatureConfig';
-import type { ColumnConfig, CustomIconElement, CustomRowActionButton, DetailViewMode, GridLinesConfig, RowActionType, SummaryChipConfig, TableColorSet, TableColorsConfig, TableFeaturesConfig } from '../types';
+import type { ActionsColumnWidthPreset, ColumnConfig, CustomIconElement, CustomRowActionButton, DetailViewMode, GridLinesConfig, HeaderTextWrap, RowActionType, SummaryChipConfig, TableColorSet, TableColorsConfig, TableFeaturesConfig } from '../types';
 import { TABLE_COLOR_PRESETS } from '../utils/tableColors';
-import { DEFAULT_PAGE_SIZE, GRID_LINE_MAX_PX, GRID_LINE_MIN_PX, PAGE_SIZE_OPTIONS, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, resolveGridLines } from '../types';
+import { ACTIONS_COLUMN_WIDTH_OPTIONS, ACTIONS_COLUMN_WIDTH_PRESETS, DEFAULT_PAGE_SIZE, GRID_LINE_MAX_PX, GRID_LINE_MIN_PX, HEADER_TEXT_WRAP_OPTIONS, PAGE_SIZE_OPTIONS, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, resolveActionsColumnWidthPreset, resolveGridLines, resolveHeaderTextWrap } from '../types';
 import { getTableFeatureItemsForSection, FEATURE_SECTION_FIND, FEATURE_SECTION_SUMMARIZE, FEATURE_SECTION_CHROME, FEATURE_SECTION_INTERACT, FEATURE_SECTION_STRUCTURE } from '../../DynamicData/viewFeatures';
 import type { FeatureScope } from '../../DynamicData/viewFeatures';
 import { SummaryChipsEditor } from '../../DynamicData/SummaryChipsEditor';
@@ -345,12 +345,15 @@ interface ConstructionSidebarProps {
   onPatchGridLines?: (patch: GridLinesConfig) => void;
   onSetRowHeight?: (px: number) => void;
   onSetDefaultPageSize?: (rows: number) => void;
+  onSetHeaderTextWrap?: (mode: HeaderTextWrap) => void;
   onPatchTableColors?: (patch: TableColorsConfig) => void;
   onPatchRowActions?: (patch: {
     showExplore?: boolean;
     showDuplicate?: boolean;
     showEdit?: boolean;
     showDelete?: boolean;
+    widthPreset?: ActionsColumnWidthPreset;
+    width?: number;
   }) => void;
 }
 
@@ -839,8 +842,18 @@ export function ConstructionSidebar({
   onPatchGridLines,
   onSetRowHeight,
   onSetDefaultPageSize,
+  onSetHeaderTextWrap,
   onPatchTableColors,
 }: ConstructionSidebarProps) {
+  const headerTextWrap = resolveHeaderTextWrap(customFeatures.headerTextWrap);
+  const actionsWidthPreset = resolveActionsColumnWidthPreset(
+    customFeatures.rowActions?.widthPreset ??
+      (Number(customFeatures.rowActions?.width) >= 160
+        ? 'comfortable'
+        : Number(customFeatures.rowActions?.width) <= 110
+          ? 'compact'
+          : 'default'),
+  );
   const [draggedKey, setDraggedKey] = useState<FirstColumnElementKey | null>(null);
 
   const hasCheckbox = Boolean(customFeatures.enableRowSelection);
@@ -1191,6 +1204,45 @@ export function ConstructionSidebar({
                 isDarkMode={isDarkMode}
               >
                 <div className="flex flex-col gap-3 py-1">
+                  {/* Actions column width */}
+                  <div className="flex flex-col gap-2 pb-2 border-b border-dashed border-gray-700/30">
+                    <LabelWithInfo
+                      label="Actions column width"
+                      info="Width of the sticky Actions column. Compact saves space when only Edit and Delete are shown."
+                      isDarkMode={isDarkMode}
+                      labelClassName="text-xs font-semibold"
+                    />
+                    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Actions column width">
+                      {ACTIONS_COLUMN_WIDTH_OPTIONS.map((opt) => {
+                        const active = actionsWidthPreset === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            title={opt.hint}
+                            onClick={() =>
+                              onPatchRowActions?.({
+                                widthPreset: opt.value,
+                                width: ACTIONS_COLUMN_WIDTH_PRESETS[opt.value],
+                              })
+                            }
+                            className={`min-h-[32px] min-w-[44px] rounded-lg border px-2.5 text-[11px] font-bold transition-colors ${
+                              active
+                                ? 'border-[#13C296] bg-[#13C296] text-white'
+                                : isDarkMode
+                                  ? 'border-gray-700 bg-gray-800/80 text-gray-200 hover:border-[#13C296]'
+                                  : 'border-gray-300 bg-white text-gray-700 hover:border-[#13C296]'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Always Visible Toggle */}
                   <div className="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-gray-700/30">
                     <LabelWithInfo
@@ -1514,6 +1566,47 @@ export function ConstructionSidebar({
                       }`}
                     >
                       {size}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          {/* Header label overflow — ellipsis or wrap 2 / 3 lines */}
+          <section className="space-y-2">
+            <SectionLabel icon={Type} isDarkMode={isDarkMode}>Header Text</SectionLabel>
+            <div
+              className={`flex flex-col gap-2.5 rounded-xl border px-3.5 py-3 ${
+                isDarkMode ? 'border-gray-800 bg-gray-800/40 text-gray-300' : 'border-gray-200 bg-white text-gray-700'
+              }`}
+            >
+              <span className="text-[12.5px] font-medium">
+                Column header labels
+                <span className="block text-[11px] font-normal text-gray-400">
+                  When a header is wider than its column: ellipsis on one line, or wrap then clip.
+                </span>
+              </span>
+              <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Header text wrap">
+                {HEADER_TEXT_WRAP_OPTIONS.map((opt) => {
+                  const active = headerTextWrap === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      title={opt.hint}
+                      onClick={() => onSetHeaderTextWrap?.(opt.value)}
+                      className={`min-h-[36px] min-w-[44px] rounded-lg border px-3 text-xs font-bold transition-colors ${
+                        active
+                          ? 'border-[#13C296] bg-[#13C296] text-white'
+                          : isDarkMode
+                            ? 'border-gray-700 bg-gray-800/80 text-gray-200 hover:border-[#13C296]'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-[#13C296]'
+                      }`}
+                    >
+                      {opt.label}
                     </button>
                   );
                 })}

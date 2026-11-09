@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useState, useMemo, useRef, type MutableRefObject } from 'react';
 // Dynamic Table Root Component
 
 import { ChevronDown, ChevronUp, Copy } from 'lucide-react';
@@ -56,9 +56,9 @@ import { IconPickerModal } from '../IconPicker';
 import { useTableFeatureConfig } from './hooks/useTableFeatureConfig';
 
 
-import type { ColumnConfig, RowData, TableFeaturesConfig, DataRow, FilterValue } from './types';
+import type { ColumnConfig, RowActionsConfig, RowData, TableFeaturesConfig, DataRow, FilterValue } from './types';
 import { resolveTableColors, tableColorStyle } from './utils/tableColors';
-import { DEFAULT_FEATURES, PAGE_SIZE_OPTIONS, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, lineColorValue, resolveGridLines } from './types';
+import { DEFAULT_FEATURES, PAGE_SIZE_OPTIONS, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, lineColorValue, resolveActionsColumnWidthPx, resolveGridLines, resolveHeaderTextWrap } from './types';
 
 interface DynamicTableProps {
   isDarkMode: boolean;
@@ -130,6 +130,29 @@ interface DynamicTableProps {
    * omitted keys are allowed. Column-level view/edit is applied by the page via column `editable`.
    */
   permissions?: TablePermissions;
+  /**
+   * Server-driven pagination. When set, `initialRows` is one page from the API —
+   * the footer pages against `totalRowCount` and calls these handlers (no client slice).
+   */
+  serverPagination?: {
+    totalRowCount: number;
+    page: number;
+    pageSize: number;
+    onPageChange: (page: number) => void;
+    onPageSizeChange: (pageSize: number) => void;
+  };
+  /**
+   * Optional handle for pages that bulk-toggle column visibility
+   * (e.g. Center list shift chips). Always reads live table state.
+   */
+  visibilityApiRef?: MutableRefObject<DynamicTableVisibilityApi | null>;
+  /** Fired after `visibilityApiRef.current` is attached (and cleared on unmount). */
+  onVisibilityApiReady?: () => void;
+}
+
+export interface DynamicTableVisibilityApi {
+  getVisibility: () => Record<string, boolean>;
+  patchVisibility: (patch: Record<string, boolean>) => void;
 }
 
 export interface TablePermissions {
@@ -173,6 +196,9 @@ export function DynamicTable({
   onDuplicateRow: onDuplicateRowProp,
   showAddRow,
   permissions,
+  serverPagination,
+  visibilityApiRef,
+  onVisibilityApiReady,
 }: DynamicTableProps) {
   const allow = (key: keyof TablePermissions) => permissions?.[key] !== false;
   const onImportRows = allow('import') ? onImportRowsProp : undefined;
@@ -185,11 +211,49 @@ export function DynamicTable({
     return base;
   }, [features, showAddRow]);
 
+  const resolvedInitialColumns = initialColumns ?? COLUMN_CONFIG;
   const state = useTableState(
-    initialColumns ?? COLUMN_CONFIG,
+    resolvedInitialColumns,
     (initialRows as DataRow[]) ?? MOCK_ROWS,
     { tableId, shareState, layoutPrefs, defaultDensity, onLayoutPrefsChange, onRowUpdate, onRowDelete, onDeleteRowRequest, onBulkUpdate, onRefresh },
   );
+
+  /**
+   * Date×shift template px must always win over layoutPrefs / local resize cache.
+   * Parent `initialColumns` win last — stale state.columns must not clobber them.
+   */
+  const effectiveColumnWidths = useMemo(() => {
+    const next = { ...state.columnWidths };
+    const applyTemplate = (cols: typeof resolvedInitialColumns) => {
+      (cols || []).forEach((c) => {
+        const isDs =
+          Boolean((c as { dateShiftTemplate?: boolean }).dateShiftTemplate) ||
+          String(c.key || '').toLowerCase().startsWith('ds_');
+        if (!isDs || !c.width) return;
+        next[c.key] = c.width;
+      });
+    };
+    applyTemplate(state.columns);
+    applyTemplate(resolvedInitialColumns);
+    return next;
+  }, [state.columnWidths, state.columns, resolvedInitialColumns]);
+
+  const columnVisibilityLiveRef = useRef(state.columnVisibility);
+  columnVisibilityLiveRef.current = state.columnVisibility;
+  const onVisibilityApiReadyRef = useRef(onVisibilityApiReady);
+  onVisibilityApiReadyRef.current = onVisibilityApiReady;
+  useEffect(() => {
+    if (!visibilityApiRef) return undefined;
+    visibilityApiRef.current = {
+      getVisibility: () => columnVisibilityLiveRef.current || {},
+      patchVisibility: (patch) => state.handlePatchColumnVisibility(patch),
+    };
+    onVisibilityApiReadyRef.current?.();
+    return () => {
+      visibilityApiRef.current = null;
+    };
+  }, [visibilityApiRef, state.handlePatchColumnVisibility]);
+
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -349,6 +413,10 @@ export function DynamicTable({
   const defaultPageSize = Number(activeFeatures.defaultPageSize);
   useEffect(() => {
     if (!(PAGE_SIZE_OPTIONS as readonly number[]).includes(defaultPageSize)) return;
+    if (serverPagination) {
+      serverPagination.onPageSizeChange(defaultPageSize);
+      return;
+    }
     state.setPageSize(defaultPageSize);
     state.setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -442,6 +510,11 @@ export function DynamicTable({
     if (quickFiltersStore.enabled) quickFiltersStore.clearValues();
   }, [state.handleClearAll, quickFiltersStore]);
 
+  const page = serverPagination?.page ?? state.page;
+  const pageSize = serverPagination?.pageSize ?? state.pageSize;
+  const handlePageChange = serverPagination?.onPageChange ?? state.setPage;
+  const handlePageSizeChange = serverPagination?.onPageSizeChange ?? state.setPageSize;
+
   const { filteredRows, paginatedRows, filteredCount, totalCount, totalPages, aggregations } =
     useProcessedRows(
       state.rows,
@@ -449,9 +522,10 @@ export function DynamicTable({
       mergedFilters,
       state.sort,
       state.search,
-      state.page,
-      state.pageSize,
+      page,
+      pageSize,
       state.columnVisibility,
+      serverPagination ? serverPagination.totalRowCount : null,
     );
 
   const customRowHeight = Number(activeFeatures.rowHeight) || 0;
@@ -534,7 +608,7 @@ export function DynamicTable({
       columnOrder: targetColumnOrder,
       columnVisibility: featureConfig.isTransposed ? {} : state.columnVisibility,
       transitioningCols: state.transitioningCols,
-      columnWidths: state.columnWidths,
+      columnWidths: effectiveColumnWidths,
       enableRowSelection: featureConfig.isTransposed ? false : activeFeatures.enableRowSelection,
       enableActionsColumn: featureConfig.isTransposed ? false : activeFeatures.enableActionsColumn,
       enableAddColumn: featureConfig.isTransposed ? false : activeFeatures.enableAddColumn,
@@ -595,6 +669,24 @@ export function DynamicTable({
     state.setContextMenu(null);
   }, [onEditRow, state.rows, state.contextMenu, state.setEditingRowIds, state.setEditingCell, state.setContextMenu]);
 
+  const handlePatchRowActions = useCallback(
+    (patch: Partial<RowActionsConfig>) => {
+      featureConfig.patchRowActions(patch);
+      if (patch.widthPreset != null || patch.width != null) {
+        const nextW = resolveActionsColumnWidthPx({
+          ...featureConfig.customFeatures.rowActions,
+          ...patch,
+        });
+        state.handleColumnWidthChange('__actions', nextW);
+      }
+    },
+    [
+      featureConfig.patchRowActions,
+      featureConfig.customFeatures.rowActions,
+      state.handleColumnWidthChange,
+    ],
+  );
+
   const handleCopyCalculations = () => {
     const text = buildCalculationsClipboardText(state.columns, aggregations);
     if (text) {
@@ -630,7 +722,7 @@ export function DynamicTable({
     focusedCell: state.focusedCell,
     scrollWrapperRef,
     visibleColumns,
-    columnWidths: state.columnWidths,
+    columnWidths: effectiveColumnWidths,
     checkboxWidth: CHECKBOX_WIDTH,
     actionsWidth: ACTIONS_WIDTH,
   });
@@ -760,8 +852,10 @@ export function DynamicTable({
               ['--dt-v-width' as string]: `${gridLines.vertical.show ? gridLines.vertical.width : 0}px`,
               ['--dt-h-color' as string]: lineColorValue(gridLines.horizontal, isDarkMode),
               ['--dt-v-color' as string]: lineColorValue(gridLines.vertical, isDarkMode),
+              // Exact px sum — avoid width:100% with table-layout:fixed, which stretches
+              // columns past template / reset widths when the viewport is wider.
+              width: totalWidth,
               minWidth: totalWidth,
-              width: '100%',
               height: '100%',
               borderCollapse: 'separate',
               borderSpacing: 0,
@@ -770,10 +864,23 @@ export function DynamicTable({
             role="grid"
             aria-label="Data table"
           >
+            <colgroup>
+              {CHECKBOX_WIDTH > 0 ? <col style={{ width: CHECKBOX_WIDTH }} /> : null}
+              {displayColumns.map((col) => {
+                const w = effectiveColumnWidths[col.key] ?? col.width ?? 180;
+                return <col key={`col-${col.key}`} style={{ width: w }} />;
+              })}
+              {activeFeatures.enableAddColumn && !featureConfig.isTransposed ? (
+                <col style={{ width: 44 }} />
+              ) : null}
+              {ACTIONS_WIDTH > 0 && !featureConfig.isTransposed ? (
+                <col style={{ width: ACTIONS_WIDTH }} />
+              ) : null}
+            </colgroup>
             {!featureConfig.isTransposed && (
               <TableHeader
                 columns={displayColumns}
-                columnWidths={state.columnWidths}
+                columnWidths={effectiveColumnWidths}
                 stickyOffsets={stickyOffsets}
                 sort={state.sort}
                 filters={displayFilters}
@@ -781,11 +888,13 @@ export function DynamicTable({
                 someRowsSelected={someSelected}
                 onSelectAll={() => state.handleSelectAll(allRowIds)}
                 onSort={state.handleSort}
+                onSetSortDirection={state.handleSetSortDirection}
                 onOpenFilter={handleOpenFilter}
                 onColumnWidthChange={state.handleColumnWidthChange}
                 onColumnReorder={state.handleColumnReorder}
                 onPinColumn={handlePinColumn}
                 onDeleteCompositeColumn={state.handleDeleteCompositeColumn}
+                onHideColumn={(key) => state.handlePatchColumnVisibility({ [key]: false })}
                 dragColKey={state.dragColKey}
                 setDragColKey={state.setDragColKey}
                 highlightedColKey={state.highlightedColKey}
@@ -800,6 +909,7 @@ export function DynamicTable({
                 checkboxWidth={CHECKBOX_WIDTH}
                 actionsWidth={ACTIONS_WIDTH}
                 rows={state.rows}
+                headerTextWrap={resolveHeaderTextWrap(activeFeatures.headerTextWrap)}
                 onAddColumn={() => {
                   state.setActiveSidebar('columns');
                   state.setOpenFilterKey(null);
@@ -827,7 +937,7 @@ export function DynamicTable({
                       rowHeight={rowHeight}
                       visibleColumns={displayColumns}
                       allColumns={state.columns}
-                      columnWidths={state.columnWidths}
+                      columnWidths={effectiveColumnWidths}
                       stickyOffsets={stickyOffsets}
                       transitioningCols={state.transitioningCols}
                       highlightedColKey={state.highlightedColKey}
@@ -1047,7 +1157,7 @@ export function DynamicTable({
                       <AggregationFooterCell
                         key={`footer-${col.key}`}
                         col={col}
-                        columnWidth={state.columnWidths[col.key] ?? col.width}
+                        columnWidth={effectiveColumnWidths[col.key] ?? col.width}
                         stickyStyle={stickyStyle}
                         pinnedBg={theme.bgPinnedFooter}
                         isPinned={isLeftPinned || isRightPinned}
@@ -1123,13 +1233,13 @@ export function DynamicTable({
         )}
 
         <TableFooter
-          page={state.page}
-          pageSize={state.pageSize}
+          page={page}
+          pageSize={pageSize}
           totalPages={totalPages}
           filteredCount={filteredCount}
           totalCount={totalCount}
-          onPageChange={state.setPage}
-          onPageSizeChange={state.setPageSize}
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
           isDarkMode={isDarkMode}
           selectedCount={state.selectedRows.size}
         />
@@ -1231,10 +1341,11 @@ export function DynamicTable({
           }
           isSavingFeatures={isSavingFeatures}
           featuresDirty={featuresDirty}
-          onPatchRowActions={featureConfig.patchRowActions}
+          onPatchRowActions={handlePatchRowActions}
           onPatchGridLines={featureConfig.patchGridLines}
           onSetRowHeight={featureConfig.setRowHeight}
           onSetDefaultPageSize={featureConfig.setDefaultPageSize}
+          onSetHeaderTextWrap={featureConfig.setHeaderTextWrap}
           onPatchTableColors={featureConfig.patchTableColors}
         />
       )}
@@ -1335,7 +1446,7 @@ export function DynamicTable({
                   onSaveLayoutAsDefault({
                     columnOrder: state.columnOrder,
                     columnVisibility: state.columnVisibility,
-                    columnWidths: state.columnWidths,
+                    columnWidths: effectiveColumnWidths,
                     density: state.density,
                   })
               : undefined

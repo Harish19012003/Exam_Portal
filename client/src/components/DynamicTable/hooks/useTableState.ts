@@ -30,6 +30,13 @@ const sanitizeColumns = (cols: ColumnConfig[]): ColumnConfig[] => {
   }));
 };
 
+/** Date × shift columns — template px from features.dateShifts. */
+const isDateShiftColumn = (col: { key?: string; dateShiftTemplate?: boolean } | string) => {
+  if (typeof col === 'string') return String(col || '').toLowerCase().startsWith('ds_');
+  if (col?.dateShiftTemplate) return true;
+  return String(col?.key || '').toLowerCase().startsWith('ds_');
+};
+
 const resolveLayoutSeed = (
   cols: ColumnConfig[],
   serverLayout?: TablePrefs | null,
@@ -66,10 +73,23 @@ const resolveLayoutSeed = (
   }
   if (!density) density = defaultDensity;
 
+  // Layout prefs for normal columns; date×shift template `width` always wins.
+  const preferredWidths = preferred.columnWidths || {};
+  const columnWidths: Record<string, number> = {};
+  cols.forEach((c) => {
+    if (isDateShiftColumn(c) && c.width) {
+      columnWidths[c.key] = c.width;
+    } else if (preferredWidths[c.key] != null) {
+      columnWidths[c.key] = preferredWidths[c.key];
+    } else if (c.width) {
+      columnWidths[c.key] = c.width;
+    }
+  });
+
   return {
     columnOrder: mergeColumnOrder(keys, preferred.columnOrder),
     columnVisibility: mergeColumnVisibility(keys, schemaVisibility, preferred.columnVisibility),
-    columnWidths: { ...(preferred.columnWidths || {}) },
+    columnWidths,
     density,
   };
 };
@@ -196,7 +216,14 @@ export function useTableState(
     setColumns(cleanCols);
     setColumnOrder(seed.columnOrder);
     setColumnVisibility(seed.columnVisibility);
-    setColumnWidths((prev) => ({ ...seed.columnWidths, ...prev }));
+    setColumnWidths((prev) => {
+      const next = { ...seed.columnWidths, ...prev };
+      // Date×shift template px always win over stale layout / previous state.
+      cleanCols.forEach((c) => {
+        if (isDateShiftColumn(c) && c.width) next[c.key] = c.width;
+      });
+      return next;
+    });
     if (seed.density) setDensity(seed.density);
     setSort([]);
     setFilters({});
@@ -219,6 +246,44 @@ export function useTableState(
     }
     setRows(sanitizeRows(initialRows));
   }, [initialRows]);
+
+  // Soft-sync accent + date×shift template widths without resetting chrome.
+  useEffect(() => {
+    setColumns((prev) => {
+      let changed = false;
+      const next = prev.map((c) => {
+        const src = initialColumns.find((ic) => ic.key === c.key);
+        const accent = src?.accentColor || undefined;
+        const width = src?.width;
+        let col = c;
+        if ((c.accentColor || undefined) !== accent) {
+          col = { ...col, accentColor: accent };
+          changed = true;
+        }
+        if (isDateShiftColumn(src || c) && width && c.width !== width) {
+          col = col === c ? { ...c, width } : { ...col, width };
+          changed = true;
+        }
+        return col;
+      });
+      return changed ? next : prev;
+    });
+
+    // Template save wins: always adopt date×shift widths from initialColumns.
+    setColumnWidths((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      initialColumns.forEach((c) => {
+        if (!isDateShiftColumn(c) || !c.width) return;
+        if (next[c.key] !== c.width) {
+          next[c.key] = c.width;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [initialColumns]);
+
 
   // Debounce local prefs — column resize can fire many updates per second.
   useEffect(() => {
@@ -308,6 +373,19 @@ export function useTableState(
     });
     resetPage();
   }, [resetPage]);
+
+  /** Set or clear sort for a column (header ⋯ menu). */
+  const handleSetSortDirection = useCallback(
+    (key: string, direction: 'asc' | 'desc' | null) => {
+      setSort((prev) => {
+        if (!direction) return prev.filter((s) => s.key !== key);
+        const rest = prev.filter((s) => s.key !== key);
+        return [{ key, direction }, ...rest];
+      });
+      resetPage();
+    },
+    [resetPage],
+  );
 
   // ── Filter ─────────────────────────────────────────────────────────────────
   const handleFilterChange = useCallback((colKey: string, filter: FilterValue | null) => {
@@ -594,6 +672,24 @@ export function useTableState(
     setColumnVisibility(prev => ({ ...prev, [key]: !isVisibleNow }));
   }, [columnVisibility]);
 
+  /** Bulk show/hide (e.g. Center list shift chips). */
+  const handlePatchColumnVisibility = useCallback((patch: Record<string, boolean>) => {
+    if (!patch || typeof patch !== 'object') return;
+    setColumnVisibility((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      Object.entries(patch).forEach(([key, visible]) => {
+        if (!key) return;
+        const want = Boolean(visible);
+        const wasVisible = next[key] !== false;
+        if (wasVisible === want) return;
+        next[key] = want;
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
   const handlePinColumn = useCallback((key: string, pin: 'left' | 'right' | null) => {
     setColumns(prev => prev.map(c => c.key === key ? { ...c, pinned: pin } : c));
   }, []);
@@ -618,18 +714,37 @@ export function useTableState(
 
   const handleResetWidths = useCallback(() => {
     const w: Record<string, number> = {};
-    initialColumns.forEach(c => { if (c.width) w[c.key] = c.width; });
+    initialColumns.forEach((c) => {
+      if (c.width) w[c.key] = c.width;
+    });
     setColumnWidths(w);
+    setColumns((prev) =>
+      prev.map((c) => {
+        const src = initialColumns.find((ic) => ic.key === c.key);
+        const width = src?.width ?? c.width;
+        return width && c.width !== width ? { ...c, width } : c;
+      }),
+    );
   }, [initialColumns]);
 
   const handleFactoryReset = useCallback(() => {
-    setColumns(initialColumns);
+    const clean = sanitizeColumns(initialColumns);
+    const w: Record<string, number> = {};
+    clean.forEach((c) => {
+      if (c.width) w[c.key] = c.width;
+    });
+    setColumns(clean);
     setSort([]);
     setFilters({});
     setSearch('');
-    setColumnWidths({});
-    setColumnVisibility({});
-    setColumnOrder(initialColumns.map(c => c.key));
+    setColumnWidths(w);
+    setColumnVisibility(
+      clean.reduce<Record<string, boolean>>((acc, c) => {
+        acc[c.key] = c.visible !== false;
+        return acc;
+      }, {}),
+    );
+    setColumnOrder(clean.map((c) => c.key));
     localStorage.removeItem(TABLE_PREFS_KEY);
     setActiveViewId(null);
   }, [initialColumns]);
@@ -708,7 +823,7 @@ export function useTableState(
   return {
     rows, setRows, columns, setColumns,
     sort, filters, search,
-    handleSort, handleFilterChange, handleSearch, handleClearAll,
+    handleSort, handleSetSortDirection, handleFilterChange, handleSearch, handleClearAll,
     page, pageSize, setPage, setPageSize,
     selectedRows, handleToggleRowSelect, handleSelectAll, handleClearSelection,
     expandedRowIds, handleToggleExpandRow,
@@ -724,7 +839,7 @@ export function useTableState(
     pendingEdit, setPendingEdit, handleUndoEdit,
     columnWidths, columnOrder, columnVisibility, highlightedColKey, transitioningCols,
     handleColumnWidthChange, handleColumnReorder,
-    handleToggleColumnVisibility, handlePinColumn, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
+    handleToggleColumnVisibility, handlePatchColumnVisibility, handlePinColumn, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
     handleDeleteCompositeColumn, handleUpdateCompositeColumn,
     handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset,
     openFilterKey, setOpenFilterKey,
