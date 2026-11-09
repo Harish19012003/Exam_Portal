@@ -487,7 +487,8 @@ function TableDataRowComponent({
                     value={displayValue}
                     row={row}
                     column={targetColConfig}
-                    autoFocus={editingCellColKey === col.key}
+                    // Must be row-scoped: col-only autoFocus opens every lookup menu in multi-edit.
+                    autoFocus={isEditingCellRow && editingCellColKey === col.key}
                     onSave={v =>
                       isEditingThisRow ? onRowDraftChange(col.key, v) : onCellSave(col.key, v)
                     }

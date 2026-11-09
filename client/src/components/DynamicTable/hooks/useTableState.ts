@@ -532,6 +532,8 @@ export function useTableState(
       selectedRows.forEach(id => next.add(id));
       return next;
     });
+    // Drop single-cell edit so lookup autoFocus cannot open on every row for that column.
+    setEditingCell(null);
     setSelectedRows(new Set());
   }, [selectedRows]);
 

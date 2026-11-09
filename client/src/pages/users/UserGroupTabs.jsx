@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Pencil, Plus, ShieldCheck, Users, X } from 'lucide-react';
 import { Button, IconButton } from '../../components/Button';
 import { InfoTip } from '../../components/PageHeading';
+import { SearchableSelect } from '../exams/SearchableSelect';
 import { PermissionSetEditor, cleanPermissionSet } from './PermissionSetEditor';
 import './UserGroups.css';
 
@@ -28,51 +29,36 @@ export const UserGroupTabs = ({ users, groups, value, onChange, onCreate, onEdit
     };
   }, [users, groups]);
 
-  const tab = (id, label, count, extra) => (
-    <button
-      key={id}
-      type="button"
-      className={`user-group-tab${value === id ? ' active' : ''}`}
-      onClick={() => onChange(id)}
-      aria-pressed={value === id}
-    >
-      <span>{label}</span>
-      <span className="user-group-count">{count}</span>
-      {extra}
-    </button>
-  );
+  const options = [
+    { value: 'all', label: `All (${counts.all})` },
+    ...ROLE_TABS.map((t) => ({ value: t.id, label: `${t.label} (${counts.role(t.id.slice(5))})` })),
+    ...groups.map((g) => ({ value: `group:${g.id}`, label: `${g.name} (${counts.group(g)})` })),
+  ];
+  const activeGroup = value.startsWith('group:') ? groups.find((g) => `group:${g.id}` === value) : null;
 
   return (
-    <div className="user-group-tabs" role="tablist" aria-label="User groups">
-      {tab('all', 'All', counts.all)}
-      {ROLE_TABS.map((t) => tab(t.id, t.label, counts.role(t.id.slice(5))))}
-      {groups.length > 0 && <span className="user-group-divider" aria-hidden="true" />}
-      {groups.map((g) =>
-        tab(
-          `group:${g.id}`,
-          g.name,
-          counts.group(g),
-          onEdit && <span
-            role="button"
-            tabIndex={0}
-            className="user-group-edit"
-            title={`Edit ${g.name}`}
-            aria-label={`Edit group ${g.name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(g);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.stopPropagation();
-                onEdit(g);
-              }
-            }}
-          >
-            <Pencil size={12} />
-          </span>,
-        ),
+    <div className="user-group-tabs" aria-label="User groups">
+      <div className="user-group-select">
+        <SearchableSelect
+          ariaLabel="User group"
+          value={value}
+          options={options}
+          onChange={onChange}
+          searchThreshold={8}
+          portal
+        />
+      </div>
+      {onEdit && activeGroup && (
+        <button
+          type="button"
+          className="user-group-tab user-group-edit-btn"
+          title={`Edit ${activeGroup.name}`}
+          aria-label={`Edit group ${activeGroup.name}`}
+          onClick={() => onEdit(activeGroup)}
+        >
+          <Pencil size={14} />
+          <span>Edit</span>
+        </button>
       )}
       {onCreate && (
         <button type="button" className="user-group-tab user-group-add" onClick={onCreate}>

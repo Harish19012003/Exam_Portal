@@ -1130,6 +1130,14 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
 
   const userActions = (
     <div className="users-header-actions">
+      <UserGroupTabs
+        users={users}
+        groups={groups}
+        value={activeTab}
+        onChange={setActiveTab}
+        onCreate={isSuperAdmin ? () => setGroupModal({ group: null }) : undefined}
+        onEdit={isSuperAdmin ? (group) => setGroupModal({ group }) : undefined}
+      />
       {isSuperAdmin && (
         <>
           <button
@@ -1184,14 +1192,6 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
         />
       )}
 
-      <UserGroupTabs
-        users={users}
-        groups={groups}
-        value={activeTab}
-        onChange={setActiveTab}
-        onCreate={isSuperAdmin ? () => setGroupModal({ group: null }) : undefined}
-        onEdit={isSuperAdmin ? (group) => setGroupModal({ group }) : undefined}
-      />
       {groupModal && (
         <UserGroupModal
           group={groupModal.group}
