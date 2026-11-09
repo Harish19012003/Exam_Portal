@@ -100,6 +100,26 @@
   line-height: 1.45;
 }
 
+.exam-explore-unique-banner {
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(13, 148, 136, 0.28);
+  background: rgba(13, 148, 136, 0.08);
+  color: var(--text-primary, #0f172a);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.exam-explore-unique-banner strong {
+  font-weight: 650;
+}
+
+[data-theme='dark'] .exam-explore-unique-banner {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(45, 212, 191, 0.1);
+}
+
 .exam-explore-create {
   min-height: 44px;
   padding: 0 18px;

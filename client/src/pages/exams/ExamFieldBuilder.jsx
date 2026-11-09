@@ -158,6 +158,13 @@ export const ExamFieldBuilder = ({
   /** Date × shift template from features.dateShifts (Bulk add → Date shifts). */
   dateShifts = null,
   onDateShiftsChange = null,
+  /** Composite unique row keys from Bulk add → Unique import (`features.uniqueRowKeys`). */
+  onUniqueRowKeysChange = null,
+  /**
+   * Date shifts are for exam Center-list setup only.
+   * Field presets pass false. Exam Center list omits this (defaults from currentView).
+   */
+  enableDateShifts = null,
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -392,6 +399,9 @@ export const ExamFieldBuilder = ({
     }
     if (meta?.dateShifts !== undefined) {
       onDateShiftsChange?.(meta.dateShifts);
+    }
+    if (meta?.uniqueRowKeys !== undefined) {
+      onUniqueRowKeysChange?.(meta.uniqueRowKeys);
     }
     closeBulk();
   };
@@ -1459,6 +1469,7 @@ export const ExamFieldBuilder = ({
         currentView={currentView}
         presetSources={presetSources}
         dateShifts={dateShifts}
+        enableDateShifts={enableDateShifts}
         workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
         onClose={closeBulk}
         onAdd={handleBulkAdd}

@@ -25,6 +25,7 @@ import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
+import { normalizeUniqueRowKeys, uniqueRowKeysLabel } from './examUniqueRows';
 import {
   DATE_SHIFT_ALL_DAY_TYPES,
   DATE_SHIFT_COLUMN_COLORS,
@@ -646,6 +647,8 @@ export const BulkFieldsModal = ({
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
   const [importOpen, setImportOpen] = useState(false);
+  /** Composite unique row keys from “Unique import” — applied on Save via meta. */
+  const [pendingUniqueRowKeys, setPendingUniqueRowKeys] = useState(null);
   const canImportFromExam = Boolean(examId && currentView);
   // Explicit null = feature off; [] still shows the button (empty state inside the modal).
   const canImportFromPreset = !examId && Array.isArray(presetSources);
@@ -688,7 +691,8 @@ export const BulkFieldsModal = ({
   const newCount = rows.filter((r, i) => !r.existingId && !validation[i].blank).length;
   const updateCount = changedIds.size;
   const fieldPending = newCount + updateCount + removedIds.length;
-  const pending = fieldPending + (dateShiftsDirty ? 1 : 0);
+  const uniqueKeysDirty = Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0;
+  const pending = fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueKeysDirty ? 1 : 0);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -978,6 +982,17 @@ export const BulkFieldsModal = ({
   const handleImportFromTab = (result) => {
     const home = String(result?.sourceView || '').trim();
     const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
+    const uniqueRowKeys = normalizeUniqueRowKeys(result?.uniqueRowKeys);
+    if (uniqueRowKeys.length) setPendingUniqueRowKeys(uniqueRowKeys);
+    const uniqueLabel = uniqueRowKeys.length
+      ? uniqueRowKeysLabel(
+          [
+            ...rows.map((r) => ({ key: r.key, label: r.label })),
+            ...(Array.isArray(result?.fields) ? result.fields : []),
+          ],
+          uniqueRowKeys,
+        )
+      : '';
 
     if (result?.combinedField) {
       const f = result.combinedField;
@@ -1019,9 +1034,24 @@ export const BulkFieldsModal = ({
           keyTouched: true,
         };
       });
+
+    if (!additions.length) {
+      if (uniqueRowKeys.length) {
+        setNotice(
+          `Unique import key set to ${uniqueLabel || uniqueRowKeys.join(' · ')}. Save to keep it.`,
+        );
+        setTab('fields');
+        return;
+      }
+      setNotice('Those fields are already in this list.');
+      return;
+    }
+
     insertBulkRows(
       additions,
-      `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
+      uniqueRowKeys.length
+        ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || uniqueRowKeys.join(' · ')}. Save to keep them.`
+        : `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
     );
   };
 
@@ -1135,37 +1165,40 @@ export const BulkFieldsModal = ({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!pending) return;
-    // Date-shift-only saves must not be blocked by Fields-tab validation errors.
-    const dateShiftsOnly = dateShiftsDirty && fieldPending === 0 && removedIds.length === 0;
-    if (errorCount && !dateShiftsOnly) return;
-    const items = dateShiftsOnly
+    // Feature-only saves (date shifts / unique keys) must not be blocked by Fields-tab errors.
+    const metaOnly = fieldPending === 0 && removedIds.length === 0 && (dateShiftsDirty || uniqueKeysDirty);
+    if (errorCount && !metaOnly) return;
+    const items = metaOnly
       ? []
       : resolvedRows
           .filter((r, i) => !r.existingId && !validation[i].blank)
           .map((r) => rowToItem(r, allowUnique));
-    const updated = dateShiftsOnly
+    const updated = metaOnly
       ? []
       : resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
     const newDefs = items.map((item, i) => toFieldDefinition(item, fields.length + i + 1));
     // Row order = field order: existing fields by id, new ones by key.
-    const order = dateShiftsOnly
+    const order = metaOnly
       ? []
       : resolvedRows
           .filter((r, i) => r.existingId || !validation[i].blank)
           .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
-    const meta = dateShiftsDirty
-      ? {
-          // Keep previously selected Center-list dates; this tab only edits the template.
-          dateShifts: normalizeDateShiftsConfig({
-            summaryColumn: shiftDraft.summaryColumn,
-            allDayColumn: shiftDraft.allDayColumn,
-            columnWidths: shiftDraft.columnWidths,
-            shifts: shiftDraft.shifts,
-            dates: initialDateShifts.dates,
-          }),
-        }
-      : {};
-    onAdd(newDefs, updated, dateShiftsOnly ? [] : removedIds, order, meta);
+    const meta = {
+      ...(dateShiftsDirty
+        ? {
+            // Keep previously selected Center-list dates; this tab only edits the template.
+            dateShifts: normalizeDateShiftsConfig({
+              summaryColumn: shiftDraft.summaryColumn,
+              allDayColumn: shiftDraft.allDayColumn,
+              columnWidths: shiftDraft.columnWidths,
+              shifts: shiftDraft.shifts,
+              dates: initialDateShifts.dates,
+            }),
+          }
+        : {}),
+      ...(uniqueKeysDirty ? { uniqueRowKeys: pendingUniqueRowKeys } : {}),
+    };
+    onAdd(newDefs, updated, metaOnly ? [] : removedIds, order, meta);
   };
 
   /* ---------- Dependencies: lookup fields and the Linked values that follow them ---------- */
@@ -2477,11 +2510,17 @@ export const BulkFieldsModal = ({
                       updateCount && `${updateCount} to update`,
                       removedIds.length && `${removedIds.length} to remove`,
                       dateShiftsDirty && 'date shifts',
+                      uniqueKeysDirty && 'unique import',
                     ]
                       .filter(Boolean)
                       .join(' · ')
-                  : dateShiftsDirty
-                    ? 'Date shifts changed'
+                  : dateShiftsDirty || uniqueKeysDirty
+                    ? [
+                        dateShiftsDirty && 'Date shifts changed',
+                        uniqueKeysDirty && 'Unique import key set',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
                     : 'Edit a field or fill a new row')}
           </span>
           <div className="exams-bulk-footer-actions">
@@ -2494,7 +2533,12 @@ export const BulkFieldsModal = ({
               disabled={
                 !pending ||
                 saving ||
-                (errorCount > 0 && !(dateShiftsDirty && fieldPending === 0 && removedIds.length === 0))
+                (errorCount > 0 &&
+                  !(
+                    (dateShiftsDirty || uniqueKeysDirty) &&
+                    fieldPending === 0 &&
+                    removedIds.length === 0
+                  ))
               }
             >
               <ListPlus size={14} />
