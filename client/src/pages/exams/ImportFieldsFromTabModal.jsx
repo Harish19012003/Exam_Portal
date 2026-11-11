@@ -1,13 +1,30 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InfoTip } from '../../components/PageHeading';
-import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Search, Trash2, X } from 'lucide-react';
 import { CENTER_CODE_KEY, DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
 import { buildCombinedField, COMBINE_SEPARATORS, DEFAULT_COMBINE_SEPARATOR, separatorForLabel } from './examCombinedFields';
-import { normalizeUniqueRowKeys, uniqueRowKeysLabel } from './examUniqueRows';
+import {
+  normalizeUniqueRowAggregates,
+  normalizeUniqueRowKeys,
+  UNIQUE_ROW_AGGREGATE_OPS,
+  uniqueRowKeysLabel,
+} from './examUniqueRows';
+import {
+  buildAllDaySumSourceField,
+  dateShiftSumSourceOptions,
+  DATE_SHIFT_ALL_DAY_KEY,
+} from './dateShiftsConfig';
 import { getExamTable } from './examTableApi';
 import { SearchableSelect } from './SearchableSelect';
 import './ImportFieldsFromTabModal.css';
+
+const newAggregateRule = (op = 'count') => ({
+  id: `agg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+  op,
+  targetKey: '',
+  sourceKey: '',
+});
 
 const presetLabel = (p) =>
   `${p.name || p.serviceValue} · ${examViewLabel(p.view || DEFAULT_EXAM_VIEW)}`;
@@ -23,6 +40,11 @@ export const ImportFieldsFromTabModal = ({
   currentFields = [],
   /** Other presets to import from (Settings → Field presets). */
   presetSources = null,
+  /** Existing unique-import config so the user can re-edit it. */
+  existingUniqueRowKeys = null,
+  existingUniqueRowAggregates = null,
+  /** Open scrolled to the Unique import panel (Edit unique import). */
+  focusUnique = false,
   onClose,
   onImport,
 }) => {
@@ -42,42 +64,96 @@ export const ImportFieldsFromTabModal = ({
   const [sourceView, setSourceView] = useState(tabOptions[0]?.key || DEFAULT_EXAM_VIEW);
   const [sourcePresetId, setSourcePresetId] = useState(presetSources?.[0]?.id || '');
   const [sourceFields, setSourceFields] = useState([]);
+  /** Date×shift template from the source tab/preset (e.g. Max all day on Center list format). */
+  const [sourceDateShifts, setSourceDateShifts] = useState(null);
   /** Ordered selection (tick order = join / unique-key order by default). */
   const [selectedOrder, setSelectedOrder] = useState([]);
   const [combineMode, setCombineMode] = useState(false);
   /** Selected fields also define a composite unique row key (e.g. State + City + Vendor). */
   const [uniqueMode, setUniqueMode] = useState(false);
+  /** Count / sum results written onto this page’s fields for each unique group. */
+  const [aggregateRules, setAggregateRules] = useState([]);
   const [combineLabel, setCombineLabel] = useState('');
   const [combineSeparator, setCombineSeparator] = useState(DEFAULT_COMBINE_SEPARATOR);
   const [separatorChoice, setSeparatorChoice] = useState('comma'); // a COMBINE_SEPARATORS id, or 'custom'
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const uniquePanelRef = useRef(null);
+
+  const seedUniqueKeys = useMemo(
+    () => normalizeUniqueRowKeys(existingUniqueRowKeys),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(normalizeUniqueRowKeys(existingUniqueRowKeys))],
+  );
+  const seedAggregates = useMemo(
+    () => normalizeUniqueRowAggregates(existingUniqueRowAggregates),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(normalizeUniqueRowAggregates(existingUniqueRowAggregates))],
+  );
+  const seedUniqueKeysSig = seedUniqueKeys.join('|');
 
   useEffect(() => {
     if (!open) return undefined;
     setSourceView(firstTabKey);
     setSourcePresetId(presetSourcesRef.current?.[0]?.id || '');
-    setSelectedOrder([]);
     setCombineMode(false);
-    setUniqueMode(false);
     setCombineLabel('');
     setCombineSeparator(DEFAULT_COMBINE_SEPARATOR);
     setSeparatorChoice('comma');
     setQuery('');
     setError('');
+    // Re-open existing unique import for editing, or when opened via “Unique import”.
+    if (seedUniqueKeys.length || focusUnique) {
+      setUniqueMode(true);
+      setSelectedOrder(seedUniqueKeys);
+      setAggregateRules(
+        seedAggregates.map((r) => ({
+          ...newAggregateRule(r.op),
+          op: r.op,
+          targetKey: r.targetKey,
+          sourceKey: r.sourceKey || '',
+        })),
+      );
+    } else {
+      setUniqueMode(false);
+      setSelectedOrder([]);
+      setAggregateRules([]);
+    }
     return undefined;
-  }, [open, firstTabKey]);
+  }, [open, firstTabKey, seedUniqueKeysSig, seedAggregates, focusUnique]);
+
+  useEffect(() => {
+    if (!open || !uniqueMode) return undefined;
+    if (!focusUnique && !seedUniqueKeys.length) return undefined;
+    const t = window.setTimeout(() => {
+      uniquePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [open, uniqueMode, focusUnique, seedUniqueKeysSig]);
 
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
 
+    const applySourceList = (list, dateShifts = null) => {
+      setSourceFields(list);
+      setSourceDateShifts(dateShifts);
+      // Keep / restore unique-key selection against the loaded source.
+      setSelectedOrder((prev) => {
+        const preferred = (prev.length ? prev : seedUniqueKeys).filter((k) =>
+          list.some((f) => f.key === k),
+        );
+        if (seedUniqueKeys.length) return preferred;
+        // Switching source preset/tab while editing clears ticks that aren't on the new source.
+        return preferred;
+      });
+    };
+
     if (presetMode) {
       const preset = (presetSourcesRef.current || []).find((p) => String(p.id) === String(sourcePresetId));
       const list = Array.isArray(preset?.fields) ? preset.fields : [];
-      setSourceFields(list);
-      setSelectedOrder([]);
+      applySourceList(list, preset?.features?.dateShifts || null);
       setLoading(false);
       setError('');
       return () => {
@@ -92,12 +168,12 @@ export const ImportFieldsFromTabModal = ({
       .then((snap) => {
         if (!alive) return;
         const list = Array.isArray(snap?.fields) ? snap.fields : [];
-        setSourceFields(list);
-        setSelectedOrder([]);
+        applySourceList(list, snap?.features?.dateShifts || null);
       })
       .catch(() => {
         if (!alive) return;
         setSourceFields([]);
+        setSourceDateShifts(null);
         setError('Could not load fields from that tab.');
       })
       .finally(() => {
@@ -113,16 +189,41 @@ export const ImportFieldsFromTabModal = ({
   }, [selectedOrder, combineMode]);
 
   useEffect(() => {
-    if (selectedOrder.length < 1 && uniqueMode) setUniqueMode(false);
-  }, [selectedOrder, uniqueMode]);
-
-  useEffect(() => {
     if (!combineMode || combineLabel.trim()) return;
     const labels = selectedOrder
       .map((key) => sourceFields.find((f) => f.key === key)?.label || key)
       .filter(Boolean);
     if (labels.length >= 2) setCombineLabel(labels.join(separatorForLabel(combineSeparator)));
   }, [combineMode, selectedOrder, sourceFields, combineSeparator, combineLabel]);
+
+  const targetFieldOptions = useMemo(() => {
+    const list = Array.isArray(currentFields) ? currentFields : [];
+    return list
+      .filter((f) => f?.key)
+      .map((f) => ({
+        value: f.key,
+        label: `${f.label || f.key} (${f.key})`,
+      }));
+  }, [currentFields]);
+  const sourceFieldOptions = useMemo(() => {
+    const fromDateShifts = dateShiftSumSourceOptions(sourceDateShifts, sourceFields);
+    const fromFields = (sourceFields || [])
+      .filter((f) => f?.key)
+      .map((f) => ({
+        value: f.key,
+        label: `${f.label || f.key} (${f.key})`,
+      }));
+    const seen = new Set();
+    const out = [];
+    // Date-shift columns (Max all day, shifts, day summaries) first so Sum of… finds them.
+    for (const opt of [...fromDateShifts, ...fromFields]) {
+      if (!opt?.value || seen.has(opt.value)) continue;
+      seen.add(opt.value);
+      out.push(opt);
+    }
+    return out;
+  }, [sourceFields, sourceDateShifts]);
+  const uniqueKeysPreview = uniqueRowKeysLabel(sourceFields, selectedOrder);
 
   if (!open) return null;
 
@@ -150,18 +251,36 @@ export const ImportFieldsFromTabModal = ({
     ? sourceFields
     : sourceFields.filter((f) => !currentKeys.has(f.key));
   const q = query.trim().toLowerCase();
-  const listFields = q
+  const filteredFields = q
     ? baseFields.filter((f) => `${f.label || ''} ${f.key}`.toLowerCase().includes(q))
     : baseFields;
+  // Unique edit: already-imported fields first so State / City / Vendor are easy to find.
+  const listFields = uniqueMode
+    ? [...filteredFields].sort((a, b) => {
+        const aHere = currentKeys.has(a.key) ? 0 : 1;
+        const bHere = currentKeys.has(b.key) ? 0 : 1;
+        if (aHere !== bHere) return aHere - bHere;
+        const aSel = selected.has(a.key) ? 0 : 1;
+        const bSel = selected.has(b.key) ? 0 : 1;
+        return aSel - bSel;
+      })
+    : filteredFields;
   const alreadyHere = sourceFields.filter((f) => currentKeys.has(f.key));
   const sourceHomeView = presetMode
     ? (presetSources || []).find((p) => String(p.id) === String(sourcePresetId))?.view || DEFAULT_EXAM_VIEW
     : sourceView;
-  const uniqueKeysPreview = uniqueRowKeysLabel(sourceFields, selectedOrder);
+
+  const patchAggregateRule = (id, patch) => {
+    setAggregateRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
 
   const handleImport = () => {
     if (!selectedOrder.length) {
-      setError('Select at least one field to import.');
+      setError(
+        uniqueMode
+          ? 'Select the unique key fields (including ones already on this page).'
+          : 'Select at least one field to import.',
+      );
       return;
     }
 
@@ -188,9 +307,41 @@ export const ImportFieldsFromTabModal = ({
     }
 
     const uniqueRowKeys = uniqueMode ? normalizeUniqueRowKeys(selectedOrder) : [];
-    const picked = selectedOrder
-      .map((key) => sourceFields.find((f) => f.key === key))
-      .filter((f) => f && !currentKeys.has(f.key));
+    const uniqueRowAggregates = uniqueMode
+      ? normalizeUniqueRowAggregates(
+          aggregateRules.map((r) => ({
+            op: r.op,
+            targetKey: r.targetKey,
+            sourceKey: r.sourceKey,
+          })),
+        )
+      : [];
+    if (uniqueMode && aggregateRules.length && uniqueRowAggregates.length !== aggregateRules.length) {
+      setError('Each result needs a target field; Sum also needs a source field.');
+      return;
+    }
+    const pickedByKey = new Map();
+    for (const key of selectedOrder) {
+      const f = sourceFields.find((x) => x.key === key);
+      if (f && !currentKeys.has(f.key)) pickedByKey.set(f.key, f);
+    }
+    // Sum sources from Center date-shifts (e.g. Max all day) should travel with the import.
+    if (uniqueMode) {
+      for (const rule of uniqueRowAggregates) {
+        if (rule.op !== 'sum' || !rule.sourceKey || currentKeys.has(rule.sourceKey)) continue;
+        if (pickedByKey.has(rule.sourceKey)) continue;
+        const fromSource = sourceFields.find((f) => f.key === rule.sourceKey);
+        if (fromSource) {
+          pickedByKey.set(fromSource.key, fromSource);
+          continue;
+        }
+        if (rule.sourceKey === DATE_SHIFT_ALL_DAY_KEY) {
+          const synthetic = buildAllDaySumSourceField(sourceDateShifts);
+          if (synthetic) pickedByKey.set(synthetic.key, synthetic);
+        }
+      }
+    }
+    const picked = Array.from(pickedByKey.values());
     if (!picked.length && !uniqueRowKeys.length) {
       setError('Select at least one field that is not already on this page.');
       return;
@@ -203,6 +354,7 @@ export const ImportFieldsFromTabModal = ({
       fields: picked,
       sourceView: sourceHomeView,
       ...(uniqueRowKeys.length ? { uniqueRowKeys } : {}),
+      ...(uniqueRowAggregates.length ? { uniqueRowAggregates } : {}),
     });
     onClose?.();
   };
@@ -308,25 +460,33 @@ export const ImportFieldsFromTabModal = ({
                 <span className="import-fields-label">{f.label || f.key}</span>
                 <code className="import-fields-key">{f.key}</code>
                 {f.key === CENTER_CODE_KEY && <span className="import-fields-badge">shared key</span>}
-                {uniqueMode && selected.has(f.key) && (
-                  <span className="import-fields-badge unique">unique key</span>
+                {uniqueMode && currentKeys.has(f.key) && !selected.has(f.key) && (
+                  <span className="import-fields-badge on-page">on page</span>
                 )}
-                {(combineMode || uniqueMode) && selected.has(f.key) && (
+                {uniqueMode && selected.has(f.key) && (
+                  <span className="import-fields-badge unique">
+                    unique · {selectedOrder.indexOf(f.key) + 1}
+                  </span>
+                )}
+                {combineMode && !uniqueMode && selected.has(f.key) && (
                   <span className="import-fields-ord">#{selectedOrder.indexOf(f.key) + 1}</span>
                 )}
               </label>
             ))
           )}
-          {!combineMode && !uniqueMode && alreadyHere.length > 0 && listFields.length > 0 && (
-            <details className="import-fields-skipped">
+          {!combineMode && !uniqueMode && alreadyHere.length > 0 && (
+            <details className="import-fields-skipped" open={listFields.length === 0}>
               <summary>{alreadyHere.length} already on this page</summary>
               <p className="import-fields-skip">{alreadyHere.map((f) => f.label || f.key).join(', ')}</p>
+              <p className="import-fields-skip">
+                Turn on <strong>Unique import</strong> below to pick these again for unique key / count / sum.
+              </p>
             </details>
           )}
         </div>
 
-        {selectedOrder.length >= 1 && (
-          <div className="import-fields-combine">
+        {(selectedOrder.length >= 1 || alreadyHere.length > 0 || uniqueMode || focusUnique) && (
+          <div className="import-fields-combine" ref={uniquePanelRef}>
             <label className="import-fields-combine-toggle">
               <input
                 type="checkbox"
@@ -349,8 +509,8 @@ export const ImportFieldsFromTabModal = ({
                       (<strong>{uniqueKeysPreview}</strong>)
                     </>
                   ) : null}
-                  . The first matching center is kept; duplicates stay on{' '}
-                  {examViewLabel(sourceHomeView)}.
+                  . Matching centers stay on {examViewLabel(sourceHomeView)}; result fields can count or
+                  sum them.
                 </p>
                 {selectedOrder.length >= 2 && (
                   <div className="import-fields-parts" role="list" aria-label="Unique key order">
@@ -388,6 +548,80 @@ export const ImportFieldsFromTabModal = ({
                     })}
                   </div>
                 )}
+
+                <div className="import-fields-parts" role="list" aria-label="Unique result fields">
+                  <div className="import-fields-parts-head">
+                    <span className="import-fields-parts-label">Result fields</span>
+                    <div className="import-fields-agg-actions">
+                      <button
+                        type="button"
+                        className="import-fields-agg-add"
+                        onClick={() => setAggregateRules((prev) => [...prev, newAggregateRule('count')])}
+                      >
+                        <Plus size={14} />
+                        Count
+                      </button>
+                      <button
+                        type="button"
+                        className="import-fields-agg-add"
+                        onClick={() => setAggregateRules((prev) => [...prev, newAggregateRule('sum')])}
+                      >
+                        <Plus size={14} />
+                        Sum
+                      </button>
+                    </div>
+                  </div>
+                  {!aggregateRules.length ? (
+                    <p className="import-fields-skip">
+                      Optional. e.g. Count → Days Total Center, Sum of Max all day → Max All Days.
+                    </p>
+                  ) : (
+                    aggregateRules.map((rule) => (
+                      <div key={rule.id} className="import-fields-agg-row" role="listitem">
+                        <SearchableSelect
+                          ariaLabel="Result type"
+                          value={rule.op}
+                          searchThreshold={99}
+                          portal
+                          onChange={(op) => patchAggregateRule(rule.id, { op, sourceKey: op === 'sum' ? rule.sourceKey : '' })}
+                          options={UNIQUE_ROW_AGGREGATE_OPS.map((o) => ({ value: o.value, label: o.label }))}
+                        />
+                        {rule.op === 'sum' ? (
+                          <SearchableSelect
+                            ariaLabel="Source field to sum"
+                            value={rule.sourceKey}
+                            portal
+                            onChange={(sourceKey) => patchAggregateRule(rule.id, { sourceKey })}
+                            options={sourceFieldOptions}
+                            searchPlaceholder="Sum of…"
+                          />
+                        ) : null}
+                        <SearchableSelect
+                          ariaLabel="Target field on this page"
+                          value={rule.targetKey}
+                          portal
+                          onChange={(targetKey) => patchAggregateRule(rule.id, { targetKey })}
+                          options={targetFieldOptions}
+                          searchPlaceholder="Write to…"
+                        />
+                        <button
+                          type="button"
+                          className="import-fields-part-btn"
+                          onClick={() => setAggregateRules((prev) => prev.filter((r) => r.id !== rule.id))}
+                          aria-label="Remove result"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  {!targetFieldOptions.length ? (
+                    <p className="import-fields-skip">
+                      Add number fields on this page first (e.g. Days Total Center, Max All Days), then map
+                      results here.
+                    </p>
+                  ) : null}
+                </div>
               </>
             )}
             {selectedOrder.length >= 2 && (

@@ -107,7 +107,10 @@ export interface TableStateHandlers {
   setShowBulkConfirm: (v: boolean) => void;
   showBulkUpdate: boolean;
   setShowBulkUpdate: (v: boolean) => void;
-  handleBulkUpdate: (updates: Record<string, unknown>) => void;
+  handleBulkUpdate: (
+    updates: Record<string, unknown>,
+    lookupPicks?: import('../../components/BulkLookupPicker').BulkLookupPickMeta[],
+  ) => void;
 
   // Drag state for column reorder
   dragColKey: string | null;

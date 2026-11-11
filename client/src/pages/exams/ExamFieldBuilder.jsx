@@ -263,7 +263,7 @@ export const ExamFieldBuilder = ({
       .then((rows) => {
         if (!cancelled) setLookupSources(rows);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -291,7 +291,7 @@ export const ExamFieldBuilder = ({
     if (isCombinedField(field)) {
       parts.push(
         `Combined (${field.combine.keys.join(field.combine.separator ?? ', ')})` +
-          (field.sharedFromView ? ` · ${examViewLabel(field.sharedFromView)}` : ''),
+        (field.sharedFromView ? ` · ${examViewLabel(field.sharedFromView)}` : ''),
       );
     }
     if (field.scheduleRole === 'start') parts.push('Schedule start');
@@ -307,18 +307,18 @@ export const ExamFieldBuilder = ({
   const searchQuery = fieldSearch.trim().toLowerCase();
   const visibleFields = searchQuery
     ? fields.filter((field) => {
-        const haystack = [
-          field.label,
-          field.key,
-          typeLabel(field.dataType),
-          field.dataType,
-          fieldMeta(field),
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(searchQuery);
-      })
+      const haystack = [
+        field.label,
+        field.key,
+        typeLabel(field.dataType),
+        field.dataType,
+        fieldMeta(field),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(searchQuery);
+    })
     : fields;
 
   const openCreate = (dataType = 'text') => {
@@ -530,13 +530,13 @@ export const ExamFieldBuilder = ({
     const phoneValidation =
       form.dataType === 'phone'
         ? {
-            mode: form.phoneValidation?.mode || 'none',
-            pattern:
-              form.phoneValidation?.mode === 'custom'
-                ? String(form.phoneValidation.pattern || '').trim()
-                : '',
-            message: String(form.phoneValidation?.message || '').trim(),
-          }
+          mode: form.phoneValidation?.mode || 'none',
+          pattern:
+            form.phoneValidation?.mode === 'custom'
+              ? String(form.phoneValidation.pattern || '').trim()
+              : '',
+          message: String(form.phoneValidation?.message || '').trim(),
+        }
         : undefined;
 
     const payload = {
@@ -545,8 +545,8 @@ export const ExamFieldBuilder = ({
       dataType: form.dataType,
       required:
         form.dataType === 'linked' ||
-        form.dataType === 'fromExam' ||
-        (form.autoFill && form.autoFill !== 'none')
+          form.dataType === 'fromExam' ||
+          (form.autoFill && form.autoFill !== 'none')
           ? false
           : form.required,
       linkedFrom:
@@ -565,10 +565,10 @@ export const ExamFieldBuilder = ({
       tableSource:
         optionsSource === 'table'
           ? {
-              table: form.lookupTable,
-              column: form.lookupColumn,
-              ...(form.lookupDetail ? { detailColumn: form.lookupDetail } : {}),
-            }
+            table: form.lookupTable,
+            column: form.lookupColumn,
+            ...(form.lookupDetail ? { detailColumn: form.lookupDetail } : {}),
+          }
           : undefined,
       allowMultiple,
       formula: needsFormula ? form.formula.trim() : undefined,
@@ -582,10 +582,10 @@ export const ExamFieldBuilder = ({
     const savedField = isEditing
       ? { ...fields.find((f) => f.id === form.id), ...payload }
       : {
-          id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          ...payload,
-          order: fields.length + 1,
-        };
+        id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        ...payload,
+        order: fields.length + 1,
+      };
     let base = isEditing ? fields.map((f) => (f.id === form.id ? savedField : f)) : [...fields, savedField];
     // Only one Schedule start / Schedule end across the field list.
     if (payload.scheduleRole === 'start' || payload.scheduleRole === 'end') {
@@ -635,846 +635,865 @@ export const ExamFieldBuilder = ({
 
   return (
     <>
-    <div className="exams-drawer-overlay" onClick={onClose}>
-      <aside
-        className="exams-drawer exams-field-builder"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Field builder"
-      >
-        <div className="exams-drawer-header exams-drawer-header-compact">
-          <div className="exams-field-header-text">
-            <h2 className="exams-drawer-title">
-              <Settings2 size={16} className="exams-drawer-title-icon" />
-              <span>{editorOpen ? (isEditing ? 'Edit field' : 'New field') : title}</span>
-            </h2>
-            {!editorOpen && (
-              <p className="exams-field-header-sub">
-                {subtitle ??
-                  (fields.length === 0
-                    ? 'Pick a type to add to the create form'
-                    : `${fields.length} custom field${fields.length === 1 ? '' : 's'}`)}
-              </p>
-            )}
+      <div className="exams-drawer-overlay" onClick={onClose}>
+        <aside
+          className="exams-drawer exams-field-builder"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Field builder"
+        >
+          <div className="exams-drawer-header exams-drawer-header-compact">
+            <div className="exams-field-header-text">
+              <h2 className="exams-drawer-title">
+                <Settings2 size={16} className="exams-drawer-title-icon" />
+                <span>{editorOpen ? (isEditing ? 'Edit field' : 'New field') : title}</span>
+              </h2>
+              {!editorOpen && (
+                <p className="exams-field-header-sub">
+                  {subtitle ??
+                    (fields.length === 0
+                      ? 'Pick a type to add to the create form'
+                      : `${fields.length} custom field${fields.length === 1 ? '' : 's'}`)}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              className="exams-drawer-close compact"
+              onClick={editorOpen ? closeEditor : onClose}
+              title={editorOpen ? 'Back' : 'Close'}
+              aria-label={editorOpen ? 'Back' : 'Close'}
+            >
+              <X size={16} />
+            </button>
           </div>
-          <button
-            type="button"
-            className="exams-drawer-close compact"
-            onClick={editorOpen ? closeEditor : onClose}
-            title={editorOpen ? 'Back' : 'Close'}
-            aria-label={editorOpen ? 'Back' : 'Close'}
-          >
-            <X size={16} />
-          </button>
-        </div>
 
-        {!editorOpen ? (
-          <>
-          <div className="exams-drawer-body exams-field-list-body">
-            {topSlot}
-            {fields.length > 0 && (
-              <div className="exams-fields-panel">
-                <div className="exams-field-section-bar">
-                  <span>
-                    Fields ·{' '}
-                    {searchQuery && visibleFields.length !== fields.length
-                      ? `${visibleFields.length} of ${fields.length}`
-                      : fields.length}
-                  </span>
-                  <span className="exams-field-section-actions">
-                    <button type="button" className="exams-text-add-btn" onClick={openBulk}>
-                      <ListPlus size={13} />
-                      Bulk add
-                    </button>
-                    <button type="button" className="exams-text-add-btn" onClick={() => setGroupsOpen(true)}>
-                      <Link2 size={13} />
-                      Groups
-                    </button>
-                    <button
-                      type="button"
-                      className="exams-text-add-btn"
-                      onClick={() => setTypesOpen((v) => !v)}
-                      aria-expanded={typesOpen}
-                    >
-                      <Plus size={13} />
-                      {typesOpen ? 'Close' : 'Add'}
-                    </button>
-                  </span>
-                </div>
-
-                <div className="exams-field-list-search">
-                  <Search size={14} strokeWidth={2.2} aria-hidden="true" />
-                  <input
-                    type="search"
-                    value={fieldSearch}
-                    onChange={(e) => setFieldSearch(e.target.value)}
-                    placeholder="Search fields…"
-                    aria-label="Search fields"
-                    autoComplete="off"
-                  />
-                  {fieldSearch && (
-                    <button
-                      type="button"
-                      className="exams-field-list-search-clear"
-                      onClick={() => setFieldSearch('')}
-                      aria-label="Clear search"
-                      title="Clear"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
-
-                {visibleFields.length === 0 ? (
-                  <p className="exams-field-list-empty">No fields match “{fieldSearch.trim()}”.</p>
-                ) : (
-                <ul className="exams-field-list">
-                  {visibleFields.map((field) => {
-                    const Icon = TYPE_ICONS[field.dataType] || Type;
-                    const isDragging = dragFieldId === field.id;
-                    const isDragOver = dragOverFieldId === field.id && dragFieldId !== field.id;
-                    const canReorder = !searchQuery;
-                    return (
-                      <li
-                        key={field.id}
-                        className={`exams-field-row${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
-                        onDragOver={
-                          canReorder
-                            ? (e) => {
-                                e.preventDefault();
-                                e.dataTransfer.dropEffect = 'move';
-                                if (dragOverFieldId !== field.id) setDragOverFieldId(field.id);
-                              }
-                            : undefined
-                        }
-                        onDragLeave={
-                          canReorder
-                            ? () => {
-                                if (dragOverFieldId === field.id) setDragOverFieldId(null);
-                              }
-                            : undefined
-                        }
-                        onDrop={
-                          canReorder
-                            ? (e) => {
-                                e.preventDefault();
-                                const fromId = e.dataTransfer.getData('text/plain') || dragFieldId;
-                                reorderFields(fromId, field.id);
-                                setDragFieldId(null);
-                                setDragOverFieldId(null);
-                              }
-                            : undefined
-                        }
-                      >
+          {!editorOpen ? (
+            <>
+              <div className="exams-drawer-body exams-field-list-body">
+                {topSlot}
+                {fields.length > 0 && (
+                  <div className="exams-fields-panel">
+                    <div className="exams-field-section-bar">
+                      <span>
+                        Fields ·{' '}
+                        {searchQuery && visibleFields.length !== fields.length
+                          ? `${visibleFields.length} of ${fields.length}`
+                          : fields.length}
+                      </span>
+                      <span className="exams-field-section-actions">
+                        <button type="button" className="exams-text-add-btn" onClick={openBulk}>
+                          <ListPlus size={13} />
+                          Bulk add
+                        </button>
+                        <button type="button" className="exams-text-add-btn" onClick={() => setGroupsOpen(true)}>
+                          <Link2 size={13} />
+                          Groups
+                        </button>
                         <button
                           type="button"
-                          className="exams-field-drag-handle"
-                          draggable={canReorder}
-                          disabled={!canReorder}
-                          title={canReorder ? 'Drag to reorder' : 'Clear search to reorder'}
-                          aria-label={`Drag to reorder ${field.label}`}
-                          onDragStart={
-                            canReorder
-                              ? (e) => {
-                                  e.dataTransfer.effectAllowed = 'move';
-                                  e.dataTransfer.setData('text/plain', field.id);
-                                  setDragFieldId(field.id);
+                          className="exams-text-add-btn"
+                          onClick={() => setTypesOpen((v) => !v)}
+                          aria-expanded={typesOpen}
+                        >
+                          <Plus size={13} />
+                          {typesOpen ? 'Close' : 'Add'}
+                        </button>
+                      </span>
+                    </div>
+
+                    <div className="exams-field-list-search">
+                      <Search size={14} strokeWidth={2.2} aria-hidden="true" />
+                      <input
+                        type="search"
+                        value={fieldSearch}
+                        onChange={(e) => setFieldSearch(e.target.value)}
+                        placeholder="Search fields…"
+                        aria-label="Search fields"
+                        autoComplete="off"
+                      />
+                      {fieldSearch && (
+                        <button
+                          type="button"
+                          className="exams-field-list-search-clear"
+                          onClick={() => setFieldSearch('')}
+                          aria-label="Clear search"
+                          title="Clear"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    {visibleFields.length === 0 ? (
+                      <p className="exams-field-list-empty">No fields match “{fieldSearch.trim()}”.</p>
+                    ) : (
+                      <ul className="exams-field-list">
+                        {visibleFields.map((field) => {
+                          const Icon = TYPE_ICONS[field.dataType] || Type;
+                          const isDragging = dragFieldId === field.id;
+                          const isDragOver = dragOverFieldId === field.id && dragFieldId !== field.id;
+                          const canReorder = !searchQuery;
+                          return (
+                            <li
+                              key={field.id}
+                              className={`exams-field-row${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
+                              onDragOver={
+                                canReorder
+                                  ? (e) => {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = 'move';
+                                    if (dragOverFieldId !== field.id) setDragOverFieldId(field.id);
+                                  }
+                                  : undefined
+                              }
+                              onDragLeave={
+                                canReorder
+                                  ? () => {
+                                    if (dragOverFieldId === field.id) setDragOverFieldId(null);
+                                  }
+                                  : undefined
+                              }
+                              onDrop={
+                                canReorder
+                                  ? (e) => {
+                                    e.preventDefault();
+                                    const fromId = e.dataTransfer.getData('text/plain') || dragFieldId;
+                                    reorderFields(fromId, field.id);
+                                    setDragFieldId(null);
+                                    setDragOverFieldId(null);
+                                  }
+                                  : undefined
+                              }
+                            >
+                              <button
+                                type="button"
+                                className="exams-field-drag-handle"
+                                draggable={canReorder}
+                                disabled={!canReorder}
+                                title={canReorder ? 'Drag to reorder' : 'Clear search to reorder'}
+                                aria-label={`Drag to reorder ${field.label}`}
+                                onDragStart={
+                                  canReorder
+                                    ? (e) => {
+                                      e.dataTransfer.effectAllowed = 'move';
+                                      e.dataTransfer.setData('text/plain', field.id);
+                                      setDragFieldId(field.id);
+                                    }
+                                    : undefined
                                 }
-                              : undefined
-                          }
-                          onDragEnd={() => {
-                            setDragFieldId(null);
-                            setDragOverFieldId(null);
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <GripVertical size={16} strokeWidth={2} aria-hidden="true" />
-                        </button>
+                                onDragEnd={() => {
+                                  setDragFieldId(null);
+                                  setDragOverFieldId(null);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <GripVertical size={16} strokeWidth={2} aria-hidden="true" />
+                              </button>
 
-                        <button
-                          type="button"
-                          className="exams-field-row-main"
-                          onClick={() => openEdit(field)}
-                          title={`Edit ${field.label}`}
-                        >
-                          <span className="exams-field-icon-wrap" aria-hidden="true">
+                              <button
+                                type="button"
+                                className="exams-field-row-main"
+                                onClick={() => openEdit(field)}
+                                title={`Edit ${field.label}`}
+                              >
+                                <span className="exams-field-icon-wrap" aria-hidden="true">
+                                  <Icon size={14} strokeWidth={2} />
+                                </span>
+                                <span className="exams-field-text">
+                                  <span className="exams-field-row-label">
+                                    {field.label}
+                                    {(isSharedImportedField(field) || isCombinedField(field)) && (
+                                      <span
+                                        className="exams-field-imported-badge"
+                                        title={
+                                          field.sharedFromView
+                                            ? `Imported · shared from ${examViewLabel(field.sharedFromView)}`
+                                            : 'Imported'
+                                        }
+                                        aria-label={
+                                          field.sharedFromView
+                                            ? `Imported · shared from ${examViewLabel(field.sharedFromView)}`
+                                            : 'Imported'
+                                        }
+                                      >
+                                        <Link2 size={12} strokeWidth={2.25} aria-hidden="true" />
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="exams-field-row-meta">{fieldMeta(field)}</span>
+                                </span>
+                              </button>
+
+                              <div className="exams-field-row-actions">
+                                <button
+                                  type="button"
+                                  className="exams-icon-btn"
+                                  onClick={() => openEdit(field)}
+                                  aria-label={`Edit ${field.label}`}
+                                  title="Edit"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="exams-icon-btn danger"
+                                  onClick={() => handleDelete(field.id)}
+                                  aria-label={`Delete ${field.label}`}
+                                  title="Delete"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {(fields.length === 0 || typesOpen) && (
+                  <div className={`exams-type-picker ${fields.length > 0 ? 'with-fields' : ''}`}>
+                    <div className="exams-field-section-bar">
+                      <span>{fields.length === 0 ? 'Choose a field type' : 'Add field type'}</span>
+                      {fields.length === 0 && (
+                        <button type="button" className="exams-text-add-btn" onClick={openBulk}>
+                          <ListPlus size={13} />
+                          Bulk add
+                        </button>
+                      )}
+                    </div>
+                    <div className="exams-type-grid">
+                      {EXAM_FIELD_TYPES.filter((t) => {
+                        if (t.value === 'fromExam' && !enableFromExam) return false;
+                        // Combined columns are created via Bulk add → Import → Combine.
+                        if (t.value === 'combined') return false;
+                        return true;
+                      }).map((t) => {
+                        const Icon = TYPE_ICONS[t.value] || Type;
+                        return (
+                          <button
+                            key={t.value}
+                            type="button"
+                            className="exams-type-tile"
+                            onClick={() => openCreate(t.value)}
+                            title={`Add ${t.label} field`}
+                          >
                             <Icon size={14} strokeWidth={2} />
-                          </span>
-                          <span className="exams-field-text">
-                            <span className="exams-field-row-label">{field.label}</span>
-                            <span className="exams-field-row-meta">{fieldMeta(field)}</span>
-                          </span>
-                        </button>
-
-                        <div className="exams-field-row-actions">
-                          <button
-                            type="button"
-                            className="exams-icon-btn"
-                            onClick={() => openEdit(field)}
-                            aria-label={`Edit ${field.label}`}
-                            title="Edit"
-                          >
-                            <Pencil size={13} />
+                            <span>{t.label}</span>
                           </button>
-                          <button
-                            type="button"
-                            className="exams-icon-btn danger"
-                            onClick={() => handleDelete(field.id)}
-                            aria-label={`Delete ${field.label}`}
-                            title="Delete"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
-            )}
+              {footer && <div className="exams-drawer-footer exams-drawer-footer-compact">{footer}</div>}
+            </>
+          ) : (
+            <form className="exams-drawer-form" onSubmit={handleSave}>
+              <div className="exams-drawer-body">
+                {error && <div className="exams-form-error">{error}</div>}
 
-            {(fields.length === 0 || typesOpen) && (
-              <div className={`exams-type-picker ${fields.length > 0 ? 'with-fields' : ''}`}>
-                <div className="exams-field-section-bar">
-                  <span>{fields.length === 0 ? 'Choose a field type' : 'Add field type'}</span>
-                  {fields.length === 0 && (
-                    <button type="button" className="exams-text-add-btn" onClick={openBulk}>
-                      <ListPlus size={13} />
-                      Bulk add
-                    </button>
-                  )}
+                <div className="exams-form-group">
+                  <label htmlFor={`${formId}-label`}>Label</label>
+                  <input
+                    id={`${formId}-label`}
+                    type="text"
+                    value={form.label}
+                    onChange={(e) => {
+                      const nextLabel = e.target.value;
+                      setForm((p) => {
+                        const next = { ...p, label: nextLabel };
+                        // Auto-fill key from label until the user edits the key (create only)
+                        if (!isEditing && !p.keyTouched) {
+                          next.key = slugifyKey(nextLabel);
+                        }
+                        return next;
+                      });
+                      if (error) setError('');
+                    }}
+                    placeholder="e.g. Exam Type"
+                    required
+                    autoFocus
+                  />
                 </div>
-                <div className="exams-type-grid">
-                  {EXAM_FIELD_TYPES.filter((t) => {
-                    if (t.value === 'fromExam' && !enableFromExam) return false;
-                    // Combined columns are created via Bulk add → Import → Combine.
-                    if (t.value === 'combined') return false;
-                    return true;
-                  }).map((t) => {
-                    const Icon = TYPE_ICONS[t.value] || Type;
-                    return (
-                      <button
-                        key={t.value}
-                        type="button"
-                        className="exams-type-tile"
-                        onClick={() => openCreate(t.value)}
-                        title={`Add ${t.label} field`}
-                      >
-                        <Icon size={14} strokeWidth={2} />
-                        <span>{t.label}</span>
-                      </button>
-                    );
-                  })}
+
+                <div className="exams-form-group">
+                  <label htmlFor={`${formId}-key`}>
+                    Key{!isEditing ? ' *' : ''}
+                  </label>
+                  <input
+                    id={`${formId}-key`}
+                    type="text"
+                    value={form.key}
+                    onChange={(e) => {
+                      if (isEditing) return;
+                      // Allow typing underscores; full normalize runs on save
+                      const raw = e.target.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9_]/g, '_')
+                        .slice(0, 40);
+                      setForm((p) => ({
+                        ...p,
+                        key: raw,
+                        keyTouched: true,
+                      }));
+                      if (error) setError('');
+                    }}
+                    placeholder="e.g. exam_type"
+                    required={!isEditing}
+                    readOnly={isEditing}
+                    disabled={isEditing}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-describedby={`${formId}-key-hint`}
+                  />
+                  <p id={`${formId}-key-hint`} className="exams-field-key-hint">
+                    {isEditing
+                      ? 'Key is locked after create (used in SQL form values).'
+                      : 'Stable id for SQL — letters, numbers, underscore. Auto-filled from label.'}
+                  </p>
                 </div>
-              </div>
-            )}
-          </div>
-          {footer && <div className="exams-drawer-footer exams-drawer-footer-compact">{footer}</div>}
-          </>
-        ) : (
-          <form className="exams-drawer-form" onSubmit={handleSave}>
-            <div className="exams-drawer-body">
-              {error && <div className="exams-form-error">{error}</div>}
 
-              <div className="exams-form-group">
-                <label htmlFor={`${formId}-label`}>Label</label>
-                <input
-                  id={`${formId}-label`}
-                  type="text"
-                  value={form.label}
-                  onChange={(e) => {
-                    const nextLabel = e.target.value;
-                    setForm((p) => {
-                      const next = { ...p, label: nextLabel };
-                      // Auto-fill key from label until the user edits the key (create only)
-                      if (!isEditing && !p.keyTouched) {
-                        next.key = slugifyKey(nextLabel);
-                      }
-                      return next;
-                    });
-                    if (error) setError('');
-                  }}
-                  placeholder="e.g. Exam Type"
-                  required
-                  autoFocus
-                />
-              </div>
-
-              <div className="exams-form-group">
-                <label htmlFor={`${formId}-key`}>
-                  Key{!isEditing ? ' *' : ''}
-                </label>
-                <input
-                  id={`${formId}-key`}
-                  type="text"
-                  value={form.key}
-                  onChange={(e) => {
-                    if (isEditing) return;
-                    // Allow typing underscores; full normalize runs on save
-                    const raw = e.target.value
-                      .toLowerCase()
-                      .replace(/[^a-z0-9_]/g, '_')
-                      .slice(0, 40);
+                <SearchableSelect
+                  id={`${formId}-type`}
+                  label="Field type"
+                  value={form.dataType}
+                  options={EXAM_FIELD_TYPES}
+                  searchPlaceholder="Search field types…"
+                  onChange={(next) => {
                     setForm((p) => ({
                       ...p,
-                      key: raw,
-                      keyTouched: true,
+                      dataType: next,
+                      allowMultiple: next === 'multiselect' ? true : p.allowMultiple,
+                      sameAsFieldKey: DATE_LINK_TYPES.has(next) ? p.sameAsFieldKey : '',
+                      phoneValidation:
+                        next === 'phone'
+                          ? p.phoneValidation || emptyPhoneValidation()
+                          : emptyPhoneValidation(),
                     }));
                     if (error) setError('');
                   }}
-                  placeholder="e.g. exam_type"
-                  required={!isEditing}
-                  readOnly={isEditing}
-                  disabled={isEditing}
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-describedby={`${formId}-key-hint`}
                 />
-                <p id={`${formId}-key-hint`} className="exams-field-key-hint">
-                  {isEditing
-                    ? 'Key is locked after create (used in SQL form values).'
-                    : 'Stable id for SQL — letters, numbers, underscore. Auto-filled from label.'}
-                </p>
-              </div>
 
-              <SearchableSelect
-                id={`${formId}-type`}
-                label="Field type"
-                value={form.dataType}
-                options={EXAM_FIELD_TYPES}
-                searchPlaceholder="Search field types…"
-                onChange={(next) => {
-                  setForm((p) => ({
-                    ...p,
-                    dataType: next,
-                    allowMultiple: next === 'multiselect' ? true : p.allowMultiple,
-                    sameAsFieldKey: DATE_LINK_TYPES.has(next) ? p.sameAsFieldKey : '',
-                    phoneValidation:
-                      next === 'phone'
-                        ? p.phoneValidation || emptyPhoneValidation()
-                        : emptyPhoneValidation(),
-                  }));
-                  if (error) setError('');
-                }}
-              />
-
-              {form.dataType === 'phone' && (
-                <div className="exams-options-block">
-                  <SearchableSelect
-                    id={`${formId}-phone-validation`}
-                    label="Phone validation"
-                    value={form.phoneValidation?.mode || 'none'}
-                    options={PHONE_VALIDATION_PRESETS}
-                    searchPlaceholder="Search rules…"
-                    onChange={(next) =>
-                      setForm((p) => ({
-                        ...p,
-                        phoneValidation: {
-                          mode: next,
-                          pattern: next === 'custom' ? p.phoneValidation?.pattern || '' : '',
-                          message: p.phoneValidation?.message || '',
-                        },
-                      }))
-                    }
-                  />
-                  {(form.phoneValidation?.mode || 'none') !== 'none' &&
-                    form.phoneValidation?.mode !== 'custom' && (
-                      <p className="exams-config-empty-hint">
-                        {
-                          PHONE_VALIDATION_PRESETS.find(
-                            (p) => p.value === form.phoneValidation?.mode,
-                          )?.message
-                        }
-                      </p>
-                    )}
-                  {form.phoneValidation?.mode === 'custom' && (
-                    <>
-                      <div className="exams-form-group">
-                        <label htmlFor={`${formId}-phone-regex`}>Custom regex *</label>
-                        <input
-                          id={`${formId}-phone-regex`}
-                          type="text"
-                          value={form.phoneValidation?.pattern || ''}
-                          onChange={(e) =>
-                            setForm((p) => ({
-                              ...p,
-                              phoneValidation: {
-                                ...p.phoneValidation,
-                                mode: 'custom',
-                                pattern: e.target.value,
-                              },
-                            }))
+                {form.dataType === 'phone' && (
+                  <div className="exams-options-block">
+                    <SearchableSelect
+                      id={`${formId}-phone-validation`}
+                      label="Phone validation"
+                      value={form.phoneValidation?.mode || 'none'}
+                      options={PHONE_VALIDATION_PRESETS}
+                      searchPlaceholder="Search rules…"
+                      onChange={(next) =>
+                        setForm((p) => ({
+                          ...p,
+                          phoneValidation: {
+                            mode: next,
+                            pattern: next === 'custom' ? p.phoneValidation?.pattern || '' : '',
+                            message: p.phoneValidation?.message || '',
+                          },
+                        }))
+                      }
+                    />
+                    {(form.phoneValidation?.mode || 'none') !== 'none' &&
+                      form.phoneValidation?.mode !== 'custom' && (
+                        <p className="exams-config-empty-hint">
+                          {
+                            PHONE_VALIDATION_PRESETS.find(
+                              (p) => p.value === form.phoneValidation?.mode,
+                            )?.message
                           }
-                          placeholder="e.g. ^[6-9]\d{9}$"
-                          spellCheck={false}
-                          required
-                        />
-                      </div>
-                      <div className="exams-form-group">
-                        <label htmlFor={`${formId}-phone-msg`}>Error message</label>
-                        <input
-                          id={`${formId}-phone-msg`}
-                          type="text"
-                          value={form.phoneValidation?.message || ''}
-                          onChange={(e) =>
-                            setForm((p) => ({
-                              ...p,
-                              phoneValidation: {
-                                ...p.phoneValidation,
-                                mode: 'custom',
-                                message: e.target.value,
-                              },
-                            }))
-                          }
-                          placeholder="Shown when the number does not match"
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              <div className="exams-form-row">
-                {form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
-                  <SearchableSelect
-                    id={`${formId}-autofill`}
-                    label="Auto-fill"
-                    value={form.autoFill || 'none'}
-                    options={AUTO_FILL_OPTIONS}
-                    searchPlaceholder="Search…"
-                    onChange={(next) =>
-                      setForm((p) => ({
-                        ...p,
-                        autoFill: next,
-                        required: next !== 'none' ? false : p.required,
-                      }))
-                    }
-                  />
-                ) : null}
-                <div className="exams-form-group">
-                  <label htmlFor={`${formId}-layout`}>Width</label>
-                  <select
-                    id={`${formId}-layout`}
-                    value={form.layout || 'full'}
-                    onChange={(e) => setForm((p) => ({ ...p, layout: e.target.value }))}
-                  >
-                    <option value="full">Full width</option>
-                    <option value="half">Half (side by side)</option>
-                  </select>
-                </div>
-              </div>
-
-              {(!form.autoFill || form.autoFill === 'none') &&
-                form.dataType !== 'linked' &&
-                form.dataType !== 'fromExam' && (
-                <label className="exams-check-row">
-                  <input
-                    type="checkbox"
-                    checked={form.required}
-                    onChange={(e) => setForm((p) => ({ ...p, required: e.target.checked }))}
-                  />
-                  <span>Required on create form</span>
-                </label>
-              )}
-
-              {allowUnique && UNIQUE_FIELD_TYPES.has(form.dataType) && (
-                <label className="exams-check-row">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.unique)}
-                    onChange={(e) => setForm((p) => ({ ...p, unique: e.target.checked }))}
-                  />
-                  <span>Unique: no two records can have the same value</span>
-                </label>
-              )}
-
-              {isDateLinkable && (
-                <div className="exams-options-block">
-                  <SearchableSelect
-                    id={`${formId}-schedule-role`}
-                    label="Date chips (Exam management)"
-                    value={form.scheduleRole || ''}
-                    options={SCHEDULE_ROLE_OPTIONS}
-                    placeholder="Not used for chips"
-                    searchThreshold={8}
-                    onChange={(next) => setForm((p) => ({ ...p, scheduleRole: next }))}
-                  />
-                  <p className="exams-config-empty-hint">
-                    Map this field as Schedule start or Schedule end for Upcoming / Today / Last 7 days. One of each.
-                  </p>
-                  <SearchableSelect
-                    id={`${formId}-same-as`}
-                    label="Same as date field"
-                    value={form.sameAsFieldKey || ''}
-                    options={dateLinkOptions}
-                    placeholder="None"
-                    searchPlaceholder="Search date fields…"
-                    onChange={(next) =>
-                      setForm((p) => ({
-                        ...p,
-                        sameAsFieldKey: next,
-                        sameAsDefaultOn: next ? p.sameAsDefaultOn !== false : true,
-                      }))
-                    }
-                  />
-                  {form.sameAsFieldKey ? (
-                    <label className="exams-check-row">
-                      <input
-                        type="checkbox"
-                        checked={form.sameAsDefaultOn !== false}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, sameAsDefaultOn: e.target.checked }))
-                        }
-                      />
-                      <span>Default “same as” ON in create form</span>
-                    </label>
-                  ) : (
-                    <p className="exams-config-empty-hint">
-                      {dateLinkOptions.length > 1
-                        ? 'Pick another date field to mirror on the create form.'
-                        : 'Add another date field first, then you can link this one to it.'}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {needsOptions && (
-                <div className="exams-options-block">
-                  {(isChoiceField || form.dataType === 'tags') && (
-                    <div className="exams-form-group">
-                      <span className="exams-audit-label">Options source</span>
-                      <div className="exams-source-toggle" role="group" aria-label="Options source">
-                        <button
-                          type="button"
-                          className={`exams-source-btn ${(form.optionsSource || 'manual') === 'manual' ? 'active' : ''}`}
-                          onClick={() => {
-                            setForm((p) => ({ ...p, optionsSource: 'manual' }));
-                            if (error) setError('');
-                          }}
-                        >
-                          Manual
-                        </button>
-                        <button
-                          type="button"
-                          className={`exams-source-btn ${form.optionsSource === 'config' ? 'active' : ''}`}
-                          onClick={() => {
-                            setForm((p) => ({ ...p, optionsSource: 'config' }));
-                            if (error) setError('');
-                          }}
-                        >
-                          Config list
-                        </button>
-                        {isChoiceField && (
-                          <button
-                            type="button"
-                            className={`exams-source-btn ${form.optionsSource === 'table' ? 'active' : ''}`}
-                            onClick={() => {
-                              setForm((p) => ({ ...p, optionsSource: 'table' }));
-                              if (error) setError('');
-                            }}
-                          >
-                            Table column
-                          </button>
-                        )}
-                        {isChoiceField && (
-                          <button
-                            type="button"
-                            className={`exams-source-btn ${form.optionsSource === 'userTags' ? 'active' : ''}`}
-                            onClick={() => {
+                        </p>
+                      )}
+                    {form.phoneValidation?.mode === 'custom' && (
+                      <>
+                        <div className="exams-form-group">
+                          <label htmlFor={`${formId}-phone-regex`}>Custom regex *</label>
+                          <input
+                            id={`${formId}-phone-regex`}
+                            type="text"
+                            value={form.phoneValidation?.pattern || ''}
+                            onChange={(e) =>
                               setForm((p) => ({
                                 ...p,
-                                optionsSource: 'userTags',
-                                allowMultiple: true,
-                              }));
-                              if (error) setError('');
-                            }}
-                          >
-                            User tags
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                                phoneValidation: {
+                                  ...p.phoneValidation,
+                                  mode: 'custom',
+                                  pattern: e.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="e.g. ^[6-9]\d{9}$"
+                            spellCheck={false}
+                            required
+                          />
+                        </div>
+                        <div className="exams-form-group">
+                          <label htmlFor={`${formId}-phone-msg`}>Error message</label>
+                          <input
+                            id={`${formId}-phone-msg`}
+                            type="text"
+                            value={form.phoneValidation?.message || ''}
+                            onChange={(e) =>
+                              setForm((p) => ({
+                                ...p,
+                                phoneValidation: {
+                                  ...p.phoneValidation,
+                                  mode: 'custom',
+                                  message: e.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Shown when the number does not match"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
-                  {isChoiceField && form.optionsSource !== 'userTags' && (
+                <div className="exams-form-row">
+                  {form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
+                    <SearchableSelect
+                      id={`${formId}-autofill`}
+                      label="Auto-fill"
+                      value={form.autoFill || 'none'}
+                      options={AUTO_FILL_OPTIONS}
+                      searchPlaceholder="Search…"
+                      onChange={(next) =>
+                        setForm((p) => ({
+                          ...p,
+                          autoFill: next,
+                          required: next !== 'none' ? false : p.required,
+                        }))
+                      }
+                    />
+                  ) : null}
+                  <div className="exams-form-group">
+                    <label htmlFor={`${formId}-layout`}>Width</label>
+                    <select
+                      id={`${formId}-layout`}
+                      value={form.layout || 'full'}
+                      onChange={(e) => setForm((p) => ({ ...p, layout: e.target.value }))}
+                    >
+                      <option value="full">Full width</option>
+                      <option value="half">Half (side by side)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {(!form.autoFill || form.autoFill === 'none') &&
+                  form.dataType !== 'linked' &&
+                  form.dataType !== 'fromExam' && (
                     <label className="exams-check-row">
                       <input
                         type="checkbox"
-                        checked={Boolean(form.allowMultiple)}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, allowMultiple: e.target.checked }))
-                        }
+                        checked={form.required}
+                        onChange={(e) => setForm((p) => ({ ...p, required: e.target.checked }))}
                       />
-                      <span>Allow multiple selection</span>
+                      <span>Required on create form</span>
                     </label>
                   )}
-                  {isChoiceField && form.optionsSource === 'userTags' && (
-                    <p className="exams-config-empty-hint">
-                      Multi-assign is always on: one center row can be given to several people (e.g. 2 VMs + 1 ZM).
-                      Assigned people see that row; empty means no extra restriction.
-                    </p>
-                  )}
 
-                  {form.optionsSource === 'userTags' ? (
-                    <TagMultiPicker
-                      value={form.userTagIds || []}
-                      onChange={(next) => {
-                        setForm((p) => ({ ...p, userTagIds: next }));
-                        if (error) setError('');
-                      }}
+                {allowUnique && UNIQUE_FIELD_TYPES.has(form.dataType) && (
+                  <label className="exams-check-row">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.unique)}
+                      onChange={(e) => setForm((p) => ({ ...p, unique: e.target.checked }))}
                     />
-                  ) : form.optionsSource === 'table' ? (
-                    <>
-                      <SearchableSelect
-                        id={`${formId}-lookup-table`}
-                        label="Read from table"
-                        value={form.lookupTable}
-                        options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
-                        placeholder={lookupSources.length ? 'Select a table…' : 'Loading tables…'}
-                        searchThreshold={8}
-                        onChange={(next) => {
-                          setForm((p) => ({ ...p, lookupTable: next, lookupColumn: '', lookupDetail: '' }));
-                          if (error) setError('');
-                        }}
-                      />
-                      {form.lookupTable && (
-                        <>
-                          <SearchableSelect
-                            id={`${formId}-lookup-column`}
-                            label="Show this column"
-                            value={form.lookupColumn}
-                            options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
-                            placeholder="Select a column…"
-                            searchPlaceholder="Search columns…"
-                            onChange={(next) => {
-                              setForm((p) => ({ ...p, lookupColumn: next }));
+                    <span>Unique: no two records can have the same value</span>
+                  </label>
+                )}
+
+                {isDateLinkable && (
+                  <div className="exams-options-block">
+                    <SearchableSelect
+                      id={`${formId}-schedule-role`}
+                      label="Date chips (Exam management)"
+                      value={form.scheduleRole || ''}
+                      options={SCHEDULE_ROLE_OPTIONS}
+                      placeholder="Not used for chips"
+                      searchThreshold={8}
+                      onChange={(next) => setForm((p) => ({ ...p, scheduleRole: next }))}
+                    />
+                    <p className="exams-config-empty-hint">
+                      Map this field as Schedule start or Schedule end for Upcoming / Today / Last 7 days. One of each.
+                    </p>
+                    <SearchableSelect
+                      id={`${formId}-same-as`}
+                      label="Same as date field"
+                      value={form.sameAsFieldKey || ''}
+                      options={dateLinkOptions}
+                      placeholder="None"
+                      searchPlaceholder="Search date fields…"
+                      onChange={(next) =>
+                        setForm((p) => ({
+                          ...p,
+                          sameAsFieldKey: next,
+                          sameAsDefaultOn: next ? p.sameAsDefaultOn !== false : true,
+                        }))
+                      }
+                    />
+                    {form.sameAsFieldKey ? (
+                      <label className="exams-check-row">
+                        <input
+                          type="checkbox"
+                          checked={form.sameAsDefaultOn !== false}
+                          onChange={(e) =>
+                            setForm((p) => ({ ...p, sameAsDefaultOn: e.target.checked }))
+                          }
+                        />
+                        <span>Default “same as” ON in create form</span>
+                      </label>
+                    ) : (
+                      <p className="exams-config-empty-hint">
+                        {dateLinkOptions.length > 1
+                          ? 'Pick another date field to mirror on the create form.'
+                          : 'Add another date field first, then you can link this one to it.'}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {needsOptions && (
+                  <div className="exams-options-block">
+                    {(isChoiceField || form.dataType === 'tags') && (
+                      <div className="exams-form-group">
+                        <span className="exams-audit-label">Options source</span>
+                        <div className="exams-source-toggle" role="group" aria-label="Options source">
+                          <button
+                            type="button"
+                            className={`exams-source-btn ${(form.optionsSource || 'manual') === 'manual' ? 'active' : ''}`}
+                            onClick={() => {
+                              setForm((p) => ({ ...p, optionsSource: 'manual' }));
                               if (error) setError('');
                             }}
-                          />
-                          <SearchableSelect
-                            id={`${formId}-lookup-detail`}
-                            label="Also show (optional)"
-                            value={form.lookupDetail}
-                            options={[
-                              { value: '', label: 'None' },
-                              ...lookupColumns.filter((c) => c.key !== form.lookupColumn).map((c) => ({ value: c.key, label: c.label })),
-                            ]}
-                            placeholder="None"
-                            searchPlaceholder="Search columns…"
-                            onChange={(next) => setForm((p) => ({ ...p, lookupDetail: next }))}
-                          />
-                        </>
-                      )}
-                      {form.lookupTable && form.lookupColumn && (
-                        <div className="exams-fill-columns">
-                          <span className="exams-audit-label">Also fill from the same row</span>
-                          <p className="exams-config-empty-hint">
-                            Each ticked column becomes a read-only field that shows that column of the row picked here.
-                          </p>
-                          <div className="exams-fill-grid">
-                            {lookupColumns
-                              .filter((c) => c.key !== form.lookupColumn)
-                              .map((c) => (
-                                <label key={c.key} className="exams-check-row">
-                                  <input
-                                    type="checkbox"
-                                    checked={(form.fillColumns || []).includes(c.key)}
-                                    onChange={(e) =>
-                                      setForm((p) => ({
-                                        ...p,
-                                        fillColumns: e.target.checked
-                                          ? [...(p.fillColumns || []), c.key]
-                                          : (p.fillColumns || []).filter((k) => k !== c.key),
-                                      }))
-                                    }
-                                  />
-                                  <span>{c.label}</span>
-                                </label>
-                              ))}
-                          </div>
+                          >
+                            Manual
+                          </button>
+                          <button
+                            type="button"
+                            className={`exams-source-btn ${form.optionsSource === 'config' ? 'active' : ''}`}
+                            onClick={() => {
+                              setForm((p) => ({ ...p, optionsSource: 'config' }));
+                              if (error) setError('');
+                            }}
+                          >
+                            Config list
+                          </button>
+                          {isChoiceField && (
+                            <button
+                              type="button"
+                              className={`exams-source-btn ${form.optionsSource === 'table' ? 'active' : ''}`}
+                              onClick={() => {
+                                setForm((p) => ({ ...p, optionsSource: 'table' }));
+                                if (error) setError('');
+                              }}
+                            >
+                              Table column
+                            </button>
+                          )}
+                          {isChoiceField && (
+                            <button
+                              type="button"
+                              className={`exams-source-btn ${form.optionsSource === 'userTags' ? 'active' : ''}`}
+                              onClick={() => {
+                                setForm((p) => ({
+                                  ...p,
+                                  optionsSource: 'userTags',
+                                  allowMultiple: true,
+                                }));
+                                if (error) setError('');
+                              }}
+                            >
+                              User tags
+                            </button>
+                          )}
                         </div>
-                      )}
-                      <p className="exams-config-empty-hint">
-                        Read live from that table each time the form opens. The field stores only the row, so a
-                        rename there shows up here. Nothing is copied.
-                      </p>
-                    </>
-                  ) : (form.optionsSource || 'manual') === 'manual' ? (
-                    <div className="exams-form-group">
-                      <label htmlFor={`${formId}-options`}>Options (one per line)</label>
-                      <textarea
-                        id={`${formId}-options`}
-                        value={form.optionsText}
-                        onChange={(e) => {
-                          setForm((p) => ({ ...p, optionsText: e.target.value }));
-                          if (error) setError('');
-                        }}
-                        placeholder={'Active\nInactive\nPending'}
-                        rows={5}
-                      />
-                    </div>
-                  ) : configListOptions.length === 0 ? (
-                    <p className="exams-config-empty-hint">
-                      No Config lists yet. Create one in Settings → Config, then come back.
-                    </p>
-                  ) : (
-                    <>
-                      <SearchableSelect
-                        id={`${formId}-config-list`}
-                        label="Config dropdown list"
-                        value={form.configListId || ''}
-                        options={configListOptions}
-                        placeholder="Select a list…"
-                        searchPlaceholder="Search lists…"
-                        onChange={(next) => {
-                          setForm((p) => ({ ...p, configListId: next }));
-                          if (error) setError('');
-                        }}
-                      />
-                      {previewConfigOptions.length > 0 && (
-                        <div className="exams-config-preview">
-                          <span className="exams-audit-label">Live options (follows Config)</span>
-                          <div className="exams-options-chips">
-                            {previewConfigOptions.map((opt) => (
-                              <span key={opt} className="exams-option-chip">
-                                {opt}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+                      </div>
+                    )}
 
-              {form.dataType === 'linked' && (
-                <div className="exams-options-block">
-                  {linkSourceFields.length === 0 ? (
-                    <p className="exams-config-empty-hint">
-                      Add a field that reads from a table (options source “Table column”) first, then link to it here.
-                    </p>
-                  ) : (
-                    <>
-                      <SearchableSelect
-                        id={`${formId}-linked-field`}
-                        label="Read from field"
-                        value={form.linkedFieldKey}
-                        options={linkSourceFields.map((f) => ({ value: f.key, label: f.label }))}
-                        placeholder="Select a field…"
-                        searchThreshold={8}
+                    {isChoiceField && form.optionsSource !== 'userTags' && (
+                      <label className="exams-check-row">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(form.allowMultiple)}
+                          onChange={(e) =>
+                            setForm((p) => ({ ...p, allowMultiple: e.target.checked }))
+                          }
+                        />
+                        <span>Allow multiple selection</span>
+                      </label>
+                    )}
+                    {isChoiceField && form.optionsSource === 'userTags' && (
+                      <p className="exams-config-empty-hint">
+                        Multi-assign is always on: one center row can be given to several people (e.g. 2 VMs + 1 ZM).
+                        Assigned people see that row; empty means no extra restriction.
+                      </p>
+                    )}
+
+                    {form.optionsSource === 'userTags' ? (
+                      <TagMultiPicker
+                        value={form.userTagIds || []}
                         onChange={(next) => {
-                          setForm((p) => ({ ...p, linkedFieldKey: next, linkedColumn: '' }));
+                          setForm((p) => ({ ...p, userTagIds: next }));
                           if (error) setError('');
                         }}
                       />
-                      {linkSource && (
+                    ) : form.optionsSource === 'table' ? (
+                      <>
                         <SearchableSelect
-                          id={`${formId}-linked-column`}
-                          label="Show this column"
-                          value={form.linkedColumn}
-                          options={linkColumns.map((c) => ({ value: c.key, label: c.label }))}
-                          placeholder={linkColumns.length ? 'Select a column…' : 'Loading columns…'}
-                          searchPlaceholder="Search columns…"
+                          id={`${formId}-lookup-table`}
+                          label="Read from table"
+                          value={form.lookupTable}
+                          options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
+                          placeholder={lookupSources.length ? 'Select a table…' : 'Loading tables…'}
+                          searchThreshold={8}
                           onChange={(next) => {
-                            setForm((p) => ({ ...p, linkedColumn: next }));
+                            setForm((p) => ({ ...p, lookupTable: next, lookupColumn: '', lookupDetail: '' }));
                             if (error) setError('');
                           }}
                         />
-                      )}
+                        {form.lookupTable && (
+                          <>
+                            <SearchableSelect
+                              id={`${formId}-lookup-column`}
+                              label="Show this column"
+                              value={form.lookupColumn}
+                              options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
+                              placeholder="Select a column…"
+                              searchPlaceholder="Search columns…"
+                              onChange={(next) => {
+                                setForm((p) => ({ ...p, lookupColumn: next }));
+                                if (error) setError('');
+                              }}
+                            />
+                            <SearchableSelect
+                              id={`${formId}-lookup-detail`}
+                              label="Also show (optional)"
+                              value={form.lookupDetail}
+                              options={[
+                                { value: '', label: 'None' },
+                                ...lookupColumns.filter((c) => c.key !== form.lookupColumn).map((c) => ({ value: c.key, label: c.label })),
+                              ]}
+                              placeholder="None"
+                              searchPlaceholder="Search columns…"
+                              onChange={(next) => setForm((p) => ({ ...p, lookupDetail: next }))}
+                            />
+                          </>
+                        )}
+                        {form.lookupTable && form.lookupColumn && (
+                          <div className="exams-fill-columns">
+                            <span className="exams-audit-label">Also fill from the same row</span>
+                            <p className="exams-config-empty-hint">
+                              Each ticked column becomes a read-only field that shows that column of the row picked here.
+                            </p>
+                            <div className="exams-fill-grid">
+                              {lookupColumns
+                                .filter((c) => c.key !== form.lookupColumn)
+                                .map((c) => (
+                                  <label key={c.key} className="exams-check-row">
+                                    <input
+                                      type="checkbox"
+                                      checked={(form.fillColumns || []).includes(c.key)}
+                                      onChange={(e) =>
+                                        setForm((p) => ({
+                                          ...p,
+                                          fillColumns: e.target.checked
+                                            ? [...(p.fillColumns || []), c.key]
+                                            : (p.fillColumns || []).filter((k) => k !== c.key),
+                                        }))
+                                      }
+                                    />
+                                    <span>{c.label}</span>
+                                  </label>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                        <p className="exams-config-empty-hint">
+                          Read live from that table each time the form opens. The field stores only the row, so a
+                          rename there shows up here. Nothing is copied.
+                        </p>
+                      </>
+                    ) : (form.optionsSource || 'manual') === 'manual' ? (
+                      <div className="exams-form-group">
+                        <label htmlFor={`${formId}-options`}>Options (one per line)</label>
+                        <textarea
+                          id={`${formId}-options`}
+                          value={form.optionsText}
+                          onChange={(e) => {
+                            setForm((p) => ({ ...p, optionsText: e.target.value }));
+                            if (error) setError('');
+                          }}
+                          placeholder={'Active\nInactive\nPending'}
+                          rows={5}
+                        />
+                      </div>
+                    ) : configListOptions.length === 0 ? (
                       <p className="exams-config-empty-hint">
-                        Read-only. Shows that column of the row picked in the field above, and follows it live.
+                        No Config lists yet. Create one in Settings → Config, then come back.
                       </p>
-                    </>
-                  )}
-                </div>
-              )}
+                    ) : (
+                      <>
+                        <SearchableSelect
+                          id={`${formId}-config-list`}
+                          label="Config dropdown list"
+                          value={form.configListId || ''}
+                          options={configListOptions}
+                          placeholder="Select a list…"
+                          searchPlaceholder="Search lists…"
+                          onChange={(next) => {
+                            setForm((p) => ({ ...p, configListId: next }));
+                            if (error) setError('');
+                          }}
+                        />
+                        {previewConfigOptions.length > 0 && (
+                          <div className="exams-config-preview">
+                            <span className="exams-audit-label">Live options (follows Config)</span>
+                            <div className="exams-options-chips">
+                              {previewConfigOptions.map((opt) => (
+                                <span key={opt} className="exams-option-chip">
+                                  {opt}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
-              {form.dataType === 'fromExam' && (
-                <div className="exams-options-block">
-                  {examFieldOptions.length === 0 ? (
-                    <p className="exams-config-empty-hint">
-                      “From exam” mirrors a value from Exam management onto every center row. Open this builder from a
-                      center list after exam fields exist.
-                    </p>
-                  ) : (
-                    <>
-                      <SearchableSelect
-                        id={`${formId}-exam-field`}
-                        label="Exam field to show"
-                        value={form.examFieldKey}
-                        options={examFieldOptions}
-                        placeholder="Select an exam field…"
-                        searchThreshold={8}
-                        onChange={(next) => {
-                          setForm((p) => ({ ...p, examFieldKey: next }));
-                          if (error) setError('');
-                        }}
-                      />
+                {form.dataType === 'linked' && (
+                  <div className="exams-options-block">
+                    {linkSourceFields.length === 0 ? (
                       <p className="exams-config-empty-hint">
-                        Read-only. Every center row shows that exam’s current value (not stored on the center).
+                        Add a field that reads from a table (options source “Table column”) first, then link to it here.
                       </p>
-                    </>
-                  )}
-                </div>
-              )}
+                    ) : (
+                      <>
+                        <SearchableSelect
+                          id={`${formId}-linked-field`}
+                          label="Read from field"
+                          value={form.linkedFieldKey}
+                          options={linkSourceFields.map((f) => ({ value: f.key, label: f.label }))}
+                          placeholder="Select a field…"
+                          searchThreshold={8}
+                          onChange={(next) => {
+                            setForm((p) => ({ ...p, linkedFieldKey: next, linkedColumn: '' }));
+                            if (error) setError('');
+                          }}
+                        />
+                        {linkSource && (
+                          <SearchableSelect
+                            id={`${formId}-linked-column`}
+                            label="Show this column"
+                            value={form.linkedColumn}
+                            options={linkColumns.map((c) => ({ value: c.key, label: c.label }))}
+                            placeholder={linkColumns.length ? 'Select a column…' : 'Loading columns…'}
+                            searchPlaceholder="Search columns…"
+                            onChange={(next) => {
+                              setForm((p) => ({ ...p, linkedColumn: next }));
+                              if (error) setError('');
+                            }}
+                          />
+                        )}
+                        <p className="exams-config-empty-hint">
+                          Read-only. Shows that column of the row picked in the field above, and follows it live.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
 
-              {needsFormula && (
-                <div className="exams-form-group">
-                  <label htmlFor={`${formId}-formula`}>Formula</label>
-                  <input
-                    id={`${formId}-formula`}
-                    type="text"
-                    value={form.formula}
-                    onChange={(e) => {
-                      setForm((p) => ({ ...p, formula: e.target.value }));
-                      if (error) setError('');
-                    }}
-                    placeholder="e.g. {shifts} * {centres}"
-                  />
-                </div>
-              )}
-            </div>
+                {form.dataType === 'fromExam' && (
+                  <div className="exams-options-block">
+                    {examFieldOptions.length === 0 ? (
+                      <p className="exams-config-empty-hint">
+                        “From exam” mirrors a value from Exam management onto every center row. Open this builder from a
+                        center list after exam fields exist.
+                      </p>
+                    ) : (
+                      <>
+                        <SearchableSelect
+                          id={`${formId}-exam-field`}
+                          label="Exam field to show"
+                          value={form.examFieldKey}
+                          options={examFieldOptions}
+                          placeholder="Select an exam field…"
+                          searchThreshold={8}
+                          onChange={(next) => {
+                            setForm((p) => ({ ...p, examFieldKey: next }));
+                            if (error) setError('');
+                          }}
+                        />
+                        <p className="exams-config-empty-hint">
+                          Read-only. Every center row shows that exam’s current value (not stored on the center).
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
 
-            <div className="exams-drawer-footer exams-drawer-footer-compact">
-              <button type="button" className="exams-btn secondary compact" onClick={closeEditor}>
-                Cancel
-              </button>
-              <button type="submit" className="exams-btn primary compact">
-                <Plus size={14} />
-                <span>{isEditing ? 'Save' : 'Create'}</span>
-              </button>
-            </div>
-          </form>
-        )}
-      </aside>
-    </div>
-    {groupsOpen && (
-      <ColumnGroupsModal
-        fields={fields}
-        onClose={() => setGroupsOpen(false)}
-        onSave={(next) => onChange(next)}
-      />
-    )}
-    {bulkOpen && (
-      <BulkFieldsModal
-        fields={fields}
-        reservedKeys={reservedKeys}
-        allowUnique={allowUnique}
-        {...bulkModalProps}
-        examSourceFields={examSourceFields}
-        examId={examId}
-        currentView={currentView}
-        presetSources={presetSources}
-        dateShifts={dateShifts}
-        enableDateShifts={enableDateShifts}
-        workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
-        onClose={closeBulk}
-        onAdd={handleBulkAdd}
-      />
-    )}
+                {needsFormula && (
+                  <div className="exams-form-group">
+                    <label htmlFor={`${formId}-formula`}>Formula</label>
+                    <input
+                      id={`${formId}-formula`}
+                      type="text"
+                      value={form.formula}
+                      onChange={(e) => {
+                        setForm((p) => ({ ...p, formula: e.target.value }));
+                        if (error) setError('');
+                      }}
+                      placeholder="e.g. {shifts} * {centres}"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="exams-drawer-footer exams-drawer-footer-compact">
+                <button type="button" className="exams-btn secondary compact" onClick={closeEditor}>
+                  Cancel
+                </button>
+                <button type="submit" className="exams-btn primary compact">
+                  <Plus size={14} />
+                  <span>{isEditing ? 'Save' : 'Create'}</span>
+                </button>
+              </div>
+            </form>
+          )}
+        </aside>
+      </div>
+      {groupsOpen && (
+        <ColumnGroupsModal
+          fields={fields}
+          onClose={() => setGroupsOpen(false)}
+          onSave={(next) => onChange(next)}
+        />
+      )}
+      {bulkOpen && (
+        <BulkFieldsModal
+          fields={fields}
+          reservedKeys={reservedKeys}
+          allowUnique={allowUnique}
+          {...bulkModalProps}
+          examSourceFields={examSourceFields}
+          examId={examId}
+          currentView={currentView}
+          presetSources={presetSources}
+          dateShifts={dateShifts}
+          enableDateShifts={enableDateShifts}
+          workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
+          onClose={closeBulk}
+          onAdd={handleBulkAdd}
+        />
+      )}
     </>
   );
 };

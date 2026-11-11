@@ -17,6 +17,10 @@ import { normalizeConditionalFormatRule } from '../utils/conditionalFormat';
 import { createCompositeColumnHandlers } from './tableState/compositeColumnHandlers';
 import { createConditionalFormatHandlers } from './tableState/conditionalFormatHandlers';
 import { createSavedViewHandlers, loadSavedViews } from './tableState/savedViewHandlers';
+import { setLookupPick } from '../editors/lookupPicks';
+import { seedLookupRow } from '../editors/lookupSeeds';
+import { setLookupDisplayOverrides } from '../editors/lookupDisplayOverrides';
+import type { BulkLookupPickMeta } from '../components/BulkLookupPicker';
 export type { TableStateHandlers } from './tableState/types';
 import type { TableStateHandlers } from './tableState/types';
 
@@ -591,40 +595,60 @@ export function useTableState(
     if (ids.length && onRowDelete) void onRowDelete(ids);
   }, [selectedRows, onRowDelete]);
 
-  const handleBulkUpdate = useCallback((updates: Record<string, unknown>) => {
+  const handleBulkUpdate = useCallback((
+    updates: Record<string, unknown>,
+    lookupPicks: BulkLookupPickMeta[] = [],
+  ) => {
     if (selectedRows.size === 0 || Object.keys(updates).length === 0) return;
 
-    // Persist the selected rows: one bulk call if the page provides it, otherwise per row.
-    const targets = rows
-      .filter(r => selectedRows.has(r.rowId))
-      .map(r => ({ rowId: r.rowId, values: updates, row: { ...r, values: { ...r.values, ...updates } } }));
+    const targets = rows.filter((r) => selectedRows.has(r.rowId));
+
+    // Mass Edit lookup picks must register source-row ids for every target — otherwise
+    // restoreLookupIds keeps the old (often empty) value and cells clear after save.
+    lookupPicks.forEach((pick) => {
+      if (pick.table && pick.id) seedLookupRow(pick.table, pick.id, pick.seedValues || {});
+      targets.forEach((r) => {
+        setLookupPick(r.rowId, pick.columnKey, pick.id);
+        const displayPatch: Record<string, string> = {};
+        Object.entries(updates).forEach(([k, v]) => {
+          if (v == null) return;
+          displayPatch[k] = String(v);
+        });
+        if (Object.keys(displayPatch).length) setLookupDisplayOverrides(r.rowId, displayPatch);
+      });
+    });
+
+    const payload = targets.map((r) => ({
+      rowId: r.rowId,
+      values: updates,
+      row: { ...r, values: { ...r.values, ...updates } },
+    }));
     if (onBulkUpdate) {
-      void onBulkUpdate(targets);
+      void onBulkUpdate(payload);
     } else if (onRowUpdate) {
-      targets.forEach(t => void onRowUpdate(t.rowId, t.values, t.row));
+      payload.forEach((t) => void onRowUpdate(t.rowId, t.values, t.row));
     }
 
-    setRows(prev => {
-      const originalRows = prev.filter(r => selectedRows.has(r.rowId));
-      
-      setPendingEdit(pe => {
+    setRows((prev) => {
+      const originalRows = prev.filter((r) => selectedRows.has(r.rowId));
+
+      setPendingEdit((pe) => {
         const prevRows = pe?.originalRows || [];
-        const prevRowIds = new Set(prevRows.map(r => r.rowId));
-        // Add only the rows that aren't already in the current pending edit batch
-        const newOriginals = originalRows.filter(r => !prevRowIds.has(r.rowId));
+        const prevRowIds = new Set(prevRows.map((r) => r.rowId));
+        const newOriginals = originalRows.filter((r) => !prevRowIds.has(r.rowId));
         const newRows = [...prevRows, ...newOriginals];
-        
+
         if (editTimerRef.current) clearTimeout(editTimerRef.current);
         editTimerRef.current = setTimeout(() => setPendingEdit(null), 15000);
-        
+
         return { id: String(Date.now()), originalRows: newRows, timerId: editTimerRef.current! };
       });
 
-      return prev.map(r => 
-        selectedRows.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r
+      return prev.map((r) =>
+        selectedRows.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r,
       );
     });
-    
+
     setSelectedRows(new Set());
     setShowBulkUpdate(false);
   }, [selectedRows, rows, onRowUpdate, onBulkUpdate]);
