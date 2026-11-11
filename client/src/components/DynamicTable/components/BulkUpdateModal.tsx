@@ -2,12 +2,12 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Layers, Search, Type, Hash, ToggleLeft, List, Check } from 'lucide-react';
 import type { ColumnConfig, FieldColumn } from '../types';
 import { DYNAMIC_DROPDOWN_PORTAL_CLASS, DynamicDropdown } from '../../DynamicData/fields';
-import { BulkLookupPicker } from './BulkLookupPicker';
+import { BulkLookupPicker, type BulkLookupPickMeta } from './BulkLookupPicker';
 
 interface BulkUpdateModalProps {
   columns: ColumnConfig[];
   selectedCount: number;
-  onApply: (updates: Record<string, unknown>) => void;
+  onApply: (updates: Record<string, unknown>, lookupPicks?: BulkLookupPickMeta[]) => void;
   onClose: () => void;
   isDarkMode: boolean;
 }
@@ -21,6 +21,8 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
   const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set());
   const [updates, setUpdates] = useState<Record<string, unknown>>({});
   const [searchQuery, setSearchQuery] = useState('');
+  /** Lookup source-row ids chosen in Mass Edit — required so saves persist ids, not labels. */
+  const [lookupPicks, setLookupPicks] = useState<Record<string, BulkLookupPickMeta>>({});
 
   const filteredColumns = useMemo(() => {
     if (!searchQuery.trim()) return editableColumns;
@@ -70,13 +72,16 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
   };
 
   /** Group select pick: write primary + sibling columns and enable them for apply. */
-  const handleLookupPatch = (patch: Record<string, unknown>) => {
+  const handleLookupPatch = (patch: Record<string, unknown>, meta: BulkLookupPickMeta | null) => {
     setUpdates((prev) => ({ ...prev, ...patch }));
     setEnabledFields((prev) => {
       const next = new Set(prev);
       Object.keys(patch).forEach((k) => next.add(k));
       return next;
     });
+    if (meta?.columnKey) {
+      setLookupPicks((prev) => ({ ...prev, [meta.columnKey]: meta }));
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -87,8 +92,8 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
     enabledFields.forEach(key => {
       finalUpdates[key] = updates[key];
     });
-    
-    onApply(finalUpdates);
+    const picks = Object.values(lookupPicks).filter((p) => enabledFields.has(p.columnKey));
+    onApply(finalUpdates, picks);
   };
 
   const getDataTypeIcon = (col: FieldColumn) => {
@@ -118,7 +123,7 @@ export function BulkUpdateModal({ columns, selectedCount, onApply, onClose, isDa
           column={col}
           value={String(value ?? '')}
           isDarkMode={isDarkMode}
-          onPick={handleLookupPatch}
+          onPick={(patch, meta) => handleLookupPatch(patch, meta)}
         />
       );
     }

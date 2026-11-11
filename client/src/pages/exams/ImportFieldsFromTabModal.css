@@ -98,9 +98,9 @@
 
 .import-fields-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   min-height: 44px;
   padding: 0.25rem 0.5rem;
   border-radius: 10px;
@@ -145,6 +145,11 @@
 .import-fields-badge.unique {
   color: #0f766e;
   background: rgba(13, 148, 136, 0.14);
+}
+
+.import-fields-badge.on-page {
+  color: #475569;
+  background: rgba(100, 116, 139, 0.14);
 }
 
 .import-fields-row.is-unique {
@@ -236,6 +241,62 @@
 .import-fields-parts-label {
   font-size: 0.8rem;
   font-weight: 650;
+}
+
+.import-fields-parts-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.import-fields-agg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.import-fields-agg-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 32px;
+  padding: 0 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(92, 67, 250, 0.28);
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.import-fields-agg-add:hover {
+  background: rgba(92, 67, 250, 0.08);
+}
+
+.import-fields-agg-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.35rem 0.45rem;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+}
+
+.import-fields-agg-row .exams-search-select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .import-fields-agg-add {
+    min-height: 44px;
+  }
 }
 
 .import-fields-part {
@@ -362,7 +423,7 @@
   .import-fields-close { width: 32px; height: 32px; }
   .import-fields-source select,
   .import-fields-source input[type='text'] { min-height: 36px; padding: 0.3rem 0.65rem; font-size: 0.875rem; }
-  .import-fields-row { grid-template-columns: 28px minmax(0, 1fr) auto auto; min-height: 36px; padding: 0.15rem 0.5rem; }
+  .import-fields-row { grid-template-columns: 28px minmax(0, 1fr) auto auto auto; min-height: 36px; padding: 0.15rem 0.5rem; }
   .import-fields-label { font-size: 0.875rem; }
   .import-fields-combine-toggle { min-height: 32px; }
   .import-fields-part { min-height: 36px; }

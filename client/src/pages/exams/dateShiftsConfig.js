@@ -232,6 +232,36 @@ export const aggregateShiftValues = (type, values) => {
   return Math.max(...nums);
 };
 
+/** Per-date shift cell keys (not all-day / not day-summary). */
+export const isDateShiftShiftKey = (key) => {
+  const k = String(key || '');
+  return k.startsWith('ds_') && !/allday/i.test(k) && !/_smry$/i.test(k);
+};
+
+const toShiftNumber = (value) => {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const n = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Live Max/Sum/CountA all-day value from shift cells on a row.
+ * Used when `ds_allday` is formula-only (not stored) — e.g. Unique import Sum.
+ */
+export const resolveAllDayValueFromRow = (values, dateShiftsConfig = null) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  const type = cfg.allDayColumn?.enabled ? cfg.allDayColumn.type || 'max' : 'max';
+  if (type === 'custom') return null;
+  const bag = values && typeof values === 'object' ? values : {};
+  const nums = Object.keys(bag)
+    .filter(isDateShiftShiftKey)
+    .map((k) => toShiftNumber(bag[k]))
+    .filter((n) => n != null);
+  const result = aggregateShiftValues(type, nums);
+  return typeof result === 'number' && Number.isFinite(result) ? result : null;
+};
+
 /** Normalize persisted / draft date-shifts config. */
 export const normalizeDateShiftsConfig = (input) => {
   const base = emptyDateShiftsConfig();
@@ -425,6 +455,58 @@ export const isAllDayDateShiftField = (field) =>
   field?.dateShift?.kind === 'allDay' ||
   /^ds_allday$/i.test(String(field?.key || '')) ||
   /\ball day\b/i.test(String(field?.label || ''));
+
+/** Stable key for the all-day column (`buildDateShiftFields` → makeKey('allday')). */
+export const DATE_SHIFT_ALL_DAY_KEY = 'ds_allday';
+
+/**
+ * Sum-of sources for Unique import: date×shift number/formula columns, plus the
+ * all-day column from the Center list format/preset even before dates materialize it.
+ */
+export const dateShiftSumSourceOptions = (dateShiftsConfig, fields = []) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  const opts = [];
+  const seen = new Set();
+
+  const push = (value, label) => {
+    const key = String(value || '').trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    opts.push({ value: key, label: label || key });
+  };
+
+  // Template all-day first (preset / format may enable it before dates exist).
+  if (cfg.allDayColumn.enabled) {
+    const label = allDayColumnLabel(cfg.allDayColumn) || 'Max all day';
+    push(DATE_SHIFT_ALL_DAY_KEY, `${label} (${DATE_SHIFT_ALL_DAY_KEY})`);
+  }
+
+  for (const f of Array.isArray(fields) ? fields : []) {
+    if (!isDateShiftField(f) || !f?.key) continue;
+    if (f.dataType !== 'number' && f.dataType !== 'formula' && f.dataType !== 'currency') continue;
+    push(f.key, `${f.label || f.key} (${f.key})`);
+  }
+
+  return opts;
+};
+
+/** Minimal field def so Unique import can attach a sum source that only exists on the template. */
+export const buildAllDaySumSourceField = (dateShiftsConfig) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  if (!cfg.allDayColumn.enabled) return null;
+  const type = cfg.allDayColumn.type || 'max';
+  return {
+    id: `fld_${DATE_SHIFT_ALL_DAY_KEY}`,
+    key: DATE_SHIFT_ALL_DAY_KEY,
+    label: allDayColumnLabel(cfg.allDayColumn) || 'Max all day',
+    dataType: type === 'custom' ? 'number' : 'formula',
+    required: false,
+    layout: 'full',
+    autoFill: 'none',
+    order: 0,
+    dateShift: { kind: 'allDay', type },
+  };
+};
 
 export const isSummaryDateShiftField = (field) =>
   field?.dateShift?.kind === 'summary' ||

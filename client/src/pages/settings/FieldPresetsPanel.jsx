@@ -514,11 +514,18 @@ export const FieldPresetsPanel = ({
         enableDateShifts={false}
         dateShifts={null}
         onDateShiftsChange={null}
-        onUniqueRowKeysChange={(uniqueRowKeys) =>
+        uniqueRowKeys={form?.features?.uniqueRowKeys}
+        uniqueRowAggregates={form?.features?.uniqueRowAggregates}
+        onUniqueImportChange={(payload) =>
           patchForm({
             features: {
               ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-              uniqueRowKeys,
+              ...(payload?.uniqueRowKeys !== undefined
+                ? { uniqueRowKeys: payload.uniqueRowKeys }
+                : {}),
+              ...(payload?.uniqueRowAggregates !== undefined
+                ? { uniqueRowAggregates: payload.uniqueRowAggregates }
+                : {}),
             },
           })
         }

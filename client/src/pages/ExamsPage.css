@@ -1192,11 +1192,40 @@
 }
 
 .exams-field-row-label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary, #030712);
   word-break: break-word;
   line-height: 1.25;
+}
+
+.exams-field-imported-badge,
+.exams-bulk-imported-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--primary-color, #5c43fa);
+  background: var(--primary-light, rgba(92, 67, 250, 0.12));
+}
+
+.exams-bulk-rownum .exams-bulk-imported-badge {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.exams-bulk-rownum .exams-bulk-imported-badge:hover {
+  filter: brightness(0.95);
 }
 
 .exams-field-row-meta {
@@ -2377,7 +2406,9 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   min-width: 20px;
+  font-variant-numeric: tabular-nums;
 }
 
 .exams-bulk-rownum .is-ok {
@@ -2647,7 +2678,8 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 
 .exams-search-select-portal {
   position: fixed;
-  z-index: 1400;
+  /* Above Import-fields overlay (1500) and Bulk add (1300). */
+  z-index: 1600;
   display: flex;
   flex-direction: column;
   margin: 0;
@@ -3805,7 +3837,14 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-bulk-table tbody tr:hover .exams-bulk-grip,
   .exams-bulk-grip:focus-visible { opacity: 1; }
 
-  .exams-bulk-rownum { display: inline-block; min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
+  .exams-bulk-rownum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    min-width: 20px;
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 /* Bulk modal header: title and "Working on" on one row */

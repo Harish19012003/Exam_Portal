@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, examViewLabel } from '@exam-view/shared';
 import {
   EXAM_FIELD_TYPES,
@@ -25,7 +25,11 @@ import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
-import { normalizeUniqueRowKeys, uniqueRowKeysLabel } from './examUniqueRows';
+import {
+  normalizeUniqueRowAggregates,
+  normalizeUniqueRowKeys,
+  uniqueRowKeysLabel,
+} from './examUniqueRows';
 import {
   DATE_SHIFT_ALL_DAY_TYPES,
   DATE_SHIFT_COLUMN_COLORS,
@@ -354,10 +358,12 @@ const isBlank = (row) =>
 const splitOptions = (text) => [...new Set(String(text).split(',').map((s) => s.trim()).filter(Boolean))];
 
 /** Per-row validation. Blank rows are ignored (no error, not saved). */
-const validateRows = (rows, existingFields, extraReserved) => {
+const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
   // Fields shown as editable rows claim their names in row order; every other field is taken up front.
+  // Fields queued for delete (removedIds) free their label/key so recreate-after-delete works before Save.
   const editing = new Set(rows.map((r) => r.existingId).filter(Boolean));
-  const others = existingFields.filter((f) => !editing.has(f.id));
+  const removing = new Set(removedIds);
+  const others = existingFields.filter((f) => !editing.has(f.id) && !removing.has(f.id));
   const takenKeys = new Map(others.map((f) => [f.key, true]));
   const takenLabels = new Set(others.map((f) => String(f.label).trim().toLowerCase()));
   return rows.map((row) => {
@@ -562,6 +568,11 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  /** Existing unique-import config (features) so Import can re-edit it. */
+  uniqueRowKeys = null,
+  uniqueRowAggregates = null,
+  /** Apply unique keys / count / sum as soon as Import finishes (don’t wait for Bulk Save). */
+  onUniqueImportChange = null,
   /** Date × shift column template stored on features.dateShifts. */
   dateShifts = null,
   /**
@@ -647,8 +658,19 @@ export const BulkFieldsModal = ({
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
   const [importOpen, setImportOpen] = useState(false);
-  /** Composite unique row keys from “Unique import” — applied on Save via meta. */
+  /** Open Import modal scrolled to Unique import (edit existing unique key / count / sum). */
+  const [importFocusUnique, setImportFocusUnique] = useState(false);
+  /** Composite unique row keys / aggregates from “Unique import” — applied on Save via meta. */
   const [pendingUniqueRowKeys, setPendingUniqueRowKeys] = useState(null);
+  const [pendingUniqueRowAggregates, setPendingUniqueRowAggregates] = useState(null);
+  const hasUniqueImportConfig =
+    (Array.isArray(uniqueRowKeys) && uniqueRowKeys.length > 0) ||
+    (Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0);
+
+  const openImportModal = (focusUnique = false) => {
+    setImportFocusUnique(Boolean(focusUnique));
+    setImportOpen(true);
+  };
   const canImportFromExam = Boolean(examId && currentView);
   // Explicit null = feature off; [] still shows the button (empty state inside the modal).
   const canImportFromPreset = !examId && Array.isArray(presetSources);
@@ -670,7 +692,10 @@ export const BulkFieldsModal = ({
     };
   }, []);
   const reservedSet = useMemo(() => new Set(reservedKeys), [reservedKeys]);
-  const validation = useMemo(() => validateRows(rows, fields, reservedSet), [rows, fields, reservedSet]);
+  const validation = useMemo(
+    () => validateRows(rows, fields, reservedSet, removedIds),
+    [rows, fields, reservedSet, removedIds],
+  );
   const filled = validation.filter((v) => !v.blank);
   const errorCount = filled.filter((v) => Object.keys(v.errors).length).length;
   const validCount = filled.length - errorCount;
@@ -692,7 +717,10 @@ export const BulkFieldsModal = ({
   const updateCount = changedIds.size;
   const fieldPending = newCount + updateCount + removedIds.length;
   const uniqueKeysDirty = Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0;
-  const pending = fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueKeysDirty ? 1 : 0);
+  const uniqueAggregatesDirty =
+    Array.isArray(pendingUniqueRowAggregates) && pendingUniqueRowAggregates.length > 0;
+  const uniqueImportDirty = uniqueKeysDirty || uniqueAggregatesDirty;
+  const pending = fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueImportDirty ? 1 : 0);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -982,16 +1010,30 @@ export const BulkFieldsModal = ({
   const handleImportFromTab = (result) => {
     const home = String(result?.sourceView || '').trim();
     const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
-    const uniqueRowKeys = normalizeUniqueRowKeys(result?.uniqueRowKeys);
-    if (uniqueRowKeys.length) setPendingUniqueRowKeys(uniqueRowKeys);
-    const uniqueLabel = uniqueRowKeys.length
+    const nextUniqueKeys = normalizeUniqueRowKeys(result?.uniqueRowKeys);
+    const nextUniqueAggregates = normalizeUniqueRowAggregates(result?.uniqueRowAggregates);
+    if (nextUniqueKeys.length) setPendingUniqueRowKeys(nextUniqueKeys);
+    if (nextUniqueAggregates.length || nextUniqueKeys.length) {
+      setPendingUniqueRowAggregates(nextUniqueAggregates);
+    }
+    // Count / sum must hit features immediately — waiting for Bulk Save left Days Total Center at 0.
+    if (nextUniqueKeys.length || nextUniqueAggregates.length) {
+      onUniqueImportChange?.({
+        uniqueRowKeys: nextUniqueKeys,
+        uniqueRowAggregates: nextUniqueAggregates,
+      });
+    }
+    const uniqueLabel = nextUniqueKeys.length
       ? uniqueRowKeysLabel(
           [
             ...rows.map((r) => ({ key: r.key, label: r.label })),
             ...(Array.isArray(result?.fields) ? result.fields : []),
           ],
-          uniqueRowKeys,
+          nextUniqueKeys,
         )
+      : '';
+    const aggNotice = nextUniqueAggregates.length
+      ? ` · ${nextUniqueAggregates.length} result field${nextUniqueAggregates.length === 1 ? '' : 's'}`
       : '';
 
     if (result?.combinedField) {
@@ -1036,9 +1078,11 @@ export const BulkFieldsModal = ({
       });
 
     if (!additions.length) {
-      if (uniqueRowKeys.length) {
+      if (nextUniqueKeys.length || nextUniqueAggregates.length) {
         setNotice(
-          `Unique import key set to ${uniqueLabel || uniqueRowKeys.join(' · ')}. Save to keep it.`,
+          examId
+            ? `Unique import active: ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}.`
+            : `Unique import set to ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}. Save the preset to keep it.`,
         );
         setTab('fields');
         return;
@@ -1049,8 +1093,10 @@ export const BulkFieldsModal = ({
 
     insertBulkRows(
       additions,
-      uniqueRowKeys.length
-        ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || uniqueRowKeys.join(' · ')}. Save to keep them.`
+      nextUniqueKeys.length
+        ? examId
+          ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}.`
+          : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}. Save the preset to keep them.`
         : `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
     );
   };
@@ -1166,7 +1212,7 @@ export const BulkFieldsModal = ({
     e.preventDefault();
     if (!pending) return;
     // Feature-only saves (date shifts / unique keys) must not be blocked by Fields-tab errors.
-    const metaOnly = fieldPending === 0 && removedIds.length === 0 && (dateShiftsDirty || uniqueKeysDirty);
+    const metaOnly = fieldPending === 0 && removedIds.length === 0 && (dateShiftsDirty || uniqueImportDirty);
     if (errorCount && !metaOnly) return;
     const items = metaOnly
       ? []
@@ -1197,6 +1243,13 @@ export const BulkFieldsModal = ({
           }
         : {}),
       ...(uniqueKeysDirty ? { uniqueRowKeys: pendingUniqueRowKeys } : {}),
+      ...(uniqueImportDirty
+        ? {
+            uniqueRowAggregates: Array.isArray(pendingUniqueRowAggregates)
+              ? pendingUniqueRowAggregates
+              : [],
+          }
+        : {}),
     };
     onAdd(newDefs, updated, metaOnly ? [] : removedIds, order, meta);
   };
@@ -1383,7 +1436,7 @@ export const BulkFieldsModal = ({
               <button
                 type="button"
                 className="exams-text-add-btn"
-                onClick={() => setImportOpen(true)}
+                onClick={() => openImportModal(false)}
                 title={
                   canImportFromPreset
                     ? 'Import shared columns from another field preset'
@@ -1391,6 +1444,20 @@ export const BulkFieldsModal = ({
                 }
               >
                 <Sparkles size={14} /> {canImportFromPreset ? 'Import from preset' : 'Import from tab'}
+              </button>
+            )}
+            {canImportShared && (
+              <button
+                type="button"
+                className="exams-text-add-btn"
+                onClick={() => openImportModal(true)}
+                title={
+                  hasUniqueImportConfig
+                    ? 'Edit unique key and count / sum result fields'
+                    : 'Set unique import key and count / sum results'
+                }
+              >
+                <Link2 size={14} /> {hasUniqueImportConfig ? 'Edit unique import' : 'Unique import'}
               </button>
             )}
             <button type="button" className="exams-text-add-btn" onClick={downloadSample}>
@@ -2110,6 +2177,21 @@ export const BulkFieldsModal = ({
                         ) : (
                           <CheckCircle2 size={15} className="is-ok" aria-label="Row is valid" />
                         )}
+                        {row.sharedFromView ? (
+                          <button
+                            type="button"
+                            className="exams-bulk-imported-badge"
+                            title={`Imported · shared from ${examViewLabel(row.sharedFromView)}. Click to edit unique import.`}
+                            aria-label={`Imported · shared from ${examViewLabel(row.sharedFromView)}. Edit unique import.`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (canImportShared) openImportModal(true);
+                            }}
+                          >
+                            <Link2 size={11} strokeWidth={2.25} aria-hidden="true" />
+                          </button>
+                        ) : null}
                       </span>
                     </td>
                     <td {...pinned(1)} data-label="Label">
@@ -2510,14 +2592,14 @@ export const BulkFieldsModal = ({
                       updateCount && `${updateCount} to update`,
                       removedIds.length && `${removedIds.length} to remove`,
                       dateShiftsDirty && 'date shifts',
-                      uniqueKeysDirty && 'unique import',
+                      uniqueImportDirty && 'unique import',
                     ]
                       .filter(Boolean)
                       .join(' · ')
-                  : dateShiftsDirty || uniqueKeysDirty
+                  : dateShiftsDirty || uniqueImportDirty
                     ? [
                         dateShiftsDirty && 'Date shifts changed',
-                        uniqueKeysDirty && 'Unique import key set',
+                        uniqueImportDirty && 'Unique import updated',
                       ]
                         .filter(Boolean)
                         .join(' · ')
@@ -2535,7 +2617,7 @@ export const BulkFieldsModal = ({
                 saving ||
                 (errorCount > 0 &&
                   !(
-                    (dateShiftsDirty || uniqueKeysDirty) &&
+                    (dateShiftsDirty || uniqueImportDirty) &&
                     fieldPending === 0 &&
                     removedIds.length === 0
                   ))
@@ -2559,13 +2641,21 @@ export const BulkFieldsModal = ({
           examId={canImportFromExam ? examId : null}
           currentView={currentView}
           presetSources={canImportFromPreset ? presetSources : null}
+          existingUniqueRowKeys={pendingUniqueRowKeys || uniqueRowKeys}
+          existingUniqueRowAggregates={
+            pendingUniqueRowAggregates || uniqueRowAggregates
+          }
+          focusUnique={importFocusUnique}
           currentFields={[
             ...(fields || []),
             ...rows
               .filter((r) => String(r.key || '').trim())
               .map((r) => ({ key: String(r.key).trim(), label: r.label || r.key })),
           ]}
-          onClose={() => setImportOpen(false)}
+          onClose={() => {
+            setImportOpen(false);
+            setImportFocusUnique(false);
+          }}
           onImport={handleImportFromTab}
         />
       )}

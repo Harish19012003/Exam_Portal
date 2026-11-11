@@ -37,8 +37,10 @@ import { ExamCustomFieldInput } from './exams/ExamCustomFieldInput';
 import { DEFAULT_EXAM_TABLE_FEATURES } from './exams/examTableConfig';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
 import {
-  dedupeRowsByUniqueKeys,
+  normalizeUniqueRowAggregates,
   normalizeUniqueRowKeys,
+  rollupRowsByUniqueKeys,
+  uniqueAggregateTargetKeys,
 } from './exams/examUniqueRows';
 import {
   applyDateShiftColumnColors,
@@ -202,41 +204,6 @@ export const ExamExplorePage = () => {
   const [rowsPage, setRowsPage] = useState(1);
   const [rowsPageSize, setRowsPageSize] = useState(15);
 
-  const uniqueRowKeys = useMemo(
-    () => normalizeUniqueRowKeys(features?.uniqueRowKeys),
-    [features?.uniqueRowKeys],
-  );
-  const uniqueImportActive = uniqueRowKeys.length > 0;
-
-  useEffect(() => {
-    setRowsPage(1);
-  }, [examId]);
-
-  const uniqueRowKeysSig = uniqueRowKeys.join('|');
-  useEffect(() => {
-    if (uniqueImportActive) setRowsPage(1);
-  }, [uniqueImportActive, uniqueRowKeysSig]);
-
-  // Honor Feature Builder “Rows shown per page” for server-paginated fetches.
-  useEffect(() => {
-    const next = Number(features?.defaultPageSize);
-    if (![10, 15, 25, 50, 100, 200, 500].includes(next)) return;
-    setRowsPageSize(next);
-    setRowsPage(1);
-  }, [features?.defaultPageSize]);
-  // Unique import needs the full center set to dedupe; page after collapsing duplicates.
-  const rowsQuery = useExamRows(examId, {
-    page: uniqueImportActive ? 1 : rowsPage,
-    limit: uniqueImportActive ? 500 : rowsPageSize,
-    enabled: Boolean(examId) && Boolean(tableInfo),
-  });
-  const rows = rowsQuery.data?.rows || [];
-  const rowsTotal = Number(rowsQuery.data?.total) || 0;
-  const rowsLoading =
-    Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
-  const rowsPageKey = uniqueImportActive
-    ? { page: 1, limit: 500 }
-    : { page: rowsPage, limit: rowsPageSize };
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
   const [presets, setPresets] = useState([]);
@@ -287,6 +254,52 @@ export const ExamExplorePage = () => {
     () => findPresetForService(presets, exam?.values?.service, view),
     [presets, exam?.values?.service, view],
   );
+  const uniqueRowKeys = useMemo(() => {
+    const fromExam = normalizeUniqueRowKeys(features?.uniqueRowKeys);
+    if (fromExam.length) return fromExam;
+    return normalizeUniqueRowKeys(matchedPreset?.features?.uniqueRowKeys);
+  }, [features?.uniqueRowKeys, matchedPreset?.features?.uniqueRowKeys]);
+  const uniqueRowAggregates = useMemo(() => {
+    const fromExam = normalizeUniqueRowAggregates(features?.uniqueRowAggregates);
+    if (fromExam.length) return fromExam;
+    // Preset may have Count/Sum before the exam features were refreshed.
+    return normalizeUniqueRowAggregates(matchedPreset?.features?.uniqueRowAggregates);
+  }, [features?.uniqueRowAggregates, matchedPreset?.features?.uniqueRowAggregates]);
+  const uniqueImportActive = uniqueRowKeys.length > 0;
+  const aggregateTargetKeys = useMemo(
+    () => uniqueAggregateTargetKeys(uniqueRowAggregates),
+    [uniqueRowAggregates],
+  );
+
+  useEffect(() => {
+    setRowsPage(1);
+  }, [examId]);
+
+  const uniqueRowKeysSig = uniqueRowKeys.join('|');
+  useEffect(() => {
+    if (uniqueImportActive) setRowsPage(1);
+  }, [uniqueImportActive, uniqueRowKeysSig]);
+
+  // Honor Feature Builder “Rows shown per page” for server-paginated fetches.
+  useEffect(() => {
+    const next = Number(features?.defaultPageSize);
+    if (![10, 15, 25, 50, 100, 200, 500].includes(next)) return;
+    setRowsPageSize(next);
+    setRowsPage(1);
+  }, [features?.defaultPageSize]);
+  // Unique import needs the full center set to dedupe; page after collapsing duplicates.
+  const rowsQuery = useExamRows(examId, {
+    page: uniqueImportActive ? 1 : rowsPage,
+    limit: uniqueImportActive ? 500 : rowsPageSize,
+    enabled: Boolean(examId) && Boolean(tableInfo),
+  });
+  const rows = rowsQuery.data?.rows || [];
+  const rowsTotal = Number(rowsQuery.data?.total) || 0;
+  const rowsLoading =
+    Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
+  const rowsPageKey = uniqueImportActive
+    ? { page: 1, limit: 500 }
+    : { page: rowsPage, limit: rowsPageSize };
   const presetWithDateShifts = useMemo(() => {
     if (matchedPreset && hasDateShiftTemplate(matchedPreset.features?.dateShifts)) {
       return matchedPreset;
@@ -301,16 +314,19 @@ export const ExamExplorePage = () => {
       ),
     [features?.dateShifts, presetWithDateShifts],
   );
-  const tableColumns = useMemo(
-    () =>
-      applyColumnAccess(
-        buildExamTableColumns(fields, { dateShifts: effectiveDateShifts }),
-        'exam_rows',
-        access,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fields, effectiveDateShifts, access, configVersion],
-  );
+  const tableColumns = useMemo(() => {
+    const cols = applyColumnAccess(
+      buildExamTableColumns(fields, { dateShifts: effectiveDateShifts }),
+      'exam_rows',
+      access,
+    );
+    if (!aggregateTargetKeys.size) return cols;
+    return cols.map((c) =>
+      aggregateTargetKeys.has(c.key) ? { ...c, editable: false } : c,
+    );
+  },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [fields, effectiveDateShifts, access, configVersion, aggregateTargetKeys]);
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(
     () => creatableFields(fields, 'exam_rows', access).filter((f) => !isCombinedField(f)),
@@ -331,8 +347,15 @@ export const ExamExplorePage = () => {
   // From-exam fields mirror parent exam.values onto every center row.
   const tableRows = useExamValueDisplayRows(assigneeDisplayRows, fields, exam?.values, examSourceFields);
   const uniqueAllRows = useMemo(
-    () => (uniqueImportActive ? dedupeRowsByUniqueKeys(tableRows, uniqueRowKeys) : tableRows),
-    [tableRows, uniqueImportActive, uniqueRowKeys],
+    () =>
+      uniqueImportActive
+        ? rollupRowsByUniqueKeys(tableRows, uniqueRowKeys, uniqueRowAggregates, {
+            // Max all day is formula-only — sum from Center shift cells on each row.
+            dateShifts: effectiveDateShifts,
+            fields: fields,
+          })
+        : tableRows,
+    [tableRows, uniqueImportActive, uniqueRowKeys, uniqueRowAggregates, effectiveDateShifts, fields],
   );
   const displayTableRows = useMemo(() => {
     if (!uniqueImportActive) return tableRows;
@@ -595,9 +618,13 @@ export const ExamExplorePage = () => {
 
   /* ---------- Rows ---------- */
 
-  const handleRowUpdate = async (rowId, values) => {
+  /**
+   * Persist a row patch. Shared imports (Vendor Code, …) are writable on their home tab only —
+   * Mass Edit used to strip them here, so the UI filled then cleared after save.
+   */
+  const persistRowValues = async (rowId, values) => {
     const original = rows.find((r) => r.id === rowId);
-    const patched = restoreFromExamValues(
+    const restored = restoreFromExamValues(
       restoreAssigneeIds(
         restoreLookupIds(values, original?.values, fields, rowId),
         original?.values,
@@ -607,27 +634,73 @@ export const ExamExplorePage = () => {
       original?.values,
       fields,
     );
-    // Shared / combined columns are display-only on this tab — don't persist them here.
-    fields.forEach((f) => {
-      if (isSharedImportedField(f) || isCombinedField(f)) delete patched[f.key];
+
+    const localPatch = {};
+    const sharedByView = new Map();
+    const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
+    Object.entries(restored).forEach(([key, val]) => {
+      const f = fieldByKey.get(key);
+      if (!f || isCombinedField(f) || isFromExamField(f)) return;
+      if (isSharedImportedField(f)) {
+        const home = String(f.sharedFromView || '').trim();
+        if (!home) return;
+        if (!sharedByView.has(home)) sharedByView.set(home, {});
+        sharedByView.get(home)[key] = val;
+        return;
+      }
+      localPatch[key] = val;
     });
-    // Apply lookup ids (and group siblings) immediately so seeded labels paint before the API returns.
+
+    // Optimistic paint (includes shared labels) before API round-trips finish.
     setRowsCache(
       examId,
       (prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, values: { ...(r.values || {}), ...patched } } : r)),
+        prev.map((r) =>
+          r.id === rowId ? { ...r, values: { ...(r.values || {}), ...restored } } : r,
+        ),
       rowsPageKey,
     );
-    try {
-      const next = await updateExamRow(examId, rowId, patched, view);
-      clearLookupPicksForRow(String(rowId));
-      clearLookupDisplayOverrides(String(rowId));
+
+    let next = original;
+    if (Object.keys(localPatch).length) {
+      next = await updateExamRow(examId, rowId, localPatch, view);
+    }
+    for (const [homeView, patch] of sharedByView) {
+      next = await updateExamRow(examId, rowId, patch, homeView);
+    }
+    clearLookupPicksForRow(String(rowId));
+    clearLookupDisplayOverrides(String(rowId));
+    if (next) {
       setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? next : r)), rowsPageKey);
+    }
+    return next;
+  };
+
+  const handleRowUpdate = async (rowId, values) => {
+    const original = rows.find((r) => r.id === rowId);
+    try {
+      await persistRowValues(rowId, values);
     } catch (err) {
       if (original) {
         setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? original : r)), rowsPageKey);
       }
       setMessage(apiErrorMessage(err, 'Could not update the center'));
+    }
+  };
+
+  /** Mass Edit: one pass per selected row (shared columns saved on their home tab). */
+  const handleBulkUpdate = async (items) => {
+    if (!Array.isArray(items) || !items.length) return;
+    const results = await Promise.allSettled(
+      items.map((item) => persistRowValues(item.rowId, item.values || {})),
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed) {
+      setMessage(
+        failed === items.length
+          ? 'Could not update the selected rows'
+          : `${failed} of ${items.length} rows could not be updated`,
+      );
     }
   };
 
@@ -1092,6 +1165,7 @@ export const ExamExplorePage = () => {
               onSaveLayoutAsDefault={canSaveLayoutAsDefault ? handleSaveLayoutAsDefault : undefined}
               onResetLayoutToDefault={hasUserLayoutOverride ? handleResetLayoutToDefault : undefined}
               onRowUpdate={handleRowUpdate}
+              onBulkUpdate={handleBulkUpdate}
               onRowDelete={handleRowDelete}
               onDuplicateRow={handleDuplicateRow}
               onImportRows={handleImportRows}
@@ -1197,10 +1271,21 @@ export const ExamExplorePage = () => {
               }
             : null
         }
-        onUniqueRowKeysChange={(keys) => {
+        uniqueRowKeys={features?.uniqueRowKeys}
+        uniqueRowAggregates={features?.uniqueRowAggregates}
+        onUniqueImportChange={(payload) => {
           handleSaveFeatures({
             ...featuresRef.current,
-            uniqueRowKeys: normalizeUniqueRowKeys(keys),
+            ...(payload?.uniqueRowKeys !== undefined
+              ? { uniqueRowKeys: normalizeUniqueRowKeys(payload.uniqueRowKeys) }
+              : {}),
+            ...(payload?.uniqueRowAggregates !== undefined
+              ? {
+                  uniqueRowAggregates: normalizeUniqueRowAggregates(
+                    payload.uniqueRowAggregates,
+                  ),
+                }
+              : {}),
           });
         }}
       />
