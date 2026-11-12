@@ -17,6 +17,7 @@ import { isFieldColumn, isCompositeColumn, resolveHeaderTextWrap } from '../type
 import type { ColumnConfig, DataRow, FilterValue, HeaderTextWrap, RowActionsConfig, SelectionColumnConfig, SortConfig } from '../types';
 import { calculateAutoFitColumnWidth } from '../utils/textWidth';
 import { opaqueAccentBackground } from '../utils/tableTheme';
+import '../stickyCells.css';
 
 interface TableHeaderProps {
   columns: ColumnConfig[];

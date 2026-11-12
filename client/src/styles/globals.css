@@ -20,6 +20,7 @@ html {
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
+  overscroll-behavior-x: none;
 }
 
 body {
@@ -30,6 +31,7 @@ body {
   color: var(--color-text);
   background-color: var(--color-bg);
   min-height: 100vh;
+  overscroll-behavior-x: none;
   /* Prevent flash of wrong theme — set by ThemeProvider before first paint */
   transition: background-color var(--duration-hover) var(--easing-default),
               color var(--duration-hover) var(--easing-default);

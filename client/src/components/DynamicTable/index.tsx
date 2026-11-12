@@ -884,7 +884,7 @@ export function DynamicTable({
 
         <div
           ref={scrollWrapperRef}
-          className="flex-1 overflow-auto print:overflow-visible min-h-0 print:min-h-auto relative outline-none print:block"
+          className="flex-1 overflow-auto overscroll-x-none print:overflow-visible min-h-0 print:min-h-auto relative outline-none print:block"
           onScroll={handleScroll}
           tabIndex={0}
           onKeyDown={handleKeyDown}

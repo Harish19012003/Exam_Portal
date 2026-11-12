@@ -61,6 +61,16 @@
     height: 100%;
   }
 
+  /*
+   * Block browser “swipe back / forward” from horizontal overscroll
+   * (Chrome / Edge / Firefox trackpad & touch). Does not remove iOS Safari’s
+   * system edge-swipe gesture — that is OS chrome and not fully controllable.
+   */
+  html,
+  body {
+    overscroll-behavior-x: none;
+  }
+
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
       sans-serif;
