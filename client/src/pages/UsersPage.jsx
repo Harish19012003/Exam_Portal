@@ -1053,6 +1053,8 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           return true;
         });
         let deleted = 0;
+        // Progress denominator stays at incoming rows (3186), not deleteCount + importCount.
+        handlers?.onProgress?.(0, prepared.length);
         const DELETE_CONCURRENCY = 6;
         for (let i = 0; i < toDelete.length; i += DELETE_CONCURRENCY) {
           const slice = toDelete.slice(i, i + DELETE_CONCURRENCY);
@@ -1066,8 +1068,6 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
                   email: u.email || 'N/A',
                   reason: err.response?.data?.message || err.message || 'Delete failed',
                 });
-              } finally {
-                handlers?.onProgress?.(deleted, toDelete.length + prepared.length);
               }
             }),
           );
