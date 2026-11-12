@@ -150,6 +150,8 @@
   background: var(--primary-color);
 }
 .xs-subnav-item .xs-label { font-size: 13px; }
+/* No exam picked yet: the items only lead back to the exam list, so show them as unavailable. */
+.xs-subnav-item--idle { opacity: 0.55; }
 .xs-subnav-item .xs-nav-icon { opacity: 0.85; }
 @media (max-width: 767px) {
   .xs-subnav {
