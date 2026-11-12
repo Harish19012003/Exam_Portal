@@ -268,11 +268,29 @@ export const ProfilePage = () => {
   const displayName = [firstName, lastName].filter(Boolean).join(' ') || profile?.email || 'User';
   const roleName = profile?.role ? profile.role.replace(/_/g, ' ').toUpperCase() : 'USER';
   const permissionsList = Array.isArray(profile?.permissions) ? profile.permissions : [];
+  // Save stays disabled until something actually differs from what is stored.
+  const dirty =
+    !!profile &&
+    (firstName !== (profile.first_name || '') ||
+      lastName !== (profile.last_name || '') ||
+      phone !== (profile.phone_number || '') ||
+      timezone !== (profile.timezone || 'Asia/Kolkata'));
+  const handleDiscard = () => {
+    setFirstName(profile?.first_name || '');
+    setLastName(profile?.last_name || '');
+    setPhone(profile?.phone_number || '');
+    setTimezone(profile?.timezone || 'Asia/Kolkata');
+  };
 
   return (
     <div className="profile-page">
-      <PageHeading title="Profile & Security" />
+      <PageHeading
+        title="Profile & Security"
+        subtitle="Manage your personal details, password and access rights"
+      />
 
+      <div className="profile-layout">
+      <aside className="profile-aside">
       <div className="profile-header-card">
         <div className="profile-avatar-container">
           <div className="profile-avatar-circle" aria-hidden="true">
@@ -329,7 +347,10 @@ export const ProfilePage = () => {
           onClick={() => setActiveTab('details')}
         >
           <User size={16} aria-hidden="true" />
-          <span>Personal Details</span>
+          <span className="profile-tab-text">
+            <span className="profile-tab-title">Personal Details</span>
+            <span className="profile-tab-desc">Name, phone and timezone</span>
+          </span>
         </button>
         <button
           type="button"
@@ -339,7 +360,10 @@ export const ProfilePage = () => {
           onClick={() => setActiveTab('security')}
         >
           <KeyRound size={16} aria-hidden="true" />
-          <span>Security & Password</span>
+          <span className="profile-tab-text">
+            <span className="profile-tab-title">Security & Password</span>
+            <span className="profile-tab-desc">Password and two-factor sign-in</span>
+          </span>
         </button>
         <button
           type="button"
@@ -349,11 +373,18 @@ export const ProfilePage = () => {
           onClick={() => setActiveTab('permissions')}
         >
           <Shield size={16} aria-hidden="true" />
-          <span className="profile-tab-label-full">Rights & Permissions ({permissionsList.length})</span>
-          <span className="profile-tab-label-short">Rights ({permissionsList.length})</span>
+          <span className="profile-tab-text">
+            <span className="profile-tab-title">
+              <span className="profile-tab-label-full">Rights & Permissions ({permissionsList.length})</span>
+              <span className="profile-tab-label-short">Rights ({permissionsList.length})</span>
+            </span>
+            <span className="profile-tab-desc">What you can access</span>
+          </span>
         </button>
       </div>
+      </aside>
 
+      <div className="profile-main">
         {/* ALERTS */}
       {successMsg && (
         <div className="profile-alert success">
@@ -444,10 +475,20 @@ export const ProfilePage = () => {
             </div>
 
             <div className="profile-form-actions">
-              <button type="submit" className="profile-save-btn" disabled={saving}>
+              <span className={`profile-dirty-hint ${dirty ? 'show' : ''}`} role="status">
+                {dirty ? 'You have unsaved changes' : 'All changes saved'}
+              </span>
+              <div className="profile-form-buttons">
+                {dirty && (
+                  <button type="button" className="profile-discard-btn" onClick={handleDiscard} disabled={saving}>
+                    Discard
+                  </button>
+                )}
+              <button type="submit" className="profile-save-btn" disabled={saving || !dirty}>
                 <Save size={16} />
                 <span>{saving ? 'Saving changes...' : 'Save Changes'}</span>
               </button>
+              </div>
             </div>
           </form>
         </div>
@@ -613,6 +654,9 @@ export const ProfilePage = () => {
           </div>
         </div>
       )}
+
+      </div>
+      </div>
 
       {/* 2FA SETUP MODAL */}
       {showTwoFactorSetupModal && twoFactorSetupData && (
