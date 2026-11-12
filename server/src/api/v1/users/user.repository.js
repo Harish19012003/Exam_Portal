@@ -111,6 +111,8 @@ class UserRepository extends BaseRepository {
       tag_ids: Array.isArray(entity.tag_ids) ? entity.tag_ids.map(String) : [],
       two_factor_enabled: Boolean(entity.two_factor_enabled),
       timezone: entity.timezone || 'UTC',
+      avatar_url: entity.avatar_url || null,
+      avatar_public_id: entity.avatar_public_id || null,
       last_active_at: entity.last_active_at || null,
       created_at: entity.created_at,
       updated_at: entity.updated_at,

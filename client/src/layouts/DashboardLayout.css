@@ -1100,3 +1100,30 @@
 .topbar-page-slot { display: flex; align-items: center; margin-right: 4px; }
 .topbar-page-slot:empty { display: none; }
 .topbar-page-slot .settings-pill-trigger { min-height: 34px; padding: 4px 14px; font-size: 13px; }
+
+/* Maintenance banner from Platform Settings */
+.platform-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-shrink: 0;
+  margin: 8px clamp(12px, 2vw, 24px) 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #92400e;
+  font-size: 13.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+
+.platform-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+[data-theme="dark"] .platform-banner {
+  color: #fbbf24;
+}

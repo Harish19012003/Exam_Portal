@@ -17,6 +17,7 @@ router.put('/:examId/table/config', controller.saveConfig);
 router.get('/:examId/table/rows', controller.listRows);
 router.post('/:examId/table/rows', controller.createRow);
 router.post('/:examId/table/rows/bulk', controller.createRows);
+router.post('/:examId/table/rows/bulk-update', controller.bulkUpdateRows);
 router.post('/:examId/table/rows/delete', controller.deleteRows);
 router.patch('/:examId/table/rows/:rowId', controller.updateRow);
 

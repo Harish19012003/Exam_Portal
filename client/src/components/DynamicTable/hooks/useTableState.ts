@@ -22,6 +22,8 @@ import { setLookupPick } from '../editors/lookupPicks';
 import { seedLookupRow } from '../editors/lookupSeeds';
 import { setLookupDisplayOverrides } from '../editors/lookupDisplayOverrides';
 import type { BulkLookupPickMeta } from '../components/BulkLookupPicker';
+import type { BulkAssigneePickMeta } from '../components/BulkAssigneePicker';
+import { seedAssigneeLabels } from '../editors/assigneeLabels';
 export type { TableStateHandlers } from './tableState/types';
 import type { TableStateHandlers } from './tableState/types';
 
@@ -650,6 +652,7 @@ export function useTableState(
     updates: Record<string, unknown>,
     lookupPicks: BulkLookupPickMeta[] = [],
     targetRows?: DataRow[],
+    assigneePicks: BulkAssigneePickMeta[] = [],
   ) => {
     if (Object.keys(updates).length === 0) return;
 
@@ -672,6 +675,19 @@ export function useTableState(
         });
         if (Object.keys(displayPatch).length) setLookupDisplayOverrides(r.rowId, displayPatch);
       });
+    });
+
+    // Seed assignee names so chips don't flash “…” after Mass Edit.
+    const displayUpdates: Record<string, unknown> = { ...updates };
+    assigneePicks.forEach((pick) => {
+      seedAssigneeLabels(
+        Object.entries(pick.labels || {}).map(([id, name]) => ({ id, name: String(name) })),
+      );
+      const labelList = pick.ids.map((id) => pick.labels[id] || id);
+      displayUpdates[pick.columnKey] =
+        labelList.length > 1 || Array.isArray(updates[pick.columnKey])
+          ? labelList
+          : labelList[0] || '';
     });
 
     const payload = targets.map((r) => ({
@@ -701,7 +717,7 @@ export function useTableState(
       });
 
       return prev.map((r) =>
-        targetIds.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r,
+        targetIds.has(r.rowId) ? { ...r, values: { ...r.values, ...displayUpdates } } : r,
       );
     });
 

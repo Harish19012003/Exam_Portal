@@ -22,6 +22,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Minimize2,
 } from 'lucide-react';
 import { isFieldColumn, type ColumnConfig } from '../types';
 import { type ImportFileKind } from '../export/parseImportFile';
@@ -97,6 +98,13 @@ interface ImportDataModalProps {
   scopeHint?: string;
   /** Extra copy for the info tip (page-specific notes). */
   scopeHelp?: ReactNode;
+  /**
+   * While an import is running, user can minimize: modal closes but the request continues.
+   * Parent should show a floating progress chip and toast when the import promise settles.
+   */
+  onMinimize?: (job: { done: number; total: number; mode: ImportMode }) => void;
+  /** Progress while import runs (also after minimize). */
+  onImportProgress?: (done: number, total: number) => void;
 }
 
 const normalizeMatchValue = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
@@ -289,8 +297,17 @@ export function ImportDataModal({
   scopeLabel,
   scopeHint,
   scopeHelp,
+  onMinimize,
+  onImportProgress,
 }: ImportDataModalProps) {
   const importCols = useMemo(() => getImportableColumns(columns), [columns]);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const gridCols = useMemo(() => getGridColumns(columns, visibleKeys), [columns, visibleKeys]);
   const matchKeys = useMemo(() => {
     if (!Array.isArray(matchKeyOptions) || !matchKeyOptions.length) return [];
@@ -321,8 +338,15 @@ export function ImportDataModal({
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
+  /** Hide overlay but stay mounted so the in-flight import is not torn down. */
+  const [minimized, setMinimized] = useState(false);
+  const submittingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteTableRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    submittingRef.current = submitting;
+  }, [submitting]);
 
   useEffect(() => {
     if (!replaceEnabled) {
@@ -370,7 +394,8 @@ export function ImportDataModal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // Never dismiss mid-import (same rule as backdrop / Cancel).
+      if (e.key === 'Escape' && !submittingRef.current) onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -645,20 +670,47 @@ export function ImportDataModal({
 
     setSubmitting(true);
     setImportProgress({ done: 0, total: payload.length });
+    onImportProgress?.(0, payload.length);
+    const mode = replaceEnabled ? importMode : 'add';
     try {
       await onImport(payload, {
-        onProgress: (done, total) => setImportProgress({ done, total }),
-        mode: replaceEnabled ? importMode : 'add',
+        onProgress: (done, total) => {
+          const t = total || payload.length;
+          if (mountedRef.current) setImportProgress({ done, total: t });
+          onImportProgress?.(done, t);
+        },
+        mode,
         matchKey: replaceEnabled && needsMatchKey ? matchKey : undefined,
       });
       if (tab === 'paste') writeDraft(draftKey, []);
-      onClose();
+      if (mountedRef.current) onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      // Parent onImport / toast should also report failures when minimized.
+      if (mountedRef.current) {
+        setMinimized(false); // bring the dialog back so the error is visible
+        setError(err instanceof Error ? err.message : 'Import failed');
+      }
     } finally {
-      setSubmitting(false);
-      setImportProgress(null);
+      if (mountedRef.current) {
+        setSubmitting(false);
+        setImportProgress(null);
+      }
     }
+  };
+
+  const requestClose = () => {
+    if (submitting) return; // never abort an in-flight import by dismissing
+    onClose();
+  };
+
+  const handleMinimize = () => {
+    if (!submitting || !onMinimize) return;
+    setMinimized(true);
+    onMinimize({
+      done: importProgress?.done || 0,
+      total: importProgress?.total || activeRows.length,
+      mode: replaceEnabled ? importMode : 'add',
+    });
   };
 
   const bg = isDarkMode ? 'bg-[#0f1c18] text-gray-100' : 'bg-white text-gray-900';
@@ -687,10 +739,13 @@ export function ImportDataModal({
     );
   }
 
+  // Stay mounted while minimized so await onImport keeps running; parent shows the chip.
+  if (minimized) return null;
+
   return createPortal(
     <div
       className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-6 bg-black/45"
-      onClick={onClose}
+      onClick={requestClose}
       role="presentation"
     >
       <div
@@ -699,6 +754,7 @@ export function ImportDataModal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        aria-busy={submitting || undefined}
       >
         {/* Header */}
         <div className={`flex flex-wrap items-start gap-x-3 gap-y-3 px-5 py-4 border-b sm:flex-nowrap sm:items-center ${border}`}>
@@ -790,14 +846,29 @@ export function ImportDataModal({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className={`p-2 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center ${isDarkMode ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {submitting && onMinimize ? (
+            <button
+              type="button"
+              onClick={handleMinimize}
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold sm:min-h-[36px]
+                ${isDarkMode ? 'text-gray-200 hover:bg-white/10' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="Keep importing in the background"
+              aria-label="Minimize and continue import in background"
+            >
+              <Minimize2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Minimize</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={requestClose}
+              disabled={submitting}
+              className={`p-2 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40 ${isDarkMode ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Body */}
@@ -836,8 +907,9 @@ export function ImportDataModal({
                     type="button"
                     title={hint}
                     aria-pressed={importMode === id}
+                    disabled={submitting}
                     onClick={() => setImportMode(id)}
-                    className={`min-h-[32px] px-2.5 rounded-lg text-[12px] font-bold transition-colors
+                    className={`min-h-[32px] px-2.5 rounded-lg text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50
                       ${importMode === id
                         ? id === 'replace'
                           ? 'bg-rose-500 text-white shadow-[0_1px_3px_rgba(244,63,94,0.35)]'
@@ -1205,14 +1277,27 @@ export function ImportDataModal({
             )}
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={onClose}
-              className={`flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg border text-sm font-semibold sm:min-h-[34px]
-                ${isDarkMode ? 'border-gray-600 text-gray-200 hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
-            >
-              Cancel
-            </button>
+            {submitting && onMinimize ? (
+              <button
+                type="button"
+                onClick={handleMinimize}
+                className={`flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg border text-sm font-semibold sm:min-h-[34px] inline-flex items-center justify-center gap-1.5
+                  ${isDarkMode ? 'border-gray-600 text-gray-200 hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+              >
+                <Minimize2 className="h-3.5 w-3.5" />
+                Minimize
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={requestClose}
+                disabled={submitting}
+                className={`flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg border text-sm font-semibold sm:min-h-[34px] disabled:cursor-not-allowed disabled:opacity-40
+                  ${isDarkMode ? 'border-gray-600 text-gray-200 hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="button"
               disabled={submitting || !activeRows.length}

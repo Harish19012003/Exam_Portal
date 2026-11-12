@@ -42,6 +42,7 @@ import {
   Database,
   ListOrdered,
   Settings,
+  Loader2,
 } from 'lucide-react';
 import { SearchableSelect } from './exams/SearchableSelect';
 import './ExamsPage.css';
@@ -325,6 +326,8 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+  /** Floating chip while Bulk Import runs after Minimize (or behind the closed modal). */
+  const [bulkImportJob, setBulkImportJob] = useState(null); // { done, total, label } | null
   const [submitting, setSubmitting] = useState(false);
 
   // Active user for Edit
@@ -1143,46 +1146,48 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
       }
 
       const totalWork = Math.max(toUpdate.length + toCreate.length, 1);
-      let finished = 0;
-      const bump = () => {
-        finished += 1;
-        handlers?.onProgress?.(finished, totalWork);
-      };
 
-      const UPDATE_CONCURRENCY = 6;
-      for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
-        const slice = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
-        await Promise.all(
-          slice.map(async ({ id, row }) => {
-            try {
-              const body = {
-                first_name: row.first_name,
-                last_name: row.last_name || null,
-                phone_number: row.phone_number || null,
-                user_code: row.user_code || null,
-                role: row.role,
-                status: row.status,
-                timezone: row.timezone || 'UTC',
-              };
-              if (row.password) body.password = row.password;
-              await apiClient.put(`/users/${encodeURIComponent(id)}`, body);
-              if (row.tags?.length) {
-                const { ids, unknown } = resolveTagIds(row.tags);
-                if (unknown.length) {
-                  throw new Error(`Unknown tag(s): ${unknown.join(', ')}`);
-                }
-                await apiClient.put(`/users/${encodeURIComponent(id)}/tags`, { tagIds: ids });
-              }
-              updated += 1;
-            } catch (err) {
+      if (toUpdate.length) {
+        const updatePayload = toUpdate.map(({ id, row }) => {
+          const item = {
+            id,
+            first_name: row.first_name,
+            last_name: row.last_name || null,
+            phone_number: row.phone_number || null,
+            user_code: row.user_code || null,
+            email: row.email,
+            role: row.role,
+            status: row.status,
+            timezone: row.timezone || 'UTC',
+          };
+          if (row.password) item.password = row.password;
+          if (row.tags?.length) {
+            const { ids, unknown } = resolveTagIds(row.tags);
+            if (unknown.length) {
               errors.push({
                 email: row.email || 'N/A',
-                reason: err.response?.data?.message || err.message || 'Update failed',
+                reason: `Unknown tag(s): ${unknown.join(', ')}`,
               });
-            } finally {
-              bump();
+              return null;
             }
-          }),
+            item.tag_ids = ids;
+          }
+          return item;
+        }).filter(Boolean);
+
+        await importRowsInChunks(
+          updatePayload,
+          async (batch) => {
+            const response = await apiClient.post('/users/bulk-update', { users: batch });
+            const result = response.data?.data || {};
+            updated += result.successCount || 0;
+            if (Array.isArray(result.errors)) errors.push(...result.errors);
+          },
+          {
+            chunkSize: 250,
+            onProgress: (done) =>
+              handlers?.onProgress?.(Math.min(done, totalWork), prepared.length || totalWork),
+          },
         );
       }
 
@@ -2033,12 +2038,68 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
                   : undefined
           }
           onClose={() => setIsBulkUploadModalOpen(false)}
+          onMinimize={({ done, total, mode }) => {
+            setBulkImportJob({
+              done,
+              total,
+              label:
+                mode === 'update'
+                  ? 'Updating users'
+                  : mode === 'replace'
+                    ? 'Replacing users'
+                    : mode === 'upsert'
+                      ? 'Upserting users'
+                      : 'Importing users',
+            });
+          }}
+          onImportProgress={(done, total) => {
+            // Only refresh the floating chip after Minimize (avoid a second progress UI under the modal).
+            setBulkImportJob((prev) => (prev ? { ...prev, done, total } : prev));
+          }}
           onImport={async (rows, handlers) => {
-            await handleImportUsersRows(rows, handlers);
-            setIsBulkUploadModalOpen(false);
+            try {
+              await handleImportUsersRows(rows, handlers);
+              // Success toast comes from handleImportUsersRows (setSuccessMsg).
+            } catch (err) {
+              setError(err?.message || err?.response?.data?.message || 'Bulk import failed');
+              throw err;
+            } finally {
+              setBulkImportJob(null);
+            }
           }}
         />
       )}
+
+      {bulkImportJob &&
+        createPortal(
+          <div
+            className={`fixed bottom-4 right-4 z-[10001] flex max-w-[min(360px,92vw)] items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl
+              ${isDarkMode ? 'border-gray-600 bg-[#0f1c18] text-gray-100' : 'border-gray-200 bg-white text-gray-900'}`}
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#13C296]" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{bulkImportJob.label}…</p>
+              <p className={`text-[12px] tabular-nums ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {(bulkImportJob.done || 0).toLocaleString()} / {(bulkImportJob.total || 0).toLocaleString()}
+              </p>
+              <div className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>
+                <div
+                  className="h-full rounded-full bg-[#13C296] transition-[width] duration-300"
+                  style={{
+                    width: `${
+                      bulkImportJob.total
+                        ? Math.min(100, Math.round((100 * (bulkImportJob.done || 0)) / bulkImportJob.total))
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {/* Transfer Primary Confirmation Modal */}
       {isTransferModalOpen && transferTargetUser && (

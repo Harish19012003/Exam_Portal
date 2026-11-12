@@ -359,6 +359,35 @@ export const updateRow = (examId, rowId, body, userId) =>
     return repo.findRow(table.id, allFields, rowId);
   });
 
+/**
+ * Mass Edit: same values patch for many rows.
+ * body.all === true → every row; else body.ids (required non-empty).
+ */
+export const bulkUpdateRows = (examId, body, userId) =>
+  withMeta(async () => {
+    const viewKey = normalizeView(body?.view);
+    const { table, fields } = await tableAndViewFields(examId, viewKey);
+    const writableFields = writableViewFields(fields);
+    if (!writableFields.length) throw validationError('No editable columns on this tab');
+    const cleaned = cleanRowValues(writableFields, body?.values);
+    if (!Object.keys(cleaned).length) throw validationError('No field values to update');
+    const all = Boolean(body?.all);
+    const ids = Array.isArray(body?.ids) ? body.ids.map(String).filter(Boolean) : [];
+    if (!all && !ids.length) throw validationError('Provide row ids or set all: true');
+    // Center-code uniqueness across a mass edit is too ambiguous — block that key.
+    if (Object.prototype.hasOwnProperty.call(cleaned, CENTER_CODE_KEY)) {
+      throw validationError('Center code cannot be mass-edited; update rows individually');
+    }
+    const updated = await repo.updateRowsBulk(
+      table.id,
+      writableFields,
+      cleaned,
+      userId,
+      all ? null : ids,
+    );
+    return { updated, all, ids: all ? undefined : ids };
+  });
+
 export const getRowsByIds = (examId, rowIds) =>
   withMeta(async () => {
     const { table, fields } = await tableAndAllFields(examId);

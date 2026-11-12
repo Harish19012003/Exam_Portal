@@ -33,6 +33,12 @@ export const queryKeys = {
     links: (examId) => [...queryKeys.exams.all, 'links', String(examId || '')],
   },
   configLists: ['config-lists'],
+  platformSettings: ['platform-settings'],
+  integrations: {
+    email: ['integrations', 'email'],
+    storage: ['integrations', 'storage'],
+    push: ['integrations', 'push'],
+  },
   tableLayout: (tableId) => ['table-layout', String(tableId || '')],
   lookupResolve: (sig) => ['lookup-resolve', sig],
   users: {

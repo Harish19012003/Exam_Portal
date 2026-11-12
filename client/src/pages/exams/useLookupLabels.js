@@ -56,11 +56,13 @@ export const useLookupDisplayRows = (rows, fields) => {
     sourceFields.forEach((f) => {
       const set = new Set();
       rows.forEach((r) => {
-        const raw = r.values?.[f.key];
-        // Skip optimistic display labels — only resolve real stored ids.
-        if (raw && !Array.isArray(raw) && !isLikelyLookupId(raw)) return;
-        idsOf(raw).forEach((id) => {
-          if (isLikelyLookupId(id)) set.add(id);
+        // Collect real stored ids (rawValues first). Skip display labels / “…” placeholders.
+        [r.rawValues?.[f.key], r.values?.[f.key]].forEach((raw) => {
+          if (raw == null || raw === '') return;
+          if (!Array.isArray(raw) && !isLikelyLookupId(raw)) return;
+          idsOf(raw).forEach((id) => {
+            if (isLikelyLookupId(id)) set.add(id);
+          });
         });
       });
       out[f.key] = {
@@ -92,7 +94,15 @@ export const useLookupDisplayRows = (rows, fields) => {
           });
           setResolved((prev) => ({ ...prev, [f.key]: { ...(prev[f.key] || {}), ...next } }));
         })
-        .catch(() => {});
+        .catch(() => {
+          // Failed resolve must not leave chips stuck on “…” forever.
+          if (cancelled) return;
+          const next = {};
+          ids.forEach((id) => {
+            next[id] = null;
+          });
+          setResolved((prev) => ({ ...prev, [f.key]: { ...(prev[f.key] || {}), ...next } }));
+        });
     });
     return () => {
       cancelled = true;
@@ -118,16 +128,26 @@ export const useLookupDisplayRows = (rows, fields) => {
           return;
         }
         const raw = row.values?.[f.key];
-        // Optimistic local save already wrote the label into the cell — keep it.
-        // Older picks painted "column · detail"; show only the mapped column part.
-        if (raw && !Array.isArray(raw) && !isLikelyLookupId(raw)) {
+        // Stuck loading placeholder — not a real label; keep resolving from the id.
+        const rawStr = raw != null && !Array.isArray(raw) ? String(raw) : '';
+        if (rawStr === '…' || rawStr === '...') {
+          // fall through using ids from rawValues when available
+        } else if (raw && !Array.isArray(raw) && !isLikelyLookupId(raw)) {
+          // Optimistic local save already wrote the label into the cell — keep it.
+          // Older picks painted "column · detail"; show only the mapped column part.
           values[f.key] = columnOnly(raw);
           return;
         }
-        const ids = idsOf(raw);
+        let ids = idsOf(raw);
+        if (ids.length === 0 || ids.every((id) => id === '…' || id === '...')) {
+          const fromRaw = idsOf(row.rawValues?.[f.key]).filter(isLikelyLookupId);
+          if (fromRaw.length) ids = fromRaw;
+          else if (ids.length === 0) return;
+        }
         if (ids.length === 0) return;
         const table = f.tableSource?.table;
         const text = ids.map((id) => {
+          if (id === '…' || id === '...') return '…';
           const seeded = textFromSeed(getLookupSeed(table, id), f.tableSource?.column);
           if (seeded !== null) return seeded;
           const hit = resolved[f.key]?.[id];

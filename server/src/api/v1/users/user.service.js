@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getOrm, getEm } from '../../../database/connection.js';
 import { User, UserTag } from '../../../database/entities/index.js';
 import { deleteSetting } from '../settings/settings.repository.js';
+import { getPlatformSettings } from '../settings/platform-settings.service.js';
 
 const MAX_TAGS_PER_USER = 30;
 
@@ -92,7 +93,8 @@ export const createUser = async (userData, creatorUser) => {
     status: userData.status || 'active',
     is_primary: false,
     two_factor_enabled: false, // 2FA is always initialized as false; must be self-configured by user
-    timezone: userData.timezone || 'UTC',
+    // New accounts start in the platform's default timezone (Settings > Platform Settings).
+    timezone: userData.timezone || (await getPlatformSettings()).default_timezone,
     last_active_at: new Date(),
     permissions: JSON.stringify(userPermissions),
   });
@@ -531,6 +533,207 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
         }
       }
     }
+  }
+
+  if (results.successCount > 0) invalidateAccessCache();
+  return results;
+};
+
+/**
+ * Bulk update existing users (one request / chunk). Faster than N× PUT /users/:id.
+ * Each item needs `id`. Optional `tags` (names) → tag_ids. Password hashed once per distinct value.
+ */
+export const bulkUpdateUsers = async (usersList, actorUser) => {
+  if (!Array.isArray(usersList) || usersList.length === 0) {
+    throw new AppError('No users provided in bulk update', 400, ERROR_CODES.VALIDATION_ERROR);
+  }
+
+  const results = {
+    total: usersList.length,
+    successCount: 0,
+    failedCount: 0,
+    updatedUsers: [],
+    errors: [],
+  };
+
+  const em = getEm();
+  const allTags = await em.find(UserTag, {});
+  const tagByName = new Map(
+    allTags.map((t) => [String(t.name || '').trim().toLowerCase(), String(t.id ?? t._id)]),
+  );
+  const knownTagIds = new Set(allTags.map((t) => String(t.id ?? t._id)));
+
+  const passwordHashCache = new Map();
+  const hashPassword = async (password) => {
+    const key = String(password);
+    if (passwordHashCache.has(key)) return passwordHashCache.get(key);
+    const hashed = await bcrypt.hash(key, 10);
+    passwordHashCache.set(key, hashed);
+    return hashed;
+  };
+
+  const ready = [];
+  for (let index = 0; index < usersList.length; index++) {
+    const raw = usersList[index] || {};
+    const rowNum = index + 1;
+    const id = String(raw.id || raw._id || '').trim();
+    const email = String(raw.email || '').trim().toLowerCase();
+    const fail = (reason) => {
+      results.failedCount++;
+      results.errors.push({ row: rowNum, email: email || id || 'N/A', error: reason, reason });
+    };
+    if (!id) {
+      fail('Missing user id');
+      continue;
+    }
+
+    const tagIds = [];
+    const unknownTags = [];
+    let setTags = false;
+    if (Array.isArray(raw.tag_ids)) {
+      setTags = true;
+      raw.tag_ids.map(String).forEach((tid) => {
+        if (!knownTagIds.has(tid)) unknownTags.push(tid);
+        else if (!tagIds.includes(tid)) tagIds.push(tid);
+      });
+    } else if (raw.tags != null || raw.Tags != null) {
+      const tagNames = parseTagNames(raw.tags ?? raw.Tags ?? '');
+      setTags = true;
+      tagNames.forEach((name) => {
+        const tid = tagByName.get(name.toLowerCase());
+        if (!tid) unknownTags.push(name);
+        else if (!tagIds.includes(tid)) tagIds.push(tid);
+      });
+    }
+    if (unknownTags.length) {
+      fail(`Unknown tag(s): ${unknownTags.join(', ')}`);
+      continue;
+    }
+    if (tagIds.length > MAX_TAGS_PER_USER) {
+      fail(`A user can have at most ${MAX_TAGS_PER_USER} tags`);
+      continue;
+    }
+
+    const rawRole = raw.role != null ? String(raw.role).trim().toLowerCase().replace(/\s+/g, '_') : undefined;
+    const role =
+      rawRole == null || rawRole === ''
+        ? undefined
+        : ['super_admin', 'global_admin', 'admin', 'user'].includes(rawRole)
+          ? rawRole
+          : 'user';
+    const rawStatus = raw.status != null ? String(raw.status).trim().toLowerCase() : undefined;
+    const status =
+      rawStatus == null || rawStatus === ''
+        ? undefined
+        : ['active', 'inactive', 'suspended'].includes(rawStatus)
+          ? rawStatus
+          : 'active';
+
+    ready.push({
+      rowNum,
+      id,
+      email,
+      first_name: raw.first_name !== undefined ? String(raw.first_name || '').trim() : undefined,
+      last_name: raw.last_name !== undefined ? String(raw.last_name || '').trim() : undefined,
+      phone_number:
+        raw.phone_number !== undefined || raw.phone !== undefined
+          ? String(raw.phone_number || raw.phone || '').trim()
+          : undefined,
+      user_code: raw.user_code !== undefined ? String(raw.user_code || '').trim() : undefined,
+      role,
+      status,
+      timezone: raw.timezone !== undefined ? String(raw.timezone || '').trim() || 'UTC' : undefined,
+      password: raw.password ? String(raw.password).trim() : '',
+      setTags,
+      tagIds,
+    });
+  }
+
+  const uniquePasswords = [...new Set(ready.map((r) => r.password).filter(Boolean))];
+  await Promise.all(uniquePasswords.map((p) => hashPassword(p)));
+
+  const CHUNK = 100;
+  for (let i = 0; i < ready.length; i += CHUNK) {
+    const slice = ready.slice(i, i + CHUNK);
+    const ids = slice.map((r) => r.id);
+    const entities = await em.find(User, { _id: { $in: ids } });
+    const byId = new Map(entities.map((e) => [String(e._id), e]));
+
+    for (const row of slice) {
+      const entity = byId.get(row.id);
+      if (!entity) {
+        results.failedCount++;
+        results.errors.push({
+          row: row.rowNum,
+          email: row.email || row.id,
+          error: 'User not found',
+          reason: 'User not found',
+        });
+        continue;
+      }
+
+      try {
+        if (entity.is_primary && (!actorUser?.is_primary || String(actorUser.id) !== String(entity._id))) {
+          throw new AppError(
+            'The Primary Super Admin account is protected and can only be modified by the Primary Super Admin.',
+            403,
+            ERROR_CODES.FORBIDDEN,
+          );
+        }
+        if (
+          (row.role === 'super_admin' || entity.role === 'super_admin') &&
+          actorUser?.role !== 'super_admin'
+        ) {
+          throw new AppError(
+            'Only a Super Admin has authority to manage Super Admin accounts and roles.',
+            403,
+            ERROR_CODES.FORBIDDEN,
+          );
+        }
+        if (row.role !== undefined && row.role !== entity.role && actorUser?.role !== 'super_admin') {
+          throw new AppError(
+            'Only a Super Admin can change roles. Use groups to give access.',
+            403,
+            ERROR_CODES.FORBIDDEN,
+          );
+        }
+        if (entity.is_primary && row.role && row.role !== 'super_admin') {
+          throw new AppError(
+            'The Primary Super Admin cannot be demoted from the super_admin role.',
+            400,
+            ERROR_CODES.VALIDATION_ERROR,
+          );
+        }
+
+        if (row.first_name !== undefined) entity.first_name = row.first_name || null;
+        if (row.last_name !== undefined) entity.last_name = row.last_name || null;
+        if (row.phone_number !== undefined) entity.phone_number = row.phone_number || null;
+        if (row.user_code !== undefined) entity.user_code = row.user_code || null;
+        if (row.role !== undefined) {
+          if (row.role !== entity.role) {
+            entity.permissions = DEFAULT_ROLE_PERMISSIONS[row.role] || [];
+          }
+          entity.role = row.role;
+        }
+        if (row.status !== undefined) entity.status = row.status;
+        if (row.timezone !== undefined) entity.timezone = row.timezone || 'UTC';
+        if (row.password) entity.password_hash = passwordHashCache.get(row.password);
+        if (row.setTags) entity.tag_ids = row.tagIds;
+
+        results.successCount++;
+        results.updatedUsers.push({ id: row.id, email: entity.email || row.email });
+      } catch (err) {
+        results.failedCount++;
+        results.errors.push({
+          row: row.rowNum,
+          email: row.email || row.id,
+          error: err.message || 'Update failed',
+          reason: err.message || 'Update failed',
+        });
+      }
+    }
+
+    await em.flush();
   }
 
   if (results.successCount > 0) invalidateAccessCache();

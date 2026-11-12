@@ -387,6 +387,38 @@ export const updateRow = async (tableId, fields, rowId, values, userId) => {
   return true;
 };
 
+/**
+ * Apply the same values patch to many rows (Mass Edit).
+ * `rowIds: null` → every row for this exam; otherwise only those ids.
+ */
+export const updateRowsBulk = async (tableId, fields, values, userId, rowIds = null) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return 0;
+  const where =
+    Array.isArray(rowIds) && rowIds.length
+      ? { exam_id: examId, id: { $in: rowIds.map(String) } }
+      : { exam_id: examId };
+  if (Array.isArray(rowIds) && rowIds.length === 0) return 0;
+  const rows = await em.find(ExamRow, where);
+  if (!rows.length) return 0;
+  const now = new Date();
+  rows.forEach((row) => {
+    const next = { ...(row.values || {}) };
+    fields.forEach((f) => {
+      if (!(f.key in values)) return;
+      next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
+    });
+    em.assign(row, {
+      values: next,
+      sys_updated_by: userId || null,
+      sys_updated_at: now,
+    });
+  });
+  await em.flush();
+  return rows.length;
+};
+
 export const deleteRows = async (tableId, rowIds) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);

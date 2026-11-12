@@ -59,6 +59,10 @@ export const useAssigneeDisplayRows = (rows, fields) => {
         Object.entries(map || {}).forEach(([id, u]) => {
           next[id] = u && typeof u === 'object' ? u : { id, name: String(u || id) };
         });
+        // Ids the API did not return still need a stable label (avoid permanent “…”)
+        wantedIds.forEach((id) => {
+          if (!next[id]) next[id] = { id, name: '(missing)', email: '', user_code: '' };
+        });
         seedAssigneeLabels(next);
         setLabels((prev) => {
           const merged = { ...prev };
@@ -72,7 +76,15 @@ export const useAssigneeDisplayRows = (rows, fields) => {
           return merged;
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (cancelled) return;
+        const fallback = {};
+        wantedIds.forEach((id) => {
+          fallback[id] = '(missing)';
+        });
+        seedAssigneeLabels(fallback);
+        setLabels((prev) => ({ ...prev, ...fallback }));
+      });
     return () => {
       cancelled = true;
     };
@@ -92,10 +104,20 @@ export const useAssigneeDisplayRows = (rows, fields) => {
           : idsOf(row.values?.[f.key]).some(looksLikeUserId)
             ? row.values[f.key]
             : candidate;
-        const ids = idsOf(raw);
+        let ids = idsOf(raw);
         if (ids.length === 0) {
           values[f.key] = Array.isArray(raw) ? [] : '';
           return;
+        }
+        // Loading placeholder “…” is not a real label — fall back to stored ids when present.
+        const onlyPlaceholder = ids.length > 0 && ids.every((id) => id === '…' || id === '...');
+        if (onlyPlaceholder) {
+          const fromRaw = idsOf(row.rawValues?.[f.key]);
+          if (fromRaw.some(looksLikeUserId)) ids = fromRaw.filter(looksLikeUserId);
+          else {
+            values[f.key] = Array.isArray(raw) ? ids : ids[0];
+            return;
+          }
         }
         // Already display names (optimistic) — keep.
         if (!ids.every(looksLikeUserId)) {
@@ -119,10 +141,12 @@ export const restoreAssigneeIds = (updatedValues, originalValues, fields, rowId)
     if (!(f.key in next)) return;
     const cur = next[f.key];
     const ids = idsOf(cur);
-    // Still looks like ids — keep.
+    // Still looks like ids — keep (cell / Mass Edit assignee picker).
     if (ids.length && ids.every(looksLikeUserId)) return;
-    // Names or empty: keep original saved ids if the patch didn't come from the assignee editor.
-    // (Assignee editor always writes id[].)
+    // Intentional clear from assignee / Mass Edit picker.
+    if (Array.isArray(cur) && cur.length === 0) return;
+    if (cur === '' || cur == null) return;
+    // Display names only: keep original saved ids (patch didn't come from the assignee editor).
     if (originalValues && f.key in originalValues) next[f.key] = originalValues[f.key];
   });
   return next;

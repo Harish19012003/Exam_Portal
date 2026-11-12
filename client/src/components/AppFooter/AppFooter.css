@@ -45,3 +45,18 @@
   line-height: 1;
   color: var(--text-secondary, #6b7280);
 }
+
+.app-footer-support {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-footer-support:hover {
+  color: var(--primary-color, #5c43fa);
+  text-decoration: underline;
+}
+
+.app-footer-sep {
+  margin: 0 8px;
+  opacity: 0.6;
+}
