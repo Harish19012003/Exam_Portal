@@ -100,6 +100,18 @@
   white-space: nowrap;
 }
 
+.ua-menu__code {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: #5c43fa;
+  opacity: 1;
+}
+
+.ua-menu.is-dark .ua-menu__code {
+  color: #a5b4fc;
+}
+
 .ua-menu__email {
   font-size: 12px;
   line-height: 1.2;

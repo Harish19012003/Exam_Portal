@@ -134,7 +134,7 @@ export const toFieldDefinition = (item, order) => {
     configListId: item.configListId || '',
     userTagIds: item.optionsSource === 'userTags' ? item.userTagIds || [] : [],
     ...(item.tableSource ? { tableSource: item.tableSource } : {}),
-    allowMultiple: item.optionsSource === 'userTags' ? true : item.dataType === 'multiselect',
+    allowMultiple: item.dataType === 'multiselect' || item.dataType === 'tags',
     autoFill: item.autoFill || 'none',
     layout: item.layout || 'full',
     sameAsFieldKey: '',

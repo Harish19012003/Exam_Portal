@@ -243,7 +243,8 @@ const optionsPart = (r) => {
     optionsSource: source,
     configListId: source === 'config' ? r.configListId : '',
     userTagIds: source === 'userTags' ? (r.userTagIds || []).map(String) : [],
-    ...(source === 'userTags' ? { allowMultiple: true } : {}),
+    // Multi is only from Multiselect dropdown (or Tags) — not implied by User tags.
+    allowMultiple: r.dataType === 'multiselect' || r.dataType === 'tags',
     tableSource:
       source === 'table'
         ? { table: r.lookupTable, column: r.lookupColumn, ...(r.lookupDetail ? { detailColumn: r.lookupDetail } : {}) }
@@ -285,7 +286,7 @@ const changedField = (r, allowUnique = false) => {
     ...(allowUnique ? { unique: item.unique } : {}),
     autoFill: item.autoFill,
     layout: item.layout,
-    allowMultiple: item.optionsSource === 'userTags' ? true : item.dataType === 'multiselect',
+    allowMultiple: item.dataType === 'multiselect' || item.dataType === 'tags',
     ...(r.lockOptions
       ? {}
       : {

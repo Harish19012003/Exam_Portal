@@ -110,9 +110,11 @@ export interface FieldColumn extends BaseColumn {
     /** Exam cells to paint on pick (group siblings + linked values). */
     syncFields?: Array<{ key: string; column: string; detailColumn?: string }>;
   };
-  /** Multi-assign people filtered by these user-tag ids (stores user id[]). */
+  /** Assign people filtered by these user-tag ids (stores user id[]). */
   userTags?: {
     tagIds: string[];
+    /** false = Dropdown (one person); true / omitted = Multiselect dropdown. */
+    multiple?: boolean;
   };
   parentColumnKey?: string; // Key of parent column in same row for dependent dropdowns
   dependentOptionsMap?: Record<string, string[]>; // Map parent values -> dependent choices
