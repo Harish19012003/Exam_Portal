@@ -1,0 +1,47 @@
+.app-footer {
+  box-sizing: border-box;
+  max-width: 100%;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+}
+
+.app-footer--bar {
+  flex-shrink: 0;
+  /* right padding leaves room for the floating sidebar trigger button */
+  padding: 0 64px 0 12px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  line-height: 1;
+}
+
+/* Sits over the page bottom without changing page height or blocking clicks */
+.app-footer--floating {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 20px 4px;
+  text-align: right;
+  line-height: 1;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.app-footer--inline {
+  display: inline;
+  text-align: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.app-footer-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  color: var(--text-secondary, #6b7280);
+}

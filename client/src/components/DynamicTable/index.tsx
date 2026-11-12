@@ -108,8 +108,18 @@ interface DynamicTableProps {
    */
   onImportRows?: (
     rows: Record<string, string>[],
-    handlers?: { onProgress?: (done: number, total: number) => void },
+    handlers?: {
+      onProgress?: (done: number, total: number) => void;
+      mode?: 'add' | 'update' | 'upsert';
+      matchKey?: string;
+    },
   ) => Promise<void> | void;
+  /** Columns that can match pasted rows to existing records (Update / Upsert). */
+  importMatchKeys?: { key: string; label: string }[];
+  /** Preferred match column for Update / Upsert. */
+  importDefaultMatchKey?: string;
+  /** Existing rows used for match preview (id + values). */
+  importExistingRows?: { id: string; values?: Record<string, unknown> | null }[];
   /** Actions column Explore — page defines destination. */
   onExploreRow?: (row: DataRow) => void;
   /** Actions column Duplicate — page creates a copy of the row. */
@@ -192,6 +202,9 @@ export function DynamicTable({
   onEditRow,
   onDeleteRowRequest,
   onImportRows: onImportRowsProp,
+  importMatchKeys,
+  importDefaultMatchKey,
+  importExistingRows,
   onExploreRow,
   onDuplicateRow: onDuplicateRowProp,
   showAddRow,
@@ -219,22 +232,22 @@ export function DynamicTable({
   );
 
   /**
-   * Date×shift template px must always win over layoutPrefs / local resize cache.
-   * Parent `initialColumns` win last — stale state.columns must not clobber them.
+   * Prefer live `columnWidths` (incl. user resize). Only fill missing date×shift
+   * keys from the template — never overwrite a resized width.
    */
   const effectiveColumnWidths = useMemo(() => {
     const next = { ...state.columnWidths };
-    const applyTemplate = (cols: typeof resolvedInitialColumns) => {
+    const fillMissingTemplate = (cols: typeof resolvedInitialColumns) => {
       (cols || []).forEach((c) => {
         const isDs =
           Boolean((c as { dateShiftTemplate?: boolean }).dateShiftTemplate) ||
           String(c.key || '').toLowerCase().startsWith('ds_');
         if (!isDs || !c.width) return;
-        next[c.key] = c.width;
+        if (next[c.key] == null) next[c.key] = c.width;
       });
     };
-    applyTemplate(state.columns);
-    applyTemplate(resolvedInitialColumns);
+    fillMissingTemplate(state.columns);
+    fillMissingTemplate(resolvedInitialColumns);
     return next;
   }, [state.columnWidths, state.columns, resolvedInitialColumns]);
 
@@ -531,7 +544,8 @@ export function DynamicTable({
   const customRowHeight = Number(activeFeatures.rowHeight) || 0;
   const rowHeight = customRowHeight > 0
     ? Math.min(ROW_HEIGHT_MAX_PX, Math.max(ROW_HEIGHT_MIN_PX, Math.round(customRowHeight)))
-    : state.density === 'extra-compact' ? 32 : state.density === 'compact' ? 48 : state.density === 'comfortable' ? 80 : state.density === 'spacious' ? 96 : state.density === 'extra-spacious' ? 120 : 64;
+    // Compact/extra-compact leave room for an inset editor ring without clipping.
+    : state.density === 'extra-compact' ? 36 : state.density === 'compact' ? 52 : state.density === 'comfortable' ? 80 : state.density === 'spacious' ? 96 : state.density === 'extra-spacious' ? 120 : 64;
 
   const [isFooterExpanded, setIsFooterExpanded] = useState(true);
   const [activeFooterDropdown, setActiveFooterDropdown] = useState<string | null>(null);
@@ -626,6 +640,22 @@ export function DynamicTable({
       .filter((c): c is NonNullable<typeof c> => Boolean(c) && state.columnVisibility[c!.key] !== false);
   }, [state.columnOrder, state.columns, state.columnVisibility]);
 
+  /**
+   * Bulk Import column order = what the user sees in the table: pinned-left, normal, pinned-right
+   * (same arrangement as the grid), then hidden columns last so pasting a copy of the visible
+   * table lines up column-for-column.
+   */
+  const importColumns = useMemo(() => {
+    if (featureConfig.isTransposed) return state.columns;
+    const shown = new Set(visibleColumns.map((c) => c.key));
+    const rest = state.columnOrder
+      .map((key) => state.columns.find((c) => c.key === key))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c) && !shown.has(c!.key));
+    const restKeys = new Set(rest.map((c) => c.key));
+    const orphans = state.columns.filter((c) => !shown.has(c.key) && !restKeys.has(c.key));
+    return [...visibleColumns, ...rest, ...orphans];
+  }, [featureConfig.isTransposed, visibleColumns, state.columnOrder, state.columns]);
+
   const handleOpenFilter = useCallback(
     (key: string, rect: DOMRect) => {
       setFilterAnchorRect(rect);
@@ -686,6 +716,21 @@ export function DynamicTable({
       state.handleColumnWidthChange,
     ],
   );
+
+  // Seed / re-seed Actions width from the feature preset so a fat layout leftover
+  // (old 132–168 defaults or accidental drag) doesn’t leave empty padding.
+  const actionsWidthPresetKey = `${activeFeatures.rowActions?.widthPreset ?? ''}:${activeFeatures.rowActions?.width ?? ''}:${activeFeatures.enableActionsColumn ? 1 : 0}`;
+  const actionsWidthSyncRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (featureConfig.isTransposed || activeFeatures.enableActionsColumn === false) return;
+    const nextW = resolveActionsColumnWidthPx(activeFeatures.rowActions);
+    const cur = state.columnWidths['__actions'];
+    const presetChanged = actionsWidthSyncRef.current !== actionsWidthPresetKey;
+    if (!presetChanged && cur != null && cur <= nextW) return;
+    actionsWidthSyncRef.current = actionsWidthPresetKey;
+    if (cur !== nextW) state.handleColumnWidthChange('__actions', nextW);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when feature Actions width changes; ignore live drag
+  }, [actionsWidthPresetKey, featureConfig.isTransposed, activeFeatures.enableActionsColumn]);
 
   const handleCopyCalculations = () => {
     const text = buildCalculationsClipboardText(state.columns, aggregations);
@@ -865,16 +910,18 @@ export function DynamicTable({
             aria-label="Data table"
           >
             <colgroup>
-              {CHECKBOX_WIDTH > 0 ? <col style={{ width: CHECKBOX_WIDTH }} /> : null}
+              {CHECKBOX_WIDTH > 0 ? (
+                <col data-col-key="__checkbox" style={{ width: CHECKBOX_WIDTH }} />
+              ) : null}
               {displayColumns.map((col) => {
                 const w = effectiveColumnWidths[col.key] ?? col.width ?? 180;
-                return <col key={`col-${col.key}`} style={{ width: w }} />;
+                return <col key={`col-${col.key}`} data-col-key={col.key} style={{ width: w }} />;
               })}
               {activeFeatures.enableAddColumn && !featureConfig.isTransposed ? (
-                <col style={{ width: 44 }} />
+                <col data-col-key="__add_column" style={{ width: 44 }} />
               ) : null}
               {ACTIONS_WIDTH > 0 && !featureConfig.isTransposed ? (
-                <col style={{ width: ACTIONS_WIDTH }} />
+                <col data-col-key="__actions" style={{ width: ACTIONS_WIDTH }} />
               ) : null}
             </colgroup>
             {!featureConfig.isTransposed && (
@@ -891,6 +938,7 @@ export function DynamicTable({
                 onSetSortDirection={state.handleSetSortDirection}
                 onOpenFilter={handleOpenFilter}
                 onColumnWidthChange={state.handleColumnWidthChange}
+                onColumnWidthsChange={state.handleColumnWidthsChange}
                 onColumnReorder={state.handleColumnReorder}
                 onPinColumn={handlePinColumn}
                 onDeleteCompositeColumn={state.handleDeleteCompositeColumn}
@@ -1482,7 +1530,18 @@ export function DynamicTable({
         <BulkUpdateModal
           columns={state.columns}
           selectedCount={state.selectedRows.size}
-          onApply={state.handleBulkUpdate}
+          filteredCount={filteredRows.length}
+          totalCount={state.rows.length}
+          serverPaginated={Boolean(serverPagination)}
+          onApply={(updates, picks, scope = 'selected') => {
+            const targets =
+              scope === 'all'
+                ? state.rows
+                : scope === 'filtered'
+                  ? filteredRows
+                  : state.rows.filter((r) => state.selectedRows.has(r.rowId));
+            state.handleBulkUpdate(updates, picks, targets);
+          }}
           onClose={() => state.setShowBulkUpdate(false)}
           isDarkMode={isDarkMode}
         />
@@ -1490,15 +1549,27 @@ export function DynamicTable({
 
       {importModalOpen && onImportRows && (
         <ImportDataModal
-          columns={state.columns}
+          columns={importColumns}
+          visibleKeys={visibleColumns.map((c) => c.key)}
           isDarkMode={isDarkMode}
           title="Bulk Import"
           draftKey={tableId}
-          subtitle="Upload CSV, Excel, or JSON — or paste table data to add multiple rows."
+          subtitle="Upload CSV, Excel, or JSON — or paste table data to add or update rows."
+          matchKeyOptions={importMatchKeys}
+          defaultMatchKey={importDefaultMatchKey}
+          existingRows={importExistingRows}
           onClose={() => setImportModalOpen(false)}
           onImport={async (rows, handlers) => {
             await onImportRows(rows, handlers);
-            showSuccess(`Imported ${rows.length} row${rows.length === 1 ? '' : 's'}`);
+            const mode = handlers?.mode || 'add';
+            const n = rows.length;
+            showSuccess(
+              mode === 'update'
+                ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}`
+                : mode === 'upsert'
+                  ? `Upserted ${n} row${n === 1 ? '' : 's'}`
+                  : `Imported ${n} row${n === 1 ? '' : 's'}`,
+            );
           }}
         />
       )}

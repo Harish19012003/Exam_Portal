@@ -8,6 +8,16 @@
   box-sizing: border-box;
 }
 
+/* Table views: match space below the toolbar to main-content top padding (8px). */
+.exam-explore-page.exams-page--table {
+  gap: 8px;
+}
+
+.exam-explore-page.exams-page--table > .page-heading {
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .exam-explore-header {
   display: flex;
   align-items: center;
@@ -17,7 +27,7 @@
 }
 
 .exam-explore-title {
-  font-size: clamp(1.125rem, 2vw, 1.25rem);
+  font-size: clamp(1rem, 1.6vw, 1.125rem);
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;

@@ -16,7 +16,8 @@ interface Item {
 }
 
 const PAGE = 20;
-const textOf = (it: Item) => (it.detail ? `${it.label} · ${it.detail}` : it.label);
+/** Cell value = mapped column only. Detail stays in the dropdown secondary line. */
+const cellTextOf = (it: Item) => it.label || '';
 
 /** Only one lookup menu may be open — multi-row edit mounts many editors at once. */
 let activeLookupEditorId: string | null = null;
@@ -226,7 +227,7 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
 
   const pick = (item: Item) => {
     const id = item.id;
-    const chosen = textOf(item);
+    const chosen = cellTextOf(item);
     const rowId = String(row.rowId);
     setLookupPick(rowId, column.key, id);
     // Sibling values arrive with the search page — seed everything now, no /resolve wait.
@@ -244,13 +245,11 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
       return item.values?.[sourceCol] ?? instant[sourceCol] ?? '';
     };
 
-    // Paint every group / linked cell in the same tick (local table state).
+    // Paint every group / linked cell in the same tick — each column gets only its mapped value.
     const patch: Record<string, unknown> = { [column.key]: chosen };
     syncFields.forEach((sf) => {
       if (sf.key === column.key) return;
-      const label = sourceVal(sf.column);
-      const detail = sf.detailColumn ? sourceVal(sf.detailColumn) : '';
-      patch[sf.key] = detail ? `${label} · ${detail}` : label;
+      patch[sf.key] = sourceVal(sf.column);
     });
 
     // Synchronous display overrides so the selected cell never flashes the old value /
@@ -281,7 +280,8 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
     <>
       <input
         ref={inputRef}
-        type="search"
+        type="text"
+        autoComplete="off"
         value={query}
         placeholder={String(value ?? '') || 'Search…'}
         onFocus={openMenu}
@@ -302,16 +302,28 @@ export function LookupEditor({ value, row, column, onSave, onSaveBatch, onCancel
         }}
         aria-label={`Search ${column.label}`}
         style={{
+          display: 'block',
           width: '100%',
-          minHeight: 32,
+          height: '100%',
+          minHeight: 0,
+          maxHeight: '100%',
+          flex: '1 1 0%',
+          alignSelf: 'stretch',
           boxSizing: 'border-box',
-          padding: '4px 8px',
+          padding: '0 6px',
+          margin: 0,
           font: 'inherit',
+          fontSize: 13,
+          lineHeight: 1.2,
           color: fg,
           background: bg,
           border: `1px solid ${border}`,
           borderRadius: 6,
-          outline: '2px solid #5c43fa',
+          // Inset ring — outer outline overflows compact rows and gets clipped.
+          outline: 'none',
+          boxShadow: 'inset 0 0 0 2px #5c43fa',
+          WebkitAppearance: 'none',
+          appearance: 'none',
         }}
       />
       {active &&

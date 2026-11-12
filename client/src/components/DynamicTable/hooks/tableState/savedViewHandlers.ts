@@ -1,6 +1,6 @@
 import type { SavedView, SortConfig, FilterValue } from '../../types';
 import { genRowId } from '../../utils';
-import { getStorageKey } from '../../utils/prefsStorage';
+import { getStorageKey, pinAuditColumnsLast } from '../../utils/prefsStorage';
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -54,7 +54,7 @@ export function createSavedViewHandlers(
     handleLoadView: (id: string) => {
       const view = savedViews.find(v => v.id === id);
       if (!view) return;
-      setColumnOrder(view.columnOrder);
+      setColumnOrder(pinAuditColumnsLast(view.columnOrder));
       setColumnVisibility(view.columnVisibility);
       setColumnWidths(view.columnWidths);
       setFilters(view.filters);

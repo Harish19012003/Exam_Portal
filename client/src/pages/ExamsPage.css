@@ -2678,8 +2678,8 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 
 .exams-search-select-portal {
   position: fixed;
-  /* Above Import-fields overlay (1500) and Bulk add (1300). */
-  z-index: 1600;
+  /* Above Bulk Import (10000), Import-fields (1500), and Bulk add (1300). */
+  z-index: 11000;
   display: flex;
   flex-direction: column;
   margin: 0;

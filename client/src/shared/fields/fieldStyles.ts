@@ -13,8 +13,9 @@ export function fieldInputClass(
   const { compact = false, variant = 'form' } = options;
 
   if (variant === 'editor') {
-    const base = `w-full h-full px-2 py-1 text-[13px] font-medium outline-none rounded border
-    border-[#13C296] focus:ring-1 focus:ring-[#13C296]/30
+    // Compact rows: stretch inside the cell (no outer ring / intrinsic min-height blowout).
+    const base = `block w-full h-full min-h-0 max-h-full flex-1 self-stretch box-border px-1.5 py-0 text-[13px] leading-tight font-medium outline-none rounded border appearance-none
+    border-[#13C296] shadow-[inset_0_0_0_1px_rgba(19,194,150,0.35)]
     ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'}`;
     return state === 'error' ? `${base} border-red-500` : base;
   }

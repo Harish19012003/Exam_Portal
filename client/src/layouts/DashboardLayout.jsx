@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AppFooter } from '../components/AppFooter/AppFooter';
 import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
@@ -438,6 +439,7 @@ export const DashboardLayout = () => {
         <main className="main-content">
           <Outlet context={{ setBreadcrumbTail, topbarSlot }} />
         </main>
+        <AppFooter />
       </div>
     </div>
   );

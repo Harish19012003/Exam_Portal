@@ -131,9 +131,28 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
     };
   });
 
-/** Build exam DynamicTable columns: builder fields plus the audit columns */
+const isAuditLikeKey = (key) => {
+  const k = String(key || '').trim().toLowerCase();
+  return (
+    CREATED_BY_KEYS.has(k) ||
+    MODIFY_BY_KEYS.has(k) ||
+    k === 'created_at' ||
+    k === 'updated_at' ||
+    k === 'modified_at' ||
+    k === '__created_by' ||
+    k === '__updated_by'
+  );
+};
+
+/** Build exam DynamicTable columns: builder fields plus the audit columns (always last). */
 export const buildExamTableColumns = (fields = [], options = {}) => {
   const dynamic = buildFieldColumns(fields, options);
+  const body = [];
+  const auditFromBuilder = [];
+  dynamic.forEach((c) => {
+    if (isAuditLikeKey(c.key)) auditFromBuilder.push(c);
+    else body.push(c);
+  });
 
   // Avoid duplicating if builder already defined these keys
   const keys = new Set(dynamic.map((c) => c.key));
@@ -147,7 +166,7 @@ export const buildExamTableColumns = (fields = [], options = {}) => {
     if (c.key === '__updated_by' && hasModifyByField) return false;
     return true;
   });
-  return [...dynamic, ...audit];
+  return [...body, ...auditFromBuilder, ...audit];
 };
 
 const resolveActorLabel = (label, email, fallback) =>

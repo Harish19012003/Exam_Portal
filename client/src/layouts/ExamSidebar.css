@@ -1,6 +1,6 @@
 /* Sidebar — ported from LogicPanda DefaultSidebar (dark green, hover-expand) */
 .layout {
-  padding: 6px;
+  padding: 2px 6px 6px;
   gap: 6px;
   box-sizing: border-box;
   width: 100%;
@@ -294,7 +294,7 @@
 
 /* Mobile: drawer (always expanded) */
 @media (max-width: 767px) {
-  .layout { padding: 6px; }
+  .layout { padding: 2px 6px 6px; }
 
   .xs-sidebar {
     position: fixed;

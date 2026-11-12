@@ -19,12 +19,12 @@ import {
 
 const idsOf = (value) => (Array.isArray(value) ? value : value ? [value] : []).map(String);
 
-const textFromSeed = (seed, column, detailColumn) => {
+/** Display value for one mapped source column — never append detail (detail is dropdown-only). */
+const textFromSeed = (seed, column) => {
   if (!seed || !column) return null;
   const label = seed[column];
   if (label === undefined || label === null) return null;
-  const detail = detailColumn ? seed[detailColumn] : '';
-  return detail ? `${label} · ${detail}` : String(label);
+  return String(label);
 };
 
 /** Mongo ObjectId / UUID-ish — anything else is treated as an already-resolved label. */
@@ -107,25 +107,37 @@ export const useLookupDisplayRows = (rows, fields) => {
       const rowId = String(row.rowId || row.id || '');
       const values = { ...row.values };
       sourceFields.forEach((f) => {
+        const columnOnly = (text) => {
+          const s = String(text ?? '');
+          if (f.tableSource?.detailColumn && s.includes(' · ')) return s.split(' · ')[0];
+          return text;
+        };
         const override = rowId ? getLookupDisplayOverride(rowId, f.key) : undefined;
         if (override !== undefined) {
-          values[f.key] = override;
+          values[f.key] = columnOnly(override);
           return;
         }
         const raw = row.values?.[f.key];
         // Optimistic local save already wrote the label into the cell — keep it.
+        // Older picks painted "column · detail"; show only the mapped column part.
         if (raw && !Array.isArray(raw) && !isLikelyLookupId(raw)) {
-          values[f.key] = raw;
+          values[f.key] = columnOnly(raw);
           return;
         }
         const ids = idsOf(raw);
         if (ids.length === 0) return;
         const table = f.tableSource?.table;
         const text = ids.map((id) => {
-          const seeded = textFromSeed(getLookupSeed(table, id), f.tableSource?.column, f.tableSource?.detailColumn);
+          const seeded = textFromSeed(getLookupSeed(table, id), f.tableSource?.column);
           if (seeded !== null) return seeded;
           const hit = resolved[f.key]?.[id];
-          return hit === undefined ? '…' : hit ? hit.text : MISSING_LABEL;
+          if (hit === undefined) return '…';
+          if (!hit) return MISSING_LABEL;
+          const col = f.tableSource?.column;
+          if (col && hit.values && hit.values[col] != null && hit.values[col] !== '') {
+            return String(hit.values[col]);
+          }
+          return hit.text;
         });
         values[f.key] = Array.isArray(raw) ? text : text[0];
       });

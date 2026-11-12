@@ -32,6 +32,8 @@ interface TableHeaderProps {
   onSetSortDirection?: (key: string, direction: 'asc' | 'desc' | null) => void;
   onOpenFilter: (key: string, rect: DOMRect) => void;
   onColumnWidthChange: (key: string, width: number) => void;
+  /** Batch width update when resizing several selected columns at once. */
+  onColumnWidthsChange?: (updates: Record<string, number>) => void;
   onColumnReorder: (fromKey: string, toKey: string) => void;
   onPinColumn: (key: string, pin: 'left' | 'right' | null) => void;
   onDeleteCompositeColumn: (key: string) => void;
@@ -70,6 +72,7 @@ export function TableHeader({
   onSetSortDirection,
   onOpenFilter,
   onColumnWidthChange,
+  onColumnWidthsChange,
   onColumnReorder,
   onPinColumn,
   onDeleteCompositeColumn,
@@ -102,18 +105,25 @@ export function TableHeader({
         : 'truncate whitespace-nowrap';
   const resizingRef = useRef<{
     key: string;
+    keys: string[];
     startX: number;
     startW: number;
+    startSum: number;
     lastW: number;
     pointerId: number;
     table: HTMLTableElement | null;
-    cells: HTMLElement[];
+    colEls: HTMLElement[];
     startMinWidth: number;
   } | null>(null);
   const resizeRafRef = useRef<number | null>(null);
   const [menuKey, setMenuKey] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Multi-select for batch resize (⌘/Ctrl+click, Shift+click range). */
+  const [selectedColKeys, setSelectedColKeys] = useState<string[]>([]);
+  const selectAnchorRef = useRef<string | null>(null);
+  const selectedColSet = useRef(new Set(selectedColKeys));
+  selectedColSet.current = new Set(selectedColKeys);
 
   useEffect(() => {
     if (!menuKey) return undefined;
@@ -138,6 +148,55 @@ export function TableHeader({
     };
   }, [menuKey]);
 
+  useEffect(() => {
+    if (selectedColKeys.length === 0) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedColKeys([]);
+        selectAnchorRef.current = null;
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedColKeys.length]);
+
+  const clearColSelection = () => {
+    setSelectedColKeys([]);
+    selectAnchorRef.current = null;
+  };
+
+  const handleHeaderSelectClick = (key: string, e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      setSelectedColKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        selectAnchorRef.current = key;
+        return columns.map((c) => c.key).filter((k) => next.has(k));
+      });
+      return;
+    }
+    if (e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const keys = columns.map((c) => c.key);
+      const anchor = selectAnchorRef.current ?? key;
+      const a = keys.indexOf(anchor);
+      const b = keys.indexOf(key);
+      if (a < 0 || b < 0) {
+        setSelectedColKeys([key]);
+        selectAnchorRef.current = key;
+        return;
+      }
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      setSelectedColKeys(keys.slice(lo, hi + 1));
+      return;
+    }
+    if (selectedColKeys.length > 0) clearColSelection();
+  };
+
   const hasSelectionIcon = Boolean(selectionColumn?.iconName || selectionColumn?.renderIcon);
   const selectionMode = selectionColumn?.mode ?? (enableRowSelection ? (hasSelectionIcon ? 'checkbox-and-icon' : 'checkbox') : (hasSelectionIcon ? 'icon-only' : 'none'));
 
@@ -159,6 +218,12 @@ export function TableHeader({
     return { fg: raw, bg };
   };
 
+  const resolveColWidth = (k: string) => {
+    if (k === '__checkbox') return checkboxWidth;
+    if (k === '__actions') return actionsWidth;
+    return columnWidths[k] ?? columns.find((c) => c.key === k)?.width ?? 100;
+  };
+
   const handleAutoFit = (e: React.MouseEvent, col: ColumnConfig) => {
     e.stopPropagation();
     e.preventDefault();
@@ -169,7 +234,19 @@ export function TableHeader({
       rows as unknown as Array<Record<string, unknown>>,
       columns,
     );
-    onColumnWidthChange(col.key, autoW);
+    const batch =
+      selectedColSet.current.has(col.key) && selectedColKeys.length > 1
+        ? selectedColKeys
+        : [col.key];
+    if (batch.length > 1 && onColumnWidthsChange) {
+      const updates: Record<string, number> = {};
+      batch.forEach((k) => {
+        updates[k] = autoW;
+      });
+      onColumnWidthsChange(updates);
+    } else {
+      onColumnWidthChange(col.key, autoW);
+    }
   };
 
   const startResize = (
@@ -180,36 +257,48 @@ export function TableHeader({
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    // HTML5 column-reorder drag on <th> steals the gesture — disable for this drag.
+    const hostTh = (e.currentTarget as HTMLElement).closest('th');
+    const prevDraggable = hostTh?.getAttribute('draggable');
+    if (hostTh) hostTh.setAttribute('draggable', 'false');
     const target = e.currentTarget;
     target.setPointerCapture?.(e.pointerId);
 
-    const initialW =
-      key === '__checkbox'
-        ? checkboxWidth
-        : key === '__actions'
-        ? actionsWidth
-        : (columnWidths[key] ?? 100);
+    const initialW = resolveColWidth(key);
+    const keysToResize =
+      selectedColSet.current.has(key) && selectedColKeys.length > 1
+        ? selectedColKeys.slice()
+        : [key];
+    const startSum = keysToResize.reduce((sum, k) => sum + resolveColWidth(k), 0);
 
     const table = target.closest('table');
-    const cells = table
-      ? (Array.from(table.querySelectorAll(`[data-col-key="${CSS.escape(key)}"]`)) as HTMLElement[])
-      : [];
-    // Header cell for checkbox/actions may not have data-col-key yet — include nearest th.
-    const hostTh = target.closest('th');
-    if (hostTh && !cells.includes(hostTh as HTMLElement)) cells.unshift(hostTh as HTMLElement);
+    const colEls = keysToResize
+      .map(
+        (k) =>
+          table?.querySelector(
+            `colgroup > col[data-col-key="${CSS.escape(k)}"]`,
+          ) as HTMLElement | null,
+      )
+      .filter((el): el is HTMLElement => Boolean(el));
 
-    const startMinWidth = table ? parseFloat(table.style.minWidth || '0') || table.scrollWidth : 0;
+    const startTableW = table
+      ? parseFloat(table.style.width || '0') ||
+        parseFloat(table.style.minWidth || '0') ||
+        table.scrollWidth
+      : 0;
 
     table?.classList.add('dt-is-resizing');
     resizingRef.current = {
       key,
+      keys: keysToResize,
       startX: e.clientX,
       startW: initialW,
+      startSum,
       lastW: initialW,
       pointerId: e.pointerId,
       table,
-      cells,
-      startMinWidth,
+      colEls,
+      startMinWidth: startTableW,
     };
 
     const prevCursor = document.body.style.cursor;
@@ -221,14 +310,21 @@ export function TableHeader({
       const r = resizingRef.current;
       if (!r) return;
       const px = `${width}px`;
-      r.cells.forEach((el) => {
-        el.style.width = px;
-        el.style.minWidth = px;
-        el.style.maxWidth = px;
-        el.style.setProperty('--target-width', px);
-      });
+      if (r.colEls.length > 0) {
+        r.colEls.forEach((el) => {
+          el.style.width = px;
+        });
+      } else if (hostTh) {
+        hostTh.style.width = px;
+        hostTh.style.minWidth = px;
+        hostTh.style.maxWidth = px;
+      }
       if (r.table && r.startMinWidth > 0) {
-        r.table.style.minWidth = `${Math.max(0, r.startMinWidth + (width - r.startW))}px`;
+        const endSum = width * r.keys.length;
+        const nextTableW = Math.max(0, r.startMinWidth + (endSum - r.startSum));
+        const tablePx = `${nextTableW}px`;
+        r.table.style.width = tablePx;
+        r.table.style.minWidth = tablePx;
       }
       r.lastW = width;
     };
@@ -237,7 +333,7 @@ export function TableHeader({
       resizeRafRef.current = null;
       const r = resizingRef.current;
       if (!r) return;
-      // DOM-only during drag — React state commits once on pointerup (avoids full table re-render jank).
+      // DOM-only during drag — React state commits once on pointerup.
       applyDomWidth(r.lastW);
     };
 
@@ -259,10 +355,15 @@ export function TableHeader({
       }
       const r = resizingRef.current;
       const finalW = r?.lastW ?? initialW;
+      const keys = r?.keys ?? [key];
       r?.table?.classList.remove('dt-is-resizing');
       resizingRef.current = null;
       document.body.style.cursor = prevCursor;
       document.body.style.userSelect = prevUserSelect;
+      if (hostTh) {
+        if (prevDraggable == null) hostTh.removeAttribute('draggable');
+        else hostTh.setAttribute('draggable', prevDraggable);
+      }
       try {
         target.releasePointerCapture?.(ev.pointerId);
       } catch {
@@ -271,10 +372,18 @@ export function TableHeader({
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onUp);
-      onColumnWidthChange(key, finalW);
+      if (keys.length > 1 && onColumnWidthsChange) {
+        const updates: Record<string, number> = {};
+        keys.forEach((k) => {
+          updates[k] = finalW;
+        });
+        onColumnWidthsChange(updates);
+      } else {
+        onColumnWidthChange(key, finalW);
+      }
     };
 
-    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointermove', onMove, { passive: true });
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onUp);
   };
@@ -282,13 +391,31 @@ export function TableHeader({
   /** Wide hit strip straddling the column edge; thin visible rail inside. */
   const resizeHandle = (
     key: string,
-    opts: { direction?: 'right' | 'left'; onDoubleClick?: (e: React.MouseEvent) => void; title?: string } = {},
+    opts: {
+      direction?: 'right' | 'left';
+      onDoubleClick?: (e: React.MouseEvent) => void;
+      title?: string;
+      /** Keep the strip fully inside the cell (needed for sticky Actions). */
+      inset?: boolean;
+      /** Always show a faint rail so the edge is discoverable. */
+      alwaysVisible?: boolean;
+      /** Wider hit target (px classes). */
+      wide?: boolean;
+    } = {},
   ) => {
     const direction = opts.direction ?? 'right';
-    const edge =
-      direction === 'left'
+    const inset = Boolean(opts.inset);
+    const edge = inset
+      ? direction === 'left'
+        ? 'left-0'
+        : 'right-0'
+      : direction === 'left'
         ? 'left-0 -ml-1.5'
         : 'right-0 -mr-1.5';
+    const hitW = opts.wide ? 'w-5' : 'w-3';
+    const railOpacity = opts.alwaysVisible
+      ? 'opacity-45 group-hover/th:opacity-90 group-hover/resize:opacity-100'
+      : 'opacity-0 group-hover/th:opacity-70 group-hover/resize:opacity-100';
     return (
       <div
         onPointerDown={e => startResize(e, key, direction)}
@@ -297,11 +424,11 @@ export function TableHeader({
         role="separator"
         aria-orientation="vertical"
         aria-label={`Resize ${key === '__checkbox' ? 'selection' : key === '__actions' ? 'actions' : 'column'}`}
-        className={`group/resize absolute ${edge} top-0 bottom-0 w-3 cursor-col-resize z-40
+        className={`group/resize absolute ${edge} top-0 bottom-0 ${hitW} cursor-col-resize z-50
           flex items-stretch justify-center touch-none select-none`}
       >
         <span
-          className={`w-0.5 my-1.5 rounded-full opacity-0 group-hover/th:opacity-70 group-hover/resize:opacity-100
+          className={`w-0.5 my-1.5 rounded-full ${railOpacity}
             transition-opacity ${resizeLineCls}`}
           aria-hidden="true"
         />
@@ -358,7 +485,7 @@ export function TableHeader({
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative dt-sticky-th dt-sticky-th--left ${thBg} border-b ${borderCls} px-2.5`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--left ${thBg} border-b ${borderCls} px-1`}
           >
             <div className="flex items-center justify-center gap-1.5">
               {enableSubRows && selectionMode !== 'icon-only' && <div className="w-7 flex-shrink-0" />}
@@ -396,9 +523,14 @@ export function TableHeader({
           const isHiding = transitioningCols?.[col.key] === 'hide';
           const isShowing = transitioningCols?.[col.key] === 'show';
           const isHighlighted = highlightedColKey === col.key && !isHiding;
+          const isColSelected = selectedColSet.current.has(col.key);
           
           const highlightBg = isHiding 
             ? (isDarkMode ? 'bg-red-900/30 text-transparent !border-transparent shadow-[inset_0_0_15px_rgba(239,68,68,0.2)]' : 'bg-red-50 text-transparent !border-transparent shadow-[inset_0_0_15px_rgba(239,68,68,0.1)]')
+            : isColSelected
+              ? (isDarkMode
+                  ? 'bg-[rgba(59,130,246,0.28)] shadow-[inset_0_-2px_0_0_var(--primary-color,#3b82f6)] transition-all duration-150'
+                  : 'bg-[rgba(92,67,250,0.16)] shadow-[inset_0_-2px_0_0_var(--primary-color,#5c43fa)] transition-all duration-150')
             : isHighlighted 
               ? (isDarkMode
                   ? 'bg-[rgba(59,130,246,0.22)] shadow-[inset_0_0_15px_rgba(59,130,246,0.25)] transition-all duration-300'
@@ -436,7 +568,7 @@ export function TableHeader({
                   ? { position: 'sticky', right: offset.right, zIndex: accent ? 31 : 22 }
                   : {}),
               } as React.CSSProperties}
-              className={`${isHighlighted || isHiding ? '' : thBg} overflow-hidden border-b ${borderCls} select-none relative group/th ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
+              className={`${isHighlighted || isHiding ? '' : thBg} border-b ${borderCls} select-none relative group/th ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
                 ${headerWraps ? 'whitespace-normal' : 'whitespace-nowrap'}
                 ${isDragging ? 'opacity-40' : ''}
                 ${offset?.left !== undefined ? 'dt-sticky-th dt-sticky-th--left' : ''}
@@ -446,6 +578,16 @@ export function TableHeader({
               draggable={!isTransposed}
               onDragStart={e => {
                 if (isTransposed) return;
+                // Multi-select / resize strip — never start a column reorder.
+                if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                  e.preventDefault();
+                  return;
+                }
+                const t = e.target as HTMLElement | null;
+                if (t?.closest?.('[role="separator"]')) {
+                  e.preventDefault();
+                  return;
+                }
                 e.dataTransfer.effectAllowed = 'move';
                 setDragColKey(col.key);
               }}
@@ -461,8 +603,11 @@ export function TableHeader({
                 setDragColKey(null);
               }}
               onDragEnd={() => setDragColKey(null)}
+              onClick={(e) => handleHeaderSelectClick(col.key, e)}
+              aria-selected={isColSelected || undefined}
             >
-              <div className={`flex px-1.5 py-3 min-w-0 w-full h-full relative ${headerWraps ? 'items-start' : 'items-center'} ${!isTransposed ? 'pl-3.5 pr-5' : ''}`}>
+              {/* overflow on inner content only — clipping the th ate the resize hit area (-mr). */}
+              <div className={`flex px-1.5 py-3 min-w-0 w-full h-full relative overflow-hidden ${headerWraps ? 'items-start' : 'items-center'} ${!isTransposed ? 'pl-2 pr-3' : ''}`}>
                 <div className={`flex gap-0.5 min-w-0 flex-1 ${headerWraps ? 'items-start' : 'items-center'} ${col.dataType === 'boolean' || col.dataType === 'checkbox' ? 'w-full justify-center pl-5' : ''}`}>
                   {!isTransposed && (
                     <GripVertical
@@ -473,10 +618,10 @@ export function TableHeader({
                   )}
                   <div
                     className={`flex gap-0.5 min-w-0 max-w-full text-left ${headerWraps ? 'items-start' : 'items-center'}
-                      ${isSorted
+                      ${isSorted || isColSelected
                         ? (isDarkMode ? 'text-[var(--primary-color,#60a5fa)]' : 'text-[var(--primary-color,#5c43fa)]')
                         : textCls}`}
-                    title={col.label}
+                    title={`${col.label}${isColSelected ? ' (selected for resize)' : ''} — ⌘/Ctrl+click to multi-select`}
                     aria-sort={isSorted ? (sort.find(s => s.key === col.key)?.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
                     <span className={`text-[12px] font-bold uppercase tracking-wide ${headerLabelClass}`}>
@@ -563,7 +708,12 @@ export function TableHeader({
 
               {resizeHandle(col.key, {
                 onDoubleClick: e => handleAutoFit(e, col),
-                title: 'Drag to resize · double-click to auto-fit',
+                // Keep the last data-col handle out of the sticky Actions hit zone.
+                inset: enableActionsColumn && col.key === columns[columns.length - 1]?.key,
+                title:
+                  isColSelected && selectedColKeys.length > 1
+                    ? `Drag to resize ${selectedColKeys.length} selected columns · double-click to auto-fit all`
+                    : 'Drag to resize · double-click to auto-fit · ⌘/Ctrl+click headers to multi-select',
               })}
 
               {/* Drop indicator */}
@@ -616,19 +766,55 @@ export function TableHeader({
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-2 py-3 text-center`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-0.5 py-3 text-center`}
           >
             {(rowActions?.showLabel !== false && (rowActions?.showLabel || Boolean(rowActions?.label))) && (
-              <span className={`text-[12px] font-bold uppercase tracking-wide truncate ${textCls}`}>
+              <span className={`text-[11px] font-bold uppercase tracking-wide truncate ${textCls}`}>
                 {rowActions?.label ?? 'Actions'}
               </span>
             )}
 
-            {resizeHandle('__actions', { direction: 'left' })}
+            {/*
+              Inset hit target (rail on hover only) — avoid a permanent left strip
+              that looks like padding before the label/icons.
+            */}
+            {resizeHandle('__actions', {
+              direction: 'left',
+              inset: true,
+              alwaysVisible: false,
+              wide: true,
+              title: 'Drag to resize Actions column',
+            })}
           </th>
         )}
       </tr>
     </thead>
+    {selectedColKeys.length > 0 && createPortal(
+      <div
+        role="status"
+        aria-live="polite"
+        className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-[10001] flex flex-wrap items-center justify-center gap-2
+          max-w-[min(92vw,420px)] px-3 py-2 rounded-xl border shadow-lg text-[12px] font-medium
+          ${isDarkMode
+            ? 'bg-gray-900/95 border-gray-700 text-gray-100'
+            : 'bg-white/95 border-violet-200 text-violet-950'}`}
+      >
+        <span>
+          {selectedColKeys.length} column{selectedColKeys.length === 1 ? '' : 's'} selected — drag an edge to resize all
+        </span>
+        <button
+          type="button"
+          onClick={clearColSelection}
+          className={`min-h-[32px] px-2.5 rounded-lg text-[12px] font-semibold
+            ${isDarkMode
+              ? 'bg-gray-800 hover:bg-gray-700 text-gray-100'
+              : 'bg-violet-50 hover:bg-violet-100 text-violet-800'}`}
+        >
+          Clear (Esc)
+        </button>
+      </div>,
+      document.body,
+    )}
     {menuCol && menuPos && createPortal(
       <div
         ref={menuRef}
@@ -707,6 +893,39 @@ export function TableHeader({
           >
             <Filter className="w-3.5 h-3.5" aria-hidden="true" />
             {menuFiltered ? 'Edit filter' : 'Filter…'}
+          </button>
+        )}
+
+        <button
+          type="button"
+          role="menuitem"
+          className={`${menuItemCls} ${selectedColSet.current.has(menuCol.key) ? menuActiveCls : ''}`}
+          onClick={() => {
+            closeMenu();
+            setSelectedColKeys((prev) => {
+              const next = new Set(prev);
+              if (next.has(menuCol.key)) next.delete(menuCol.key);
+              else next.add(menuCol.key);
+              selectAnchorRef.current = menuCol.key;
+              return columns.map((c) => c.key).filter((k) => next.has(k));
+            });
+          }}
+        >
+          <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+          {selectedColSet.current.has(menuCol.key) ? 'Deselect for resize' : 'Select for resize'}
+        </button>
+        {selectedColKeys.length > 0 && (
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemCls}
+            onClick={() => {
+              closeMenu();
+              clearColSelection();
+            }}
+          >
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+            Clear column selection ({selectedColKeys.length})
           </button>
         )}
 

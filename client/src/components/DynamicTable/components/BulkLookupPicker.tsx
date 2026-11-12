@@ -18,7 +18,8 @@ const PAGE = 20;
 const lookupPageCache = new Map<string, { items: Item[]; hasMore: boolean; at: number }>();
 const LOOKUP_CACHE_MS = 60_000;
 
-const textOf = (it: Item) => (it.detail ? `${it.label} · ${it.detail}` : it.label);
+/** Cell value = mapped column only. Detail stays in the dropdown secondary line. */
+const cellTextOf = (it: Item) => it.label || '';
 
 const isAbort = (err: unknown) =>
   Boolean(
@@ -65,12 +66,10 @@ export const buildLookupBulkPatch = (column: FieldColumn, item: Item | null): Re
     return item.values?.[sourceCol] ?? instant[sourceCol] ?? '';
   };
 
-  const patch: Record<string, unknown> = { [column.key]: textOf(item) };
+  const patch: Record<string, unknown> = { [column.key]: cellTextOf(item) };
   (lookup.syncFields || []).forEach((sf) => {
     if (sf.key === column.key) return;
-    const label = sourceVal(sf.column);
-    const detail = sf.detailColumn ? sourceVal(sf.detailColumn) : '';
-    patch[sf.key] = detail ? `${label} · ${detail}` : label;
+    patch[sf.key] = sourceVal(sf.column);
   });
   return patch;
 };

@@ -362,9 +362,10 @@ export interface CustomRowActionButton {
 export type ActionsColumnWidthPreset = 'compact' | 'default' | 'comfortable';
 
 export const ACTIONS_COLUMN_WIDTH_PRESETS: Record<ActionsColumnWidthPreset, number> = {
-  compact: 96,
-  default: 132,
-  comfortable: 168,
+  // Edit + Delete icons only — keep tight so the column doesn’t look empty-padded.
+  compact: 72,
+  default: 104,
+  comfortable: 144,
 };
 
 export const ACTIONS_COLUMN_WIDTH_OPTIONS = [
@@ -413,10 +414,10 @@ export const resolveActionsColumnWidthPx = (
       (k) => ACTIONS_COLUMN_WIDTH_PRESETS[k] === explicit,
     );
     if (matched) return ACTIONS_COLUMN_WIDTH_PRESETS[matched];
-    // Legacy numeric width (e.g. 168) without preset.
+    // Legacy numeric width without preset.
     if (!rowActions?.widthPreset) {
-      if (explicit >= 160) return ACTIONS_COLUMN_WIDTH_PRESETS.comfortable;
-      if (explicit <= 110) return ACTIONS_COLUMN_WIDTH_PRESETS.compact;
+      if (explicit >= 130) return ACTIONS_COLUMN_WIDTH_PRESETS.comfortable;
+      if (explicit <= 88) return ACTIONS_COLUMN_WIDTH_PRESETS.compact;
       return ACTIONS_COLUMN_WIDTH_PRESETS.default;
     }
     return Math.max(40, Math.round(explicit));

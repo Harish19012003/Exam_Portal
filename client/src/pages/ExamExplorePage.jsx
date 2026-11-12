@@ -20,6 +20,7 @@ import {
   createExamTable,
   deleteExamRows,
   getExamTable,
+  listExamRows,
   saveExamTableConfig,
   updateExamRow,
 } from './exams/examTableApi';
@@ -93,7 +94,20 @@ const tableFeaturesFor = (saved) => ({
   enableAddRow: false,
   enableSubRows: false,
   enableTranspose: false,
-  rowActions: { ...DEFAULT_EXAM_TABLE_FEATURES.rowActions, ...(saved?.rowActions || {}), showExplore: false },
+  rowActions: (() => {
+    const rowActions = {
+      ...DEFAULT_EXAM_TABLE_FEATURES.rowActions,
+      ...(saved?.rowActions || {}),
+      showExplore: false,
+    };
+    // After forcing explore off, Edit+Delete-only lists must stay compact — don’t
+    // keep a saved “default/comfortable” width that looks like left padding.
+    if (!rowActions.showDuplicate) {
+      rowActions.widthPreset = 'compact';
+      rowActions.width = 72;
+    }
+    return rowActions;
+  })(),
 });
 
 /**
@@ -871,8 +885,42 @@ export const ExamExplorePage = () => {
     }
   };
 
-  /** CSV import: columns are matched to fields by key or label, then each row is created. */
+  const importMatchKeys = useMemo(() => {
+    const importable = createFields.filter(
+      (f) =>
+        !(f.autoFill && f.autoFill !== 'none') &&
+        f.dataType !== 'formula' &&
+        f.dataType !== 'composite' &&
+        !isLinkedField(f) &&
+        !isFromExamField(f) &&
+        !isTableSourceField(f),
+    );
+    return importable.map((f) => ({ key: f.key, label: f.label || f.key }));
+  }, [createFields]);
+
+  const importDefaultMatchKey = useMemo(() => {
+    const keys = new Set(importMatchKeys.map((m) => m.key));
+    const fromUnique = uniqueRowKeys.find((k) => keys.has(k));
+    if (fromUnique) return fromUnique;
+    const byCode = importMatchKeys.find((m) =>
+      /code/i.test(`${m.key} ${m.label}`),
+    );
+    return byCode?.key || importMatchKeys[0]?.key || '';
+  }, [importMatchKeys, uniqueRowKeys]);
+
+  const importExistingRows = useMemo(
+    () =>
+      (rows || []).map((r) => ({
+        id: String(r.id),
+        values: r.values && typeof r.values === 'object' ? r.values : {},
+      })),
+    [rows],
+  );
+
+  /** CSV / paste import: add new rows, or update / upsert by a match column. */
   const handleImportRows = async (csvRows, handlers) => {
+    const mode = handlers?.mode || 'add';
+    const matchKey = String(handlers?.matchKey || '').trim();
     // Only columns this user may fill. Auto-filled, computed and table-lookup fields (they hold a
     // row id, not text) are left out.
     const importable = createFields.filter(
@@ -906,31 +954,122 @@ export const ExamExplorePage = () => {
 
     if (!prepared.length) throw new Error('CSV columns did not match any field of this center list');
 
-    let done = 0;
+    const norm = (v) => String(v ?? '').trim().toLowerCase();
     const failures = [];
-    const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
-    await importRowsInChunks(
-      prepared,
-      async (batch, { offset }) => {
-        try {
-          const res = await createExamRowsBulk(examId, batch, view);
-          done += res?.created ?? 0;
-          (res?.failures || []).forEach((f) =>
-            failures.push(`row ${offset + f.index + 1}: ${f.message}`),
-          );
-        } catch (err) {
-          failures.push(`rows ${offset + 1}-${offset + batch.length}: ${apiErrorMessage(err, 'could not be saved')}`);
-        }
-      },
-      { chunkSize: 200, onProgress: handlers?.onProgress },
-    );
+    let created = 0;
+    let updated = 0;
+
+    const createBatches = async (rowsToCreate) => {
+      if (!rowsToCreate.length) return;
+      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
+      await importRowsInChunks(
+        rowsToCreate,
+        async (batch, { offset }) => {
+          try {
+            const res = await createExamRowsBulk(examId, batch, view);
+            created += res?.created ?? 0;
+            (res?.failures || []).forEach((f) =>
+              failures.push(`row ${offset + f.index + 1}: ${f.message}`),
+            );
+          } catch (err) {
+            failures.push(
+              `rows ${offset + 1}-${offset + batch.length}: ${apiErrorMessage(err, 'could not be saved')}`,
+            );
+          }
+          handlers?.onProgress?.(created + updated, prepared.length);
+        },
+        { chunkSize: 200, onProgress: (done) => handlers?.onProgress?.(created + updated + done, prepared.length) },
+      );
+    };
+
+    if (mode === 'add' || !matchKey) {
+      await createBatches(prepared);
+      await loadRows();
+      if (created === 0) throw new Error(`Nothing was imported. ${failures[0] || ''}`.trim());
+      setMessage(
+        failures.length
+          ? `Imported ${created} of ${prepared.length} centers. ${failures.length} failed (${failures[0]})`
+          : `Imported ${created} center${created === 1 ? '' : 's'}`,
+      );
+      return;
+    }
+
+    // Load every existing row so Update / Upsert can match beyond the current page.
+    const allExisting = [];
+    {
+      let page = 1;
+      const limit = 500;
+      for (;;) {
+        const res = await listExamRows(examId, { page, limit });
+        const batch = Array.isArray(res?.rows) ? res.rows : [];
+        allExisting.push(...batch);
+        const total = Number(res?.total) || allExisting.length;
+        if (batch.length < limit || allExisting.length >= total) break;
+        page += 1;
+        if (page > 200) break;
+      }
+    }
+
+    const lookup = new Map();
+    allExisting.forEach((r) => {
+      const v = norm(r?.values?.[matchKey]);
+      if (!v || lookup.has(v)) return;
+      lookup.set(v, String(r.id));
+    });
+
+    const toUpdate = [];
+    const toCreate = [];
+    prepared.forEach((values) => {
+      const v = norm(values[matchKey]);
+      // Skip rows with an empty match key — nothing reliable to join on.
+      if (!v) return;
+      const id = lookup.get(v);
+      if (id) toUpdate.push({ id, values });
+      else if (mode === 'upsert') toCreate.push(values);
+    });
+
+    if (mode === 'update' && !toUpdate.length) {
+      throw new Error(`No existing rows matched on “${matchKey}”. Nothing was updated.`);
+    }
+
+    const totalWork = toUpdate.length + toCreate.length;
+    let finished = 0;
+    const bump = () => {
+      finished += 1;
+      handlers?.onProgress?.(finished, Math.max(totalWork, 1));
+    };
+
+    // Parallelism capped so we don’t stampede the API.
+    const UPDATE_CONCURRENCY = 6;
+    for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
+      const slice = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
+      await Promise.all(
+        slice.map(async ({ id, values }) => {
+          try {
+            await updateExamRow(examId, id, values, view);
+            updated += 1;
+          } catch (err) {
+            failures.push(`${id}: ${apiErrorMessage(err, 'could not be updated')}`);
+          } finally {
+            bump();
+          }
+        }),
+      );
+    }
+
+    await createBatches(toCreate);
     await loadRows();
 
-    if (done === 0) throw new Error(`Nothing was imported. ${failures[0] || ''}`.trim());
+    if (updated === 0 && created === 0) {
+      throw new Error(`Nothing was saved. ${failures[0] || ''}`.trim());
+    }
+    const parts = [];
+    if (updated) parts.push(`updated ${updated}`);
+    if (created) parts.push(`added ${created}`);
     setMessage(
       failures.length
-        ? `Imported ${done} of ${prepared.length} centers. ${failures.length} failed (${failures[0]})`
-        : `Imported ${done} center${done === 1 ? '' : 's'}`,
+        ? `${parts.join(', ')} (${failures.length} failed — ${failures[0]})`
+        : parts.join(', '),
     );
   };
 
@@ -976,7 +1115,7 @@ export const ExamExplorePage = () => {
   if (status !== 'ready') {
     return (
       <div className="exam-explore-page">
-        <PageHeading title={viewTitle} leading={backButton} />
+        <PageHeading leading={backButton} />
         <div className="exam-explore-panel exam-explore-state" role="alert">
           {status === 'missing' ? 'This exam no longer exists.' : 'Could not load this exam. Please try again.'}
         </div>
@@ -995,14 +1134,16 @@ export const ExamExplorePage = () => {
   const presetOutdated = Boolean(presetDiff && (presetDiff.changed.length || presetDiff.added.length || presetDiff.reordered));
   return (
     <div className="exams-page exams-page--table exam-explore-page">
+      {/* Title/subtitle omitted — ExamSubNav (next to back) names the current tab. */}
       <PageHeading
-        title={viewTitle}
-        subtitle={`Exam : ${label}`}
-        leading={backButton}
-        actions={
+        leading={
           <>
+            {backButton}
             <ExamSubNav examId={examId} />
-            {hasTable ? (
+          </>
+        }
+        actions={
+          hasTable ? (
             <>
               {view === DEFAULT_EXAM_VIEW && canToggleShiftColumns && (
                 <IconButton
@@ -1038,8 +1179,7 @@ export const ExamExplorePage = () => {
                 </IconButton>
               )}
             </>
-            ) : null}
-          </>
+          ) : null
         }
       />
 
@@ -1144,7 +1284,7 @@ export const ExamExplorePage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}:${f.width || ''}`).join('|')}_${JSON.stringify(effectiveDateShifts?.columnWidths || {})}_${JSON.stringify((effectiveDateShifts?.shifts || []).map((s) => `${s?.id}:${s?.width || ''}`))}`}
+              key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={layoutTableId}
               shareState={false}
               usePortalFeatures
@@ -1169,6 +1309,9 @@ export const ExamExplorePage = () => {
               onRowDelete={handleRowDelete}
               onDuplicateRow={handleDuplicateRow}
               onImportRows={handleImportRows}
+              importMatchKeys={importMatchKeys}
+              importDefaultMatchKey={importDefaultMatchKey}
+              importExistingRows={importExistingRows}
               showAddRow={false}
               permissions={tablePerms}
               enableFeatureBuilder={isAdmin}

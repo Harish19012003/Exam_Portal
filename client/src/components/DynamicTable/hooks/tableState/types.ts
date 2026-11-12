@@ -81,6 +81,7 @@ export interface TableStateHandlers {
   highlightedColKey: string | null;
   transitioningCols: Record<string, 'show' | 'hide'>;
   handleColumnWidthChange: (key: string, width: number) => void;
+  handleColumnWidthsChange: (updates: Record<string, number>) => void;
   handleColumnReorder: (fromKey: string, toKey: string) => void;
   handleToggleColumnVisibility: (key: string) => void;
   handlePinColumn: (key: string, pin: 'left' | 'right' | null) => void;
@@ -110,6 +111,7 @@ export interface TableStateHandlers {
   handleBulkUpdate: (
     updates: Record<string, unknown>,
     lookupPicks?: import('../../components/BulkLookupPicker').BulkLookupPickMeta[],
+    targetRows?: import('../../types').DataRow[],
   ) => void;
 
   // Drag state for column reorder

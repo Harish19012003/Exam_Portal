@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Activity,
 } from 'lucide-react';
+import { AppFooter } from '../components/AppFooter/AppFooter';
 import './LandingPage.css';
 
 const NAV = [
@@ -318,7 +319,7 @@ export const LandingPage = () => {
             <span className="lp-logo-mark lp-logo-sm">E</span>
             <span className="lp-logo-text">Exam View</span>
           </span>
-          <span className="lp-copy">&copy; {new Date().getFullYear()} Exam View. All rights reserved.</span>
+          <span className="lp-copy">&copy; {new Date().getFullYear()} Exam View · <AppFooter variant="inline" /></span>
         </div>
       </footer>
     </div>
