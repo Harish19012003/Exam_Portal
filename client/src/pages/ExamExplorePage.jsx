@@ -1008,6 +1008,8 @@ export const ExamExplorePage = () => {
       const allExisting = await loadAllExisting();
       const ids = allExisting.map((r) => String(r.id)).filter(Boolean);
       const DELETE_CHUNK = 200;
+      // Keep progress total = incoming rows only (not deletes + imports).
+      handlers?.onProgress?.(0, prepared.length);
       for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
         const chunk = ids.slice(i, i + DELETE_CHUNK);
         try {
@@ -1018,7 +1020,6 @@ export const ExamExplorePage = () => {
             `Could not clear existing rows (${deleted} removed before failure): ${apiErrorMessage(err, 'delete failed')}`,
           );
         }
-        handlers?.onProgress?.(i + chunk.length, ids.length + prepared.length);
       }
       await createBatches(prepared);
       await loadRows();
