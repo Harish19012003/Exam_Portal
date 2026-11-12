@@ -4,9 +4,22 @@ import { ERROR_CODES, DEFAULT_ROLE_PERMISSIONS, normalizePermissionSet } from '@
 import { invalidateAccessCache } from '../../../core/access.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { getOrm } from '../../../database/connection.js';
-import { User } from '../../../database/entities/index.js';
+import { getOrm, getEm } from '../../../database/connection.js';
+import { User, UserTag } from '../../../database/entities/index.js';
 import { deleteSetting } from '../settings/settings.repository.js';
+
+const MAX_TAGS_PER_USER = 30;
+
+/** Parse tag names from bulk row (array or comma/semicolon/pipe string). */
+const parseTagNames = (raw) => {
+  if (Array.isArray(raw)) {
+    return raw.map((t) => String(t || '').trim()).filter(Boolean);
+  }
+  return String(raw || '')
+    .split(/[,;|]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+};
 
 /**
  * Service to handle user-related business logic.
@@ -326,6 +339,13 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     errors: [],
   };
 
+  // Name → id (case-insensitive) for resolving Tags column on import.
+  const em = getEm();
+  const allTags = await em.find(UserTag, {});
+  const tagByName = new Map(
+    allTags.map((t) => [String(t.name || '').trim().toLowerCase(), String(t.id ?? t._id)]),
+  );
+
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const seenEmailsInBatch = new Set();
 
@@ -344,6 +364,38 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     const status = ['active', 'inactive', 'suspended'].includes(rawStatus) ? rawStatus : 'active';
     const timezone = String(raw.timezone || raw.Timezone || 'UTC').trim();
     const password = String(raw.password || raw.Password || 'Password@123').trim();
+
+    const tagNames = parseTagNames(raw.tags ?? raw.Tags ?? raw.tag_ids ?? '');
+    const unknownTags = [];
+    const tagIds = [];
+    for (const name of tagNames) {
+      const id = tagByName.get(name.toLowerCase());
+      if (!id) {
+        unknownTags.push(name);
+        continue;
+      }
+      if (!tagIds.includes(id)) tagIds.push(id);
+    }
+    if (unknownTags.length) {
+      results.failedCount++;
+      results.errors.push({
+        row: rowNum,
+        email: email || 'N/A',
+        error: `Unknown tag(s): ${unknownTags.join(', ')}`,
+        reason: `Unknown tag(s): ${unknownTags.join(', ')}`,
+      });
+      continue;
+    }
+    if (tagIds.length > MAX_TAGS_PER_USER) {
+      results.failedCount++;
+      results.errors.push({
+        row: rowNum,
+        email: email || 'N/A',
+        error: `A user can have at most ${MAX_TAGS_PER_USER} tags`,
+        reason: `A user can have at most ${MAX_TAGS_PER_USER} tags`,
+      });
+      continue;
+    }
 
     // Required headers validation
     if (!firstName) {
@@ -405,6 +457,7 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
         timezone: timezone || 'UTC',
         last_active_at: new Date(),
         permissions: JSON.stringify(perms),
+        tag_ids: tagIds,
       });
 
       results.successCount++;
@@ -417,6 +470,7 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
         role,
         status,
         timezone,
+        tag_ids: tagIds,
       });
     } catch (err) {
       results.failedCount++;

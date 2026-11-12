@@ -9,6 +9,7 @@ import { apiClient } from '../api/client';
 import { useConfirm, useFeedback } from '../feedback';
 import { useToast } from '../components/ui/Toast';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
+import { ImportDataModal } from '../components/DynamicTable/components/ImportDataModal';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queryKeys';
 import { useInvalidateUsers, useUsersList, useUserTags, useUserGroups } from '../hooks/useUsersQuery';
@@ -32,12 +33,6 @@ import {
   AlertTriangle,
   Mail,
   UploadCloud,
-  FileSpreadsheet,
-  Download,
-  CheckCircle2,
-  XCircle,
-  FileText,
-  Upload,
   Eye,
   EyeOff,
   Zap,
@@ -103,6 +98,29 @@ const USER_COLUMNS = [
   { key: 'email', label: 'Email', dataType: 'email', order: 10, visible: false, width: 220, editable: false, filterable: true, sortable: true },
   { key: 'phone_number', label: 'Phone', dataType: 'text', order: 11, visible: false, width: 150, editable: false, filterable: true, sortable: true },
   { key: 'primary_tag', label: 'Primary Tag', dataType: 'text', order: 12, visible: false, width: 110, editable: false },
+];
+
+/** Columns for Bulk Import modal (must be editable so ImportDataModal includes them). */
+const buildUserImportColumns = (tags = []) => [
+  { key: 'first_name', label: 'First Name', dataType: 'text', order: 1, visible: true, width: 140, editable: true, required: true },
+  { key: 'last_name', label: 'Last Name', dataType: 'text', order: 2, visible: true, width: 140, editable: true },
+  { key: 'email', label: 'Email', dataType: 'email', order: 3, visible: true, width: 220, editable: true, required: true },
+  { key: 'phone_number', label: 'Phone Number', dataType: 'text', order: 4, visible: true, width: 150, editable: true },
+  {
+    key: 'tags',
+    label: 'Tags',
+    dataType: 'tags',
+    options: tags.map((t) => t.name),
+    optionColors: Object.fromEntries(tags.map((t) => [t.name, t.color])),
+    order: 5,
+    visible: true,
+    width: 200,
+    editable: true,
+  },
+  { key: 'role', label: 'Role', dataType: 'dropdown', options: ['user', 'admin', 'global_admin', 'super_admin'], order: 6, visible: true, width: 140, editable: true },
+  { key: 'status', label: 'Status', dataType: 'dropdown', options: ['active', 'inactive', 'suspended'], order: 7, visible: true, width: 120, editable: true },
+  { key: 'timezone', label: 'Timezone', dataType: 'text', order: 8, visible: true, width: 160, editable: true },
+  { key: 'password', label: 'Password', dataType: 'text', order: 9, visible: true, width: 140, editable: true },
 ];
 
 /** The Tags column is built from the current tag list, so its filter options and chip colours stay in step. */
@@ -275,7 +293,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const setError = useCallback((message) => { if (message) addToast(message, 'error'); }, [addToast]);
 
   // Search & Filter & Sort
-  // 'all' | 'role:<role>' | 'group:<id>'
+  // 'all' | 'role:<role>' | 'tag:<id>' | 'group:<id>'
   const [activeTab, setActiveTab] = useUrlState('utab', 'all');
 
   // Toggle summary stats cards visibility (default: false / off)
@@ -306,15 +324,6 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // Bulk upload state
-  const [csvFile, setCsvFile] = useState(null);
-  const [csvData, setCsvData] = useState([]);
-  const [csvHeaders, setCsvHeaders] = useState([]);
-  const [csvError, setCsvError] = useState('');
-  const [bulkUploading, setBulkUploading] = useState(false);
-  const [bulkResult, setBulkResult] = useState(null);
-  const [dragActive, setDragActive] = useState(false);
 
   // Active user for Edit
   const [selectedUser, setSelectedUser] = useState(null);
@@ -455,8 +464,20 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   }, [invalidateUsersList]);
 
   const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
+  const tagIdByName = useMemo(
+    () => new Map(tags.map((t) => [String(t.name || '').trim().toLowerCase(), String(t.id)])),
+    [tags],
+  );
   const userColumns = useMemo(() => buildUserColumns(tags), [tags]);
-  const tagsKey = useMemo(() => tags.map((t) => `${t.id}:${t.name}:${t.color}`).join('|'), [tags]);
+  const userImportColumns = useMemo(() => buildUserImportColumns(tags), [tags]);
+  /** Same Add / Update / Upsert bar as Exams — match users primarily by email. */
+  const userImportMatchKeys = useMemo(
+    () => [
+      { key: 'email', label: 'Email' },
+      { key: 'phone_number', label: 'Phone Number' },
+    ],
+    [],
+  );
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -573,10 +594,13 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const processedUsers = useMemo(() => {
     let result = [...users];
 
-    // Filter by tab: a role, or a custom group's members
+    // Filter by tab: a role, a tag, or a custom group's members
     if (activeTab.startsWith('role:')) {
       const role = activeTab.slice(5);
       result = result.filter((u) => u.role === role);
+    } else if (activeTab.startsWith('tag:')) {
+      const tagId = activeTab.slice(4);
+      result = result.filter((u) => (u.tag_ids || []).some((id) => String(id) === tagId));
     } else if (activeTab.startsWith('group:')) {
       const group = groups.find((g) => g.id === activeTab.slice(6));
       const memberIds = new Set((group?.userIds || []).map(String));
@@ -594,6 +618,39 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
 
     return result;
   }, [users, groups, activeTab]);
+
+  /** Label for Bulk Import — which tab (All / role / tag / group) the operator is working in. */
+  const importScope = useMemo(() => {
+    if (activeTab === 'all') return { label: 'All users', hint: 'Entire user list' };
+    if (activeTab.startsWith('role:')) {
+      const role = activeTab.slice(5);
+      return { label: ROLE_LABELS[role] || role, hint: 'Role filter' };
+    }
+    if (activeTab.startsWith('tag:')) {
+      const tag = tags.find((t) => String(t.id) === activeTab.slice(4));
+      return { label: tag?.name || 'Tag', hint: 'Tag filter' };
+    }
+    if (activeTab.startsWith('group:')) {
+      const group = groups.find((g) => String(g.id) === activeTab.slice(6));
+      return { label: group?.name || 'Group', hint: 'Custom group' };
+    }
+    return { label: 'All users', hint: 'Entire user list' };
+  }, [activeTab, tags, groups]);
+
+  /** Match / replace against the filtered tab list, not the entire portal. */
+  const userImportExistingRows = useMemo(
+    () =>
+      (processedUsers || []).map((u) => ({
+        id: String(u.id),
+        values: {
+          email: u.email || '',
+          phone_number: u.phone_number || '',
+          first_name: u.first_name || '',
+          last_name: u.last_name || '',
+        },
+      })),
+    [processedUsers],
+  );
 
   // ── Dynamic Table wiring ───────────────────────────────────────────────────
   const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.getAttribute('data-theme') === 'dark');
@@ -874,171 +931,289 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
     }
   };
 
-  // Download Sample CSV Template
-  const downloadSampleCSV = () => {
-    const csvContent =
-      'first_name,last_name,email,phone_number,role,status,timezone,password\n' +
-      'John,Doe,john.doe@example.com,+1 555-0199,user,active,UTC,Password@123\n' +
-      'Jane,Smith,jane.smith@example.com,+91 9876543210,admin,active,Asia/Kolkata,Password@123\n' +
-      'Rahul,Sharma,rahul.sharma@example.com,+91 9811223344,user,active,Asia/Kolkata,Password@123\n';
+  /** Bulk Import modal (same UI as Exams) → add / update / upsert / replace (scoped to active tab). */
+  const handleImportUsersRows = useCallback(
+    async (csvRows, handlers) => {
+      const mode = handlers?.mode || 'add';
+      const matchKey = String(handlers?.matchKey || 'email').trim() || 'email';
+      const norm = (v) => String(v ?? '').trim().toLowerCase();
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'users_bulk_template.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+      const scopeTag =
+        activeTab.startsWith('tag:')
+          ? tags.find((t) => String(t.id) === activeTab.slice(4))
+          : null;
+      const scopeRole = activeTab.startsWith('role:') ? activeTab.slice(5) : null;
+      const scopeGroup =
+        activeTab.startsWith('group:')
+          ? groups.find((g) => String(g.id) === activeTab.slice(6))
+          : null;
+      // Match / replace only against the filtered tab list.
+      const scopeUsers = processedUsers || [];
 
-  // Parse CSV text and validate required headers
-  const handleCSVFileChange = (file) => {
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') {
-      setCsvError('Please upload a valid CSV (.csv) file.');
-      return;
-    }
-
-    setCsvFile(file);
-    setCsvError('');
-    setBulkResult(null);
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target.result;
-        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        if (lines.length < 2) {
-          throw new Error('CSV file must contain a header row and at least 1 user data row.');
-        }
-
-        const parseLine = (line) => {
-          const values = [];
-          let cur = '';
-          let inQuotes = false;
-          for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            if (char === '"' && (i === 0 || line[i - 1] !== '\\')) {
-              inQuotes = !inQuotes;
-            } else if (char === ',' && !inQuotes) {
-              values.push(cur.trim().replace(/^"|"$/g, ''));
-              cur = '';
-            } else {
-              cur += char;
-            }
+      const prepared = (Array.isArray(csvRows) ? csvRows : [])
+        .map((row) => {
+          const email = String(row.email || '').trim().toLowerCase();
+          const first_name = String(row.first_name || '').trim();
+          if (!email && !first_name) return null;
+          const tagsRaw = row.tags ?? row.Tags ?? '';
+          const tagNames = Array.isArray(tagsRaw)
+            ? tagsRaw.map((t) => String(t || '').trim()).filter(Boolean)
+            : String(tagsRaw || '')
+                .split(/[,;|]/)
+                .map((t) => t.trim())
+                .filter(Boolean);
+          // When importing inside a tag tab, ensure that tag is applied.
+          if (scopeTag?.name && !tagNames.some((n) => norm(n) === norm(scopeTag.name))) {
+            tagNames.push(scopeTag.name);
           }
-          values.push(cur.trim().replace(/^"|"$/g, ''));
-          return values;
-        };
+          const roleRaw = String(row.role || '').trim();
+          const role = roleRaw
+            ? roleRaw.toLowerCase().replace(/\s+/g, '_')
+            : scopeRole || 'user';
+          const passwordRaw = String(row.password || '').trim();
+          return {
+            first_name,
+            last_name: String(row.last_name || '').trim(),
+            email,
+            phone_number: String(row.phone_number || '').trim(),
+            tags: tagNames,
+            role,
+            status: String(row.status || 'active').trim().toLowerCase() || 'active',
+            timezone: String(row.timezone || 'UTC').trim() || 'UTC',
+            password: passwordRaw,
+          };
+        })
+        .filter(Boolean);
 
-        const rawHeaders = parseLine(lines[0]);
-        const headers = rawHeaders.map((h) =>
-          h.trim().toLowerCase().replace(/[\s_-]+/g, '_')
+      if (!prepared.length) {
+        throw new Error('No user rows to import. Include at least first_name and email.');
+      }
+
+      const resolveTagIds = (names) => {
+        const ids = [];
+        const unknown = [];
+        names.forEach((name) => {
+          const id = tagIdByName.get(norm(name));
+          if (!id) unknown.push(name);
+          else if (!ids.includes(id)) ids.push(id);
+        });
+        return { ids, unknown };
+      };
+
+      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
+      let created = 0;
+      let updated = 0;
+      const errors = [];
+      const createdIds = [];
+
+      const createBatches = async (rowsToCreate) => {
+        if (!rowsToCreate.length) return;
+        const payload = rowsToCreate.map((u) => ({
+          ...u,
+          password: u.password || 'Password@123',
+        }));
+        await importRowsInChunks(
+          payload,
+          async (batch) => {
+            const response = await apiClient.post('/users/bulk', { users: batch });
+            const result = response.data?.data || {};
+            created += result.successCount || 0;
+            if (Array.isArray(result.errors)) errors.push(...result.errors);
+            (result.createdUsers || []).forEach((u) => {
+              if (u?.id) createdIds.push(String(u.id));
+            });
+          },
+          {
+            chunkSize: 100,
+            onProgress: (done) => handlers?.onProgress?.(created + updated + done, prepared.length),
+          },
         );
+      };
 
-        // Required headers validation: first_name and email
-        const requiredHeaders = ['first_name', 'email'];
-        const missing = requiredHeaders.filter((req) => !headers.includes(req));
-        if (missing.length > 0) {
-          throw new Error(
-            `Missing required CSV header(s): "${missing.join('", "')}". The CSV header row MUST include "first_name" and "email".`
+      /** After create inside a custom group, attach new members to that group. */
+      const attachCreatedToGroup = async () => {
+        if (!scopeGroup?.id || !createdIds.length) return;
+        const nextIds = [...new Set([...(scopeGroup.userIds || []).map(String), ...createdIds])];
+        await apiClient.put(`/users/groups/${encodeURIComponent(scopeGroup.id)}`, {
+          name: scopeGroup.name,
+          userIds: nextIds,
+          permissions: scopeGroup.permissions || undefined,
+        });
+        await fetchGroups();
+      };
+
+      if (mode === 'replace') {
+        // Wipe deletable accounts in this tab only (Primary + self stay), then import incoming.
+        const toDelete = scopeUsers.filter((u) => {
+          if (!u?.id) return false;
+          if (u.is_primary) return false;
+          if (currentUser?.id && String(u.id) === String(currentUser.id)) return false;
+          return true;
+        });
+        let deleted = 0;
+        const DELETE_CONCURRENCY = 6;
+        for (let i = 0; i < toDelete.length; i += DELETE_CONCURRENCY) {
+          const slice = toDelete.slice(i, i + DELETE_CONCURRENCY);
+          await Promise.all(
+            slice.map(async (u) => {
+              try {
+                await apiClient.delete(`/users/${encodeURIComponent(u.id)}`);
+                deleted += 1;
+              } catch (err) {
+                errors.push({
+                  email: u.email || 'N/A',
+                  reason: err.response?.data?.message || err.message || 'Delete failed',
+                });
+              } finally {
+                handlers?.onProgress?.(deleted, toDelete.length + prepared.length);
+              }
+            }),
           );
         }
-
-        setCsvHeaders(headers);
-
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const parsedRows = [];
-        const seenEmails = new Set();
-
-        for (let i = 1; i < lines.length; i++) {
-          const values = parseLine(lines[i]);
-          if (values.every((v) => v === '')) continue; // Skip completely blank row
-
-          const rowData = {};
-          headers.forEach((h, idx) => {
-            rowData[h] = values[idx] || '';
-          });
-
-          const firstName = rowData.first_name || rowData.firstname || '';
-          const email = (rowData.email || '').trim().toLowerCase();
-          const phone = rowData.phone_number || rowData.phone || '';
-
-          let errorMsg = '';
-          if (!firstName) {
-            errorMsg = 'Missing first_name';
-          } else if (!email) {
-            errorMsg = 'Missing email';
-          } else if (!emailRegex.test(email)) {
-            errorMsg = 'Invalid email format';
-          } else if (seenEmails.has(email)) {
-            errorMsg = 'Duplicate email in this file';
-          }
-
-          if (email) seenEmails.add(email);
-
-          parsedRows.push({
-            rowNum: i,
-            first_name: firstName,
-            last_name: rowData.last_name || rowData.lastname || '',
-            email,
-            phone_number: phone,
-            role: rowData.role || 'user',
-            status: rowData.status || 'active',
-            timezone: rowData.timezone || 'UTC',
-            password: rowData.password || 'Password@123',
-            isValid: !errorMsg,
-            errorMsg,
+        await createBatches(prepared);
+        try {
+          await attachCreatedToGroup();
+        } catch (err) {
+          errors.push({
+            email: 'N/A',
+            reason: err.response?.data?.message || err.message || 'Could not update group members',
           });
         }
-
-        if (parsedRows.length === 0) {
-          throw new Error('No user data rows found in the CSV file.');
+        await invalidateUsersList();
+        const failHint = errors.length ? ` (${errors.length} row(s) failed)` : '';
+        const scopeBit = importScope.label ? ` in “${importScope.label}”` : '';
+        setSuccessMsg(
+          `Replace all${scopeBit} — removed ${deleted}, created ${created} user${created === 1 ? '' : 's'}${failHint}.`,
+        );
+        if (created === 0 && errors.length) {
+          throw new Error(errors[0]?.reason || errors[0]?.error || 'No users were created.');
         }
-
-        setCsvData(parsedRows);
-      } catch (err) {
-        setCsvError(err.message || 'Failed to parse CSV file.');
-        setCsvData([]);
+        return;
       }
-    };
-    reader.readAsText(file);
-  };
 
-  // Submit Bulk Upload to Backend
-  const handleBulkUploadSubmit = async () => {
-    const validRows = csvData.filter((r) => r.isValid);
-    if (validRows.length === 0) {
-      setCsvError('No valid user records to upload. Please correct rows or upload a revised CSV.');
-      return;
-    }
+      if (mode === 'add' || !matchKey) {
+        await createBatches(prepared);
+        try {
+          await attachCreatedToGroup();
+        } catch (err) {
+          errors.push({
+            email: 'N/A',
+            reason: err.response?.data?.message || err.message || 'Could not update group members',
+          });
+        }
+        await invalidateUsersList();
+        const failHint = errors.length ? ` (${errors.length} row(s) failed)` : '';
+        const scopeBit = importScope.label ? ` in “${importScope.label}”` : '';
+        setSuccessMsg(
+          `Bulk import finished${scopeBit} — created ${created} user${created === 1 ? '' : 's'}${failHint}.`,
+        );
+        if (created === 0 && errors.length) {
+          throw new Error(errors[0]?.reason || errors[0]?.error || 'No users were created.');
+        }
+        return;
+      }
 
-    try {
-      setBulkUploading(true);
-      setCsvError('');
-      const response = await apiClient.post('/users/bulk', { users: validRows });
-      const result = response.data?.data || {};
-      setBulkResult(result);
-      setSuccessMsg(`Bulk upload finished! Successfully created ${result.successCount || validRows.length} users.`);
-      fetchUsers();
-    } catch (err) {
-      setCsvError(err.response?.data?.message || 'Bulk upload request failed.');
-    } finally {
-      setBulkUploading(false);
-    }
-  };
+      const lookup = new Map();
+      scopeUsers.forEach((u) => {
+        const v = norm(u?.[matchKey]);
+        if (!v || lookup.has(v)) return;
+        lookup.set(v, String(u.id));
+      });
 
-  // Reset and close bulk upload modal
-  const handleCloseBulkUpload = () => {
-    setIsBulkUploadModalOpen(false);
-    setCsvFile(null);
-    setCsvData([]);
-    setCsvHeaders([]);
-    setCsvError('');
-    setBulkResult(null);
-  };
+      const toUpdate = [];
+      const toCreate = [];
+      prepared.forEach((row) => {
+        const v = norm(row[matchKey]);
+        if (!v) return;
+        const id = lookup.get(v);
+        if (id) toUpdate.push({ id, row });
+        else if (mode === 'upsert') toCreate.push(row);
+      });
+
+      if (mode === 'update' && !toUpdate.length) {
+        throw new Error(`No existing users matched on “${matchKey}”. Nothing was updated.`);
+      }
+
+      const totalWork = Math.max(toUpdate.length + toCreate.length, 1);
+      let finished = 0;
+      const bump = () => {
+        finished += 1;
+        handlers?.onProgress?.(finished, totalWork);
+      };
+
+      const UPDATE_CONCURRENCY = 6;
+      for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
+        const slice = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
+        await Promise.all(
+          slice.map(async ({ id, row }) => {
+            try {
+              const body = {
+                first_name: row.first_name,
+                last_name: row.last_name || null,
+                phone_number: row.phone_number || null,
+                role: row.role,
+                status: row.status,
+                timezone: row.timezone || 'UTC',
+              };
+              if (row.password) body.password = row.password;
+              await apiClient.put(`/users/${encodeURIComponent(id)}`, body);
+              if (row.tags?.length) {
+                const { ids, unknown } = resolveTagIds(row.tags);
+                if (unknown.length) {
+                  throw new Error(`Unknown tag(s): ${unknown.join(', ')}`);
+                }
+                await apiClient.put(`/users/${encodeURIComponent(id)}/tags`, { tagIds: ids });
+              }
+              updated += 1;
+            } catch (err) {
+              errors.push({
+                email: row.email || 'N/A',
+                reason: err.response?.data?.message || err.message || 'Update failed',
+              });
+            } finally {
+              bump();
+            }
+          }),
+        );
+      }
+
+      if (toCreate.length) {
+        await createBatches(toCreate);
+        try {
+          await attachCreatedToGroup();
+        } catch (err) {
+          errors.push({
+            email: 'N/A',
+            reason: err.response?.data?.message || err.message || 'Could not update group members',
+          });
+        }
+      }
+
+      await invalidateUsersList();
+      const failHint = errors.length ? ` (${errors.length} row(s) failed)` : '';
+      const parts = [];
+      if (updated) parts.push(`updated ${updated}`);
+      if (created) parts.push(`created ${created}`);
+      const scopeBit = importScope.label ? ` in “${importScope.label}”` : '';
+      setSuccessMsg(
+        `Bulk import finished${scopeBit} — ${parts.join(', ') || 'no changes'}${failHint}.`,
+      );
+      if (!updated && !created && errors.length) {
+        throw new Error(errors[0]?.reason || errors[0]?.error || 'No users were imported.');
+      }
+    },
+    [
+      invalidateUsersList,
+      tagIdByName,
+      processedUsers,
+      currentUser?.id,
+      activeTab,
+      tags,
+      groups,
+      importScope.label,
+      fetchGroups,
+    ],
+  );
 
   // Handle Disable 2FA
   const handleDisable2FA = async (userId, userEmail) => {
@@ -1133,6 +1308,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
       <UserGroupTabs
         users={users}
         groups={groups}
+        tags={tags}
         value={activeTab}
         onChange={setActiveTab}
         onCreate={isSuperAdmin ? () => setGroupModal({ group: null }) : undefined}
@@ -1153,8 +1329,8 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
             type="button"
             className="bulk-upload-trigger-btn"
             onClick={() => setIsBulkUploadModalOpen(true)}
-            title="Bulk Upload (CSV)"
-            aria-label="Bulk Upload (CSV)"
+            title="Bulk Import"
+            aria-label="Bulk Import"
           >
             <UploadCloud size={18} />
           </button>
@@ -1183,7 +1359,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   );
 
   return (
-    <div className={`users-page ${embedded ? 'embedded' : ''}`}>
+    <div className={`users-page ${embedded ? 'embedded' : 'tables-page--dynamic'}`}>
       {/* Top Header (Non-embedded only) */}
       {!embedded && (
         <PageHeading
@@ -1303,7 +1479,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           <TableSkeleton isDarkMode={isDarkMode} columns={6} />
         ) : (
           <DynamicTable
-            key={`users_layout_${layoutEpoch}_${tagsKey}`}
+            key={`users_layout_${layoutEpoch}`}
             tableId={TABLE_IDS.USERS}
             shareState={false}
             initialColumns={userColumns}
@@ -1334,6 +1510,23 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
             usePortalFeatures
             onEditRow={handleTableEdit}
             onDeleteRowRequest={handleTableDelete}
+            onImportRows={isSuperAdmin ? handleImportUsersRows : undefined}
+            importModalColumns={userImportColumns}
+            importMatchKeys={userImportMatchKeys}
+            importDefaultMatchKey="email"
+            importExistingRows={userImportExistingRows}
+            importAllowReplaceAll
+            importScopeLabel={importScope.label}
+            importScopeHint={importScope.hint}
+            importScopeHelp={
+              activeTab.startsWith('tag:')
+                ? 'New users in this tag get the tag applied automatically.'
+                : activeTab.startsWith('group:')
+                  ? 'New users are added as members of this group after import.'
+                  : activeTab.startsWith('role:')
+                    ? 'New users default to this role when Role is left blank.'
+                    : undefined
+            }
             enableFeatureBuilder={canConfigure}
             onFeaturesChange={canConfigure ? portalFeatures.onChange : undefined}
             onSaveFeatures={canConfigure ? portalFeatures.save : undefined}
@@ -1806,260 +1999,36 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           </div>
         </div>
       )}
-      {/* 3. BULK UPLOAD CSV DRAWER */}
+      {/* 3. Bulk Import — centered modal (same as Exams ImportDataModal) */}
       {isBulkUploadModalOpen && (
-        <div className="modal-overlay" onClick={handleCloseBulkUpload}>
-          <div
-            className="modal-content modal-bulk-upload"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Bulk Upload Users from CSV"
-          >
-            <div className="modal-header">
-              <div className="modal-title-group">
-                <h2 className="modal-title">
-                  <UploadCloud size={20} className="modal-title-icon" />
-                  <span>Bulk Upload Users (CSV)</span>
-                </h2>
-                <p className="modal-subtitle">
-                  Import multiple user accounts at once by uploading a formatted CSV spreadsheet.
-                </p>
-              </div>
-              <button
-                className="modal-close-btn"
-                onClick={handleCloseBulkUpload}
-                title="Close"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="modal-body bulk-upload-body">
-              {/* Requirements & Template Info Card */}
-              <div className="csv-requirements-card">
-                <div className="csv-req-header">
-                  <FileSpreadsheet size={18} className="req-header-icon" />
-                  <strong>CSV File Requirements & Column Headers</strong>
-                </div>
-                <div className="csv-req-content">
-                  <p className="csv-req-desc">
-                    Your CSV file must have a header row with the following column names:
-                  </p>
-                  <ul className="csv-req-list">
-                    <li>
-                      <span className="req-pill required">Required</span>
-                      <code>first_name</code> — User's first name
-                    </li>
-                    <li>
-                      <span className="req-pill required">Required</span>
-                      <code>email</code> — Valid and unique email address
-                    </li>
-                    <li>
-                      <span className="req-pill optional">Optional</span>
-                      <code>last_name</code> — User's last name
-                    </li>
-                    <li>
-                      <span className="req-pill optional">Optional</span>
-                      <code>phone_number</code> — Phone number (e.g. +1 555-0199)
-                    </li>
-                    <li>
-                      <span className="req-pill optional">Optional</span>
-                      <code>role</code> — <code>user</code> (default), <code>admin</code>, <code>global_admin</code>, <code>super_admin</code>
-                    </li>
-                    <li>
-                      <span className="req-pill optional">Optional</span>
-                      <code>status</code> — <code>active</code> (default), <code>inactive</code>, <code>suspended</code>
-                    </li>
-                    <li>
-                      <span className="req-pill optional">Optional</span>
-                      <code>timezone</code> — Timezone identifier (defaults to <code>UTC</code>)
-                    </li>
-                    <li>
-                      <span className="req-pill optional">Optional</span>
-                      <code>password</code> — Initial password (defaults to <code>Password@123</code>)
-                    </li>
-                  </ul>
-                </div>
-                <div className="csv-template-download-row">
-                  <button
-                    type="button"
-                    className="download-template-btn"
-                    onClick={downloadSampleCSV}
-                  >
-                    <Download size={14} />
-                    <span>Download Sample CSV Template</span>
-                  </button>
-                  <span className="template-hint">Pre-filled with correct required headers & example rows.</span>
-                </div>
-              </div>
-
-              {/* Drag & Drop Upload Zone */}
-              <div
-                className={`csv-dropzone ${dragActive ? 'drag-active' : ''} ${csvFile ? 'has-file' : ''}`}
-                onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    handleCSVFileChange(e.dataTransfer.files[0]);
-                  }
-                }}
-              >
-                <input
-                  type="file"
-                  id="csv-file-input"
-                  accept=".csv,text/csv"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleCSVFileChange(e.target.files[0]);
-                    }
-                  }}
-                />
-                <label htmlFor="csv-file-input" className="dropzone-label">
-                  <UploadCloud size={36} className="dropzone-icon" />
-                  <div className="dropzone-text">
-                    {csvFile ? (
-                      <>
-                        <span className="dropzone-filename">{csvFile.name}</span>
-                        <span className="dropzone-filesize">
-                          ({(csvFile.size / 1024).toFixed(1)} KB) — Click or drop another file to replace
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="dropzone-primary-text">
-                          <strong>Click to select a CSV file</strong> or drag & drop here
-                        </span>
-                        <span className="dropzone-hint">
-                          Only standard .csv files with required headers ("first_name", "email") are supported
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </label>
-              </div>
-
-              {/* Validation / Parsing Error */}
-              {csvError && (
-                <div className="csv-error-banner">
-                  <XCircle size={18} />
-                  <span>{csvError}</span>
-                </div>
-              )}
-
-              {/* Results from backend after upload */}
-              {bulkResult && (
-                <div className="bulk-result-card">
-                  <div className="bulk-result-header">
-                    <CheckCircle2 size={18} className="text-success" />
-                    <strong>Upload Complete: {bulkResult.successCount || 0} user(s) created</strong>
-                  </div>
-                  {bulkResult.errors && bulkResult.errors.length > 0 && (
-                    <div className="bulk-result-errors">
-                      <span className="errors-title">The following row(s) failed validation:</span>
-                      <ul className="errors-list">
-                        {bulkResult.errors.map((err, idx) => (
-                          <li key={idx}>
-                            Row {err.row}: <strong>{err.email || 'User'}</strong> — {err.reason || err.error || 'Failed to import'}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Preview Table if CSV rows parsed */}
-              {csvData.length > 0 && (
-                <div className="csv-preview-section">
-                  <div className="csv-preview-header">
-                    <span className="preview-title">
-                      Data Preview ({csvData.length} total rows,{' '}
-                      <strong className="text-success">{csvData.filter((r) => r.isValid).length} valid</strong>
-                      {csvData.some((r) => !r.isValid) && (
-                        <span className="text-danger">
-                          , {csvData.filter((r) => !r.isValid).length} with errors
-                        </span>
-                      )}
-                      )
-                    </span>
-                    <span className="preview-sub">Only valid rows will be imported to the system.</span>
-                  </div>
-
-                  <div className="csv-preview-table-container">
-                    <table className="csv-preview-table">
-                      <thead>
-                        <tr>
-                          <th>Status</th>
-                          <th>First Name*</th>
-                          <th>Last Name</th>
-                          <th>Email*</th>
-                          <th>Phone Number</th>
-                          <th>Role</th>
-                          <th>Status</th>
-                          <th>Timezone</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {csvData.map((row) => (
-                          <tr key={row.rowNum} className={row.isValid ? 'row-valid' : 'row-invalid'}>
-                            <td>
-                              {row.isValid ? (
-                                <span className="csv-badge valid" title="Valid record">
-                                  <CheckCircle2 size={12} /> Valid
-                                </span>
-                              ) : (
-                                <span className="csv-badge invalid" title={row.errorMsg}>
-                                  <XCircle size={12} /> {row.errorMsg}
-                                </span>
-                              )}
-                            </td>
-                            <td><strong>{row.first_name || '—'}</strong></td>
-                            <td>{row.last_name || '—'}</td>
-                            <td>{row.email || '—'}</td>
-                            <td>{row.phone_number || '—'}</td>
-                            <td><span className="preview-role-pill">{row.role}</span></td>
-                            <td>{row.status}</td>
-                            <td>{row.timezone}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleCloseBulkUpload}
-                disabled={bulkUploading}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleBulkUploadSubmit}
-                disabled={bulkUploading || csvData.length === 0 || csvData.filter((r) => r.isValid).length === 0}
-              >
-                <Upload size={15} />
-                <span>
-                  {bulkUploading
-                    ? 'Importing Users...'
-                    : `Upload ${csvData.filter((r) => r.isValid).length} Valid Users`}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <ImportDataModal
+          columns={userImportColumns}
+          visibleKeys={userImportColumns.map((c) => c.key)}
+          isDarkMode={isDarkMode}
+          title="Bulk Import"
+          subtitle="Upload CSV, Excel, or JSON — or paste table data to add or update users. Tags: comma-separated names."
+          draftKey={`${TABLE_IDS.USERS}:import`}
+          matchKeyOptions={userImportMatchKeys}
+          defaultMatchKey="email"
+          existingRows={userImportExistingRows}
+          allowReplaceAll
+          scopeLabel={importScope.label}
+          scopeHint={importScope.hint}
+          scopeHelp={
+            activeTab.startsWith('tag:')
+              ? 'New users in this tag get the tag applied automatically.'
+              : activeTab.startsWith('group:')
+                ? 'New users are added as members of this group after import.'
+                : activeTab.startsWith('role:')
+                  ? 'New users default to this role when Role is left blank.'
+                  : undefined
+          }
+          onClose={() => setIsBulkUploadModalOpen(false)}
+          onImport={async (rows, handlers) => {
+            await handleImportUsersRows(rows, handlers);
+            setIsBulkUploadModalOpen(false);
+          }}
+        />
       )}
 
       {/* Transfer Primary Confirmation Modal */}

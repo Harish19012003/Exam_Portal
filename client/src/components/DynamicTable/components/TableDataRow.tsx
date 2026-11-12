@@ -180,7 +180,7 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`px-1 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })} dt-sticky-cell--checkbox`}
+          className={`px-2 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })} dt-sticky-cell--checkbox`}
         >
           <div className="flex items-center justify-center gap-1.5">
             {(selectionColumn?.elementOrder ?? ['checkbox']).map(itemId => {
@@ -620,7 +620,7 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`border-b ${theme.borderRow} px-0.5 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
+          className={`border-b ${theme.borderRow} px-2 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
         >
           <div
             className={`flex items-center justify-center gap-1 transition-opacity ${

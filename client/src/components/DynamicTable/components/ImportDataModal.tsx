@@ -6,6 +6,7 @@ import {
   useState,
   type ClipboardEvent,
   type DragEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -15,7 +16,6 @@ import {
   Download,
   Plus,
   Trash2,
-  Info,
   FileSpreadsheet,
   Loader2,
   Eraser,
@@ -30,6 +30,7 @@ import {
   parseImportFileInWorker,
 } from '../export/parseImportInWorker';
 import { SearchableSelect } from '../../../pages/exams/SearchableSelect';
+import { InfoTip } from '../../PageHeading';
 
 export type ImportColumn = {
   key: string;
@@ -45,7 +46,7 @@ const PREVIEW_PAGE_SIZE = 100;
 
 type TabId = 'upload' | 'paste';
 
-export type ImportMode = 'add' | 'update' | 'upsert';
+export type ImportMode = 'add' | 'update' | 'upsert' | 'replace';
 
 export type ImportProgressHandlers = {
   onProgress?: (done: number, total: number) => void;
@@ -82,6 +83,20 @@ interface ImportDataModalProps {
   existingRows?: ImportExistingRow[];
   /** Preferred match column (e.g. unique-row key / center code). */
   defaultMatchKey?: string;
+  /**
+   * Show “Replace all” — remove every existing record, then import the incoming rows.
+   * Off by default (destructive); enable for tables that support a full wipe + re-import.
+   */
+  allowReplaceAll?: boolean;
+  /**
+   * Active list / group / tag the import applies to (e.g. “AM”, “All users”).
+   * Shown so Add / Update / Upsert / Replace all are clearly scoped.
+   */
+  scopeLabel?: string;
+  /** Short hint under the scope chip (e.g. “Tag filter”). */
+  scopeHint?: string;
+  /** Extra copy for the info tip (page-specific notes). */
+  scopeHelp?: ReactNode;
 }
 
 const normalizeMatchValue = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
@@ -270,6 +285,10 @@ export function ImportDataModal({
   matchKeyOptions,
   existingRows,
   defaultMatchKey,
+  allowReplaceAll = false,
+  scopeLabel,
+  scopeHint,
+  scopeHelp,
 }: ImportDataModalProps) {
   const importCols = useMemo(() => getImportableColumns(columns), [columns]);
   const gridCols = useMemo(() => getGridColumns(columns, visibleKeys), [columns, visibleKeys]);
@@ -278,7 +297,9 @@ export function ImportDataModal({
     const importable = new Set(importCols.map((c) => c.key));
     return matchKeyOptions.filter((m) => importable.has(m.key));
   }, [matchKeyOptions, importCols]);
-  const replaceEnabled = matchKeys.length > 0;
+  /** Mode bar when Update/Upsert (match keys) and/or Replace all is available. */
+  const replaceEnabled = matchKeys.length > 0 || allowReplaceAll;
+  const showImportHelp = Boolean(scopeLabel) || replaceEnabled || matchKeys.length > 0;
   const [tab, setTab] = useState<TabId>('paste');
   const [importMode, setImportMode] = useState<ImportMode>('update');
   const [matchKey, setMatchKey] = useState(() => {
@@ -308,12 +329,19 @@ export function ImportDataModal({
       setImportMode('add');
       return;
     }
+    setImportMode((prev) => {
+      if (prev === 'replace' && !allowReplaceAll) return matchKeys.length ? 'update' : 'add';
+      if ((prev === 'update' || prev === 'upsert') && !matchKeys.length) {
+        return allowReplaceAll ? 'replace' : 'add';
+      }
+      return prev;
+    });
     setMatchKey((prev) => {
       if (prev && matchKeys.some((m) => m.key === prev)) return prev;
       if (defaultMatchKey && matchKeys.some((m) => m.key === defaultMatchKey)) return defaultMatchKey;
       return matchKeys[0]?.key || '';
     });
-  }, [replaceEnabled, matchKeys, defaultMatchKey]);
+  }, [replaceEnabled, matchKeys, defaultMatchKey, allowReplaceAll]);
 
   useEffect(() => {
     const draft = readDraft(draftKey, importCols);
@@ -543,7 +571,7 @@ export function ImportDataModal({
   }, [existingRows, matchKey]);
 
   const matchPreview = useMemo(() => {
-    if (!replaceEnabled || importMode === 'add' || !matchKey) {
+    if (!replaceEnabled || importMode === 'add' || importMode === 'replace' || !matchKey) {
       return { update: 0, create: 0, unmatched: 0, blankKey: 0 };
     }
     let update = 0;
@@ -562,6 +590,8 @@ export function ImportDataModal({
     });
     return { update, create, unmatched, blankKey };
   }, [replaceEnabled, importMode, matchKey, activeRows, existingLookup]);
+
+  const needsMatchKey = importMode === 'update' || importMode === 'upsert';
 
   const handleSubmit = async () => {
     setError('');
@@ -584,7 +614,7 @@ export function ImportDataModal({
       );
       return;
     }
-    if (replaceEnabled && importMode !== 'add') {
+    if (replaceEnabled && needsMatchKey) {
       if (!matchKey) {
         setError('Choose a column to match existing records.');
         return;
@@ -597,6 +627,10 @@ export function ImportDataModal({
         );
         return;
       }
+    }
+    if (replaceEnabled && importMode === 'replace' && !activeRows.length) {
+      setError('Add incoming rows before replacing existing records.');
+      return;
     }
 
     // Emit rows keyed by label so ExamsPage mapping (label/key) still works
@@ -615,7 +649,7 @@ export function ImportDataModal({
       await onImport(payload, {
         onProgress: (done, total) => setImportProgress({ done, total }),
         mode: replaceEnabled ? importMode : 'add',
-        matchKey: replaceEnabled && importMode !== 'add' ? matchKey : undefined,
+        matchKey: replaceEnabled && needsMatchKey ? matchKey : undefined,
       });
       if (tab === 'paste') writeDraft(draftKey, []);
       onClose();
@@ -672,9 +706,61 @@ export function ImportDataModal({
             <div className="w-10 h-10 rounded-xl bg-[#13C296]/15 text-[#13C296] flex items-center justify-center flex-shrink-0">
               <UploadCloud className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <h2 className="text-[16px] font-bold tracking-tight">{title}</h2>
-              <p className={`text-[12px] mt-0.5 ${muted}`}>{subtitle}</p>
+            <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="text-[16px] font-bold tracking-tight whitespace-nowrap">{title}</h2>
+              <InfoTip title="How bulk import works" label="How bulk import works">
+                {subtitle ? <p>{subtitle}</p> : null}
+                {scopeLabel ? (
+                  <p>
+                    You are importing in <strong>{scopeLabel}</strong>
+                    {scopeHint ? ` (${scopeHint})` : ''}. Add, Update, Upsert, and Replace all
+                    only apply to this list — not the whole portal.
+                  </p>
+                ) : null}
+                {showImportHelp ? (
+                  <>
+                    <p>Choose a mode:</p>
+                    <ul>
+                      <li>
+                        <strong>Add new</strong> — create rows only; existing records are left alone.
+                      </li>
+                      {matchKeys.length > 0 ? (
+                        <>
+                          <li>
+                            <strong>Update matching</strong> — overwrite rows that match on the
+                            selected key; unmatched incoming rows are skipped.
+                          </li>
+                          <li>
+                            <strong>Upsert</strong> — update matches, and add rows that do not match
+                            yet.
+                          </li>
+                        </>
+                      ) : null}
+                      {allowReplaceAll ? (
+                        <li>
+                          <strong>Replace all</strong> — remove existing rows
+                          {scopeLabel ? ` in “${scopeLabel}”` : ''}
+                          , then import the incoming rows. Protected accounts (if any) are kept.
+                        </li>
+                      ) : null}
+                    </ul>
+                  </>
+                ) : null}
+                {scopeHelp ? <p>{scopeHelp}</p> : null}
+              </InfoTip>
+              {scopeLabel ? (
+                <span
+                  className={`inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
+                    isDarkMode ? 'bg-[#13C296]/15 text-[#5eead4]' : 'bg-[#13C296]/12 text-[#0f766e]'
+                  }`}
+                >
+                  <span className={`font-medium shrink-0 ${muted}`}>Importing in</span>
+                  <span className="truncate">{scopeLabel}</span>
+                  {scopeHint ? (
+                    <span className={`font-medium shrink-0 opacity-80 ${muted}`}>· {scopeHint}</span>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
           </div>
           {/* Tabs live in the header: wrap under the title on narrow screens */}
@@ -722,11 +808,29 @@ export function ImportDataModal({
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Import mode">
                 {(
                   [
-                    { id: 'add', label: 'Add new', hint: 'Create rows only' },
-                    { id: 'update', label: 'Update matching', hint: 'Overwrite existing by key' },
-                    { id: 'upsert', label: 'Upsert', hint: 'Update if found, else add' },
+                    { id: 'add' as const, label: 'Add new', hint: 'Create rows only', show: true },
+                    {
+                      id: 'update' as const,
+                      label: 'Update matching',
+                      hint: 'Overwrite existing by key',
+                      show: matchKeys.length > 0,
+                    },
+                    {
+                      id: 'upsert' as const,
+                      label: 'Upsert',
+                      hint: 'Update if found, else add',
+                      show: matchKeys.length > 0,
+                    },
+                    {
+                      id: 'replace' as const,
+                      label: 'Replace all',
+                      hint: 'Remove all existing, then import incoming rows',
+                      show: allowReplaceAll,
+                    },
                   ] as const
-                ).map(({ id, label, hint }) => (
+                )
+                  .filter((m) => m.show)
+                  .map(({ id, label, hint }) => (
                   <button
                     key={id}
                     type="button"
@@ -735,7 +839,9 @@ export function ImportDataModal({
                     onClick={() => setImportMode(id)}
                     className={`min-h-[32px] px-2.5 rounded-lg text-[12px] font-bold transition-colors
                       ${importMode === id
-                        ? 'bg-[#13C296] text-white shadow-[0_1px_3px_rgba(19,194,150,0.35)]'
+                        ? id === 'replace'
+                          ? 'bg-rose-500 text-white shadow-[0_1px_3px_rgba(244,63,94,0.35)]'
+                          : 'bg-[#13C296] text-white shadow-[0_1px_3px_rgba(19,194,150,0.35)]'
                         : isDarkMode
                           ? 'bg-white/5 text-gray-300 hover:bg-white/10'
                           : 'bg-white text-gray-700 border border-gray-200 hover:border-[#13C296]/50'
@@ -745,7 +851,7 @@ export function ImportDataModal({
                   </button>
                 ))}
               </div>
-              {importMode !== 'add' && (
+              {needsMatchKey && (
                 <div className="flex items-center gap-2 flex-1 min-w-[200px] sm:max-w-[320px] sm:ml-auto">
                   <span className={`text-[12px] font-semibold whitespace-nowrap ${muted}`}>
                     Match on
@@ -765,7 +871,21 @@ export function ImportDataModal({
                 </div>
               )}
               </div>
-              {importMode !== 'add' && activeRows.length > 0 && (
+              {importMode === 'replace' && activeRows.length > 0 && (
+                <p className={`text-[12px] font-medium ${muted}`}>
+                  Preview:{' '}
+                  <span className={isDarkMode ? 'text-rose-300' : 'text-rose-600'}>
+                    {scopeLabel
+                      ? `remove all in “${scopeLabel}”`
+                      : 'remove all existing'}
+                  </span>
+                  {' · '}
+                  <span className={isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}>
+                    import {activeRows.length} incoming
+                  </span>
+                </p>
+              )}
+              {needsMatchKey && activeRows.length > 0 && (
                 <p className={`text-[12px] font-medium ${muted}`}>
                   Preview
                   {existingLookup.size === 0 ? ' (no loaded rows to match yet)' : ''}
@@ -947,7 +1067,7 @@ export function ImportDataModal({
                   if ((e.target as HTMLElement).tagName === 'INPUT') return;
                   handlePasteOnGrid(e, pastePageOffset, gridCols[0]?.key);
                 }}
-                className={`rounded-xl border overflow-auto max-h-[min(420px,50vh)] relative ${border}`}
+                className={`import-grid-scroll rounded-xl border overflow-auto max-h-[min(420px,50vh)] relative ${border}`}
                 tabIndex={0}
               >
                 {pasting && (
@@ -1067,7 +1187,7 @@ export function ImportDataModal({
         </div>
 
         {/* Footer */}
-        <div className={`flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t ${border}`}>
+        <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-t sm:px-5 ${border}`}>
           <div className={`flex items-center gap-2 text-[11px] ${muted}`}>
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>
@@ -1088,7 +1208,7 @@ export function ImportDataModal({
             <button
               type="button"
               onClick={onClose}
-              className={`flex-1 sm:flex-none min-h-[44px] px-4 rounded-xl border text-sm font-semibold
+              className={`flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg border text-sm font-semibold sm:min-h-[34px]
                 ${isDarkMode ? 'border-gray-600 text-gray-200 hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
             >
               Cancel
@@ -1097,7 +1217,7 @@ export function ImportDataModal({
               type="button"
               disabled={submitting || !activeRows.length}
               onClick={() => void handleSubmit()}
-              className="flex-1 sm:flex-none min-h-[44px] px-5 rounded-xl bg-[#13C296] text-white text-sm font-bold hover:bg-[#10a87f] disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              className="flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg bg-[#13C296] text-white text-sm font-bold hover:bg-[#10a87f] disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 sm:min-h-[34px]"
             >
               {submitting ? (
                 <>
@@ -1110,6 +1230,8 @@ export function ImportDataModal({
                 `Update ${matchPreview.update || ''}`.trim()
               ) : importMode === 'upsert' ? (
                 `Upsert ${activeRows.length || ''}`.trim()
+              ) : importMode === 'replace' ? (
+                `Replace with ${activeRows.length || ''}`.trim()
               ) : (
                 `Import ${activeRows.length || ''}`.trim()
               )}
@@ -1221,7 +1343,7 @@ function PreviewTable({
           </span>
         </p>
       </div>
-      <div className={`rounded-xl border overflow-auto max-h-[min(320px,40vh)] ${border}`}>
+      <div className={`import-grid-scroll rounded-xl border overflow-auto max-h-[min(320px,40vh)] ${border}`}>
         <table className="w-full text-left border-collapse min-w-[480px]">
           <thead className={isDarkMode ? 'bg-[#1a2e28]' : 'bg-[#eefaf5]'}>
             <tr>

@@ -270,8 +270,8 @@
 }
 
 /*
- * First data column after the sticky checkbox — keep label/value clear of the edge.
- * (Wide sticky curtains used to eat this padding and clip glyphs.)
+ * Edge + first/last data gutters — same L/R padding on every DynamicTable
+ * (Users, Exams, Vendors, …). Wide sticky curtains used to eat this space.
  */
 .dt-grid > thead > tr > th[data-col-key='__checkbox'] + th > div {
   padding-left: 12px !important;
@@ -281,4 +281,24 @@
 }
 .dt-grid > tfoot > tr > td[data-col-key='__checkbox'] + td {
   padding-left: 12px !important;
+}
+
+/* Match the right edge to the left: pad sticky Actions the same as checkbox. */
+.dt-grid > thead > tr > th[data-col-key='__actions'],
+.dt-grid > tbody > tr > td.dt-sticky-cell--actions,
+.dt-grid > tfoot > tr > td[data-col-key='__actions'] {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+
+/* Last data column before Actions — same breathing room as first after checkbox. */
+.dt-grid > thead > tr > th:has(+ th[data-col-key='__actions']) > div,
+.dt-grid > thead > tr > th:has(+ th[data-col-key='__add_column']) > div {
+  padding-right: 12px !important;
+}
+.dt-grid > tbody > tr > td:has(+ td.dt-sticky-cell--actions),
+.dt-grid > tbody > tr > td:has(+ td[data-col-key='__add_column']),
+.dt-grid > tfoot > tr > td:has(+ td[data-col-key='__actions']),
+.dt-grid > tfoot > tr > td:has(+ td[data-col-key='__add_column']) {
+  padding-right: 12px !important;
 }

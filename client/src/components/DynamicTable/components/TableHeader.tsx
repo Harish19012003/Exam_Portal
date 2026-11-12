@@ -486,7 +486,7 @@ export function TableHeader({
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative dt-sticky-th dt-sticky-th--left ${thBg} border-b ${borderCls} px-1`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--left ${thBg} border-b ${borderCls} px-2`}
           >
             <div className="flex items-center justify-center gap-1.5">
               {enableSubRows && selectionMode !== 'icon-only' && <div className="w-7 flex-shrink-0" />}
@@ -612,7 +612,7 @@ export function TableHeader({
                 <div className={`flex gap-0.5 min-w-0 flex-1 ${headerWraps ? 'items-start' : 'items-center'} ${col.dataType === 'boolean' || col.dataType === 'checkbox' ? 'w-full justify-center pl-5' : ''}`}>
                   {!isTransposed && (
                     <GripVertical
-                      className={`w-3 h-3 absolute left-0.5 opacity-0 group-hover/th:opacity-100 transition-opacity cursor-grab
+                      className={`w-3 h-3 absolute left-0.5 top-1/2 -translate-y-1/2 opacity-0 group-hover/th:opacity-100 transition-opacity cursor-grab
                         ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}
                       aria-hidden="true"
                     />
@@ -767,7 +767,7 @@ export function TableHeader({
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-0.5 py-3 text-center`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-2 py-3 text-center`}
           >
             {(rowActions?.showLabel !== false && (rowActions?.showLabel || Boolean(rowActions?.label))) && (
               <span className={`text-[11px] font-bold uppercase tracking-wide truncate ${textCls}`}>
@@ -942,6 +942,7 @@ export function TableHeader({
           <Pin className="w-3.5 h-3.5" aria-hidden="true" />
           {menuCol.pinned === 'left' ? 'Unpin' : 'Pin left'}
         </button>
+        {/* Pin right — hidden for now; restore this button when needed again.
         <button
           type="button"
           role="menuitem"
@@ -954,6 +955,7 @@ export function TableHeader({
           <Pin className="w-3.5 h-3.5 rotate-45" aria-hidden="true" />
           {menuCol.pinned === 'right' ? 'Unpin' : 'Pin right'}
         </button>
+        */}
 
         {isCompositeColumn(menuCol) && (
           <button
