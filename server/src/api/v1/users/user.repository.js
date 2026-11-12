@@ -30,8 +30,7 @@ class UserRepository extends BaseRepository {
     return row ? this.toPlain(row) : null;
   }
 
-  async create(data) {
-    const em = this.em();
+  _normalizeCreatePayload(data) {
     const payload = { ...data };
     if (payload.id && !payload._id) {
       payload._id = payload.id;
@@ -46,9 +45,29 @@ class UserRepository extends BaseRepository {
     }
     payload.is_primary = Boolean(payload.is_primary);
     payload.two_factor_enabled = Boolean(payload.two_factor_enabled);
-    const entity = em.create(User, payload);
+    return payload;
+  }
+
+  async create(data) {
+    const em = this.em();
+    const entity = em.create(User, this._normalizeCreatePayload(data));
     await em.persist(entity).flush();
     return this.toPlain(entity);
+  }
+
+  /** Insert many users with one flush (used by bulk import). */
+  async createMany(items = []) {
+    if (!Array.isArray(items) || !items.length) return [];
+    const em = this.em();
+    const entities = items.map((data) => em.create(User, this._normalizeCreatePayload(data)));
+    await em.persist(entities).flush();
+    return entities.map((entity) => this.toPlain(entity));
+  }
+
+  /** Emails only — used to skip per-row uniqueness lookups during bulk import. */
+  async listEmails() {
+    const rows = await this.repo().findAll({ fields: ['email'] });
+    return rows.map((r) => String(r.email || '').trim().toLowerCase()).filter(Boolean);
   }
 
   async update(id, data) {

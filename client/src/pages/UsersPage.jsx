@@ -1024,8 +1024,10 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
             });
           },
           {
-            chunkSize: 100,
-            onProgress: (done) => handlers?.onProgress?.(created + updated + done, prepared.length),
+            chunkSize: 250,
+            // `done` is already cumulative rows sent — do not add `created` again (that made 4400/3186).
+            onProgress: (done, total) =>
+              handlers?.onProgress?.(Math.min(done + updated, prepared.length), prepared.length || total),
           },
         );
       };

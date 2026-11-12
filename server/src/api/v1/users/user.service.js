@@ -339,21 +339,33 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     errors: [],
   };
 
-  // Name → id (case-insensitive) for resolving Tags column on import.
+  // One tag load + one email index — avoid N lookups / N bcrypt hashes / N flushes.
   const em = getEm();
-  const allTags = await em.find(UserTag, {});
+  const [allTags, existingEmailList] = await Promise.all([
+    em.find(UserTag, {}),
+    userRepository.listEmails(),
+  ]);
   const tagByName = new Map(
     allTags.map((t) => [String(t.name || '').trim().toLowerCase(), String(t.id ?? t._id)]),
   );
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const existingEmails = new Set(existingEmailList);
   const seenEmailsInBatch = new Set();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const passwordHashCache = new Map();
+  const hashPassword = async (password) => {
+    const key = String(password);
+    if (passwordHashCache.has(key)) return passwordHashCache.get(key);
+    const hashed = await bcrypt.hash(key, 10);
+    passwordHashCache.set(key, hashed);
+    return hashed;
+  };
+
+  const ready = [];
 
   for (let index = 0; index < usersList.length; index++) {
     const raw = usersList[index];
-    const rowNum = index + 1; // 1-indexed
+    const rowNum = index + 1;
 
-    // Normalize keys
     const email = String(raw.email || raw.Email || '').trim().toLowerCase();
     const firstName = String(raw.first_name || raw['First Name'] || raw.firstName || '').trim();
     const lastName = String(raw.last_name || raw['Last Name'] || raw.lastName || '').trim();
@@ -363,7 +375,7 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     const rawStatus = String(raw.status || raw.Status || 'active').trim().toLowerCase();
     const status = ['active', 'inactive', 'suspended'].includes(rawStatus) ? rawStatus : 'active';
     const timezone = String(raw.timezone || raw.Timezone || 'UTC').trim();
-    const password = String(raw.password || raw.Password || 'Password@123').trim();
+    const password = String(raw.password || raw.Password || 'Password@123').trim() || 'Password@123';
 
     const tagNames = parseTagNames(raw.tags ?? raw.Tags ?? raw.tag_ids ?? '');
     const unknownTags = [];
@@ -376,108 +388,142 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
       }
       if (!tagIds.includes(id)) tagIds.push(id);
     }
-    if (unknownTags.length) {
+
+    const fail = (reason) => {
       results.failedCount++;
-      results.errors.push({
-        row: rowNum,
-        email: email || 'N/A',
-        error: `Unknown tag(s): ${unknownTags.join(', ')}`,
-        reason: `Unknown tag(s): ${unknownTags.join(', ')}`,
-      });
+      results.errors.push({ row: rowNum, email: email || 'N/A', error: reason, reason });
+    };
+
+    if (unknownTags.length) {
+      fail(`Unknown tag(s): ${unknownTags.join(', ')}`);
       continue;
     }
     if (tagIds.length > MAX_TAGS_PER_USER) {
-      results.failedCount++;
-      results.errors.push({
-        row: rowNum,
-        email: email || 'N/A',
-        error: `A user can have at most ${MAX_TAGS_PER_USER} tags`,
-        reason: `A user can have at most ${MAX_TAGS_PER_USER} tags`,
-      });
+      fail(`A user can have at most ${MAX_TAGS_PER_USER} tags`);
       continue;
     }
-
-    // Required headers validation
     if (!firstName) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email: email || 'N/A', error: 'Missing required header: first_name', reason: 'Missing required header: first_name' });
+      fail('Missing required header: first_name');
       continue;
     }
-
     if (!email) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email: 'N/A', error: 'Missing required header: email', reason: 'Missing required header: email' });
+      fail('Missing required header: email');
       continue;
     }
-
     if (!emailRegex.test(email)) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Invalid email format', reason: 'Invalid email format' });
+      fail('Invalid email format');
       continue;
     }
-
     if (seenEmailsInBatch.has(email)) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Duplicate email in uploaded CSV', reason: 'Duplicate email in uploaded CSV' });
+      fail('Duplicate email in uploaded CSV');
       continue;
     }
     seenEmailsInBatch.add(email);
-
-    // Check DB email uniqueness
-    const existing = await userRepository.findByEmail(email);
-    if (existing) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Email already exists in database', reason: 'Email already exists in database' });
+    if (existingEmails.has(email)) {
+      fail('Email already exists in database');
       continue;
     }
-
-    // Role authority check
     if (role !== 'user' && creatorUser?.role !== 'super_admin') {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Only Super Admins can create admin or super_admin accounts', reason: 'Only Super Admins can create admin or super_admin accounts' });
+      fail('Only Super Admins can create admin or super_admin accounts');
       continue;
     }
 
-    try {
-      const userId = uuidv4();
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const perms = DEFAULT_ROLE_PERMISSIONS[role] || [];
+    ready.push({
+      rowNum,
+      email,
+      firstName,
+      lastName,
+      phoneNumber,
+      role,
+      status,
+      timezone,
+      password,
+      tagIds,
+    });
+  }
 
-      await userRepository.create({
+  // Unique passwords only (default Password@123 → one bcrypt for the whole import).
+  const uniquePasswords = [...new Set(ready.map((r) => r.password))];
+  await Promise.all(uniquePasswords.map((p) => hashPassword(p)));
+
+  const INSERT_CHUNK = 100;
+  for (let i = 0; i < ready.length; i += INSERT_CHUNK) {
+    const slice = ready.slice(i, i + INSERT_CHUNK);
+    const payloads = slice.map((row) => {
+      const userId = uuidv4();
+      const perms = DEFAULT_ROLE_PERMISSIONS[row.role] || [];
+      return {
         id: userId,
-        email,
-        password_hash: hashedPassword,
-        first_name: firstName,
-        last_name: lastName || null,
-        phone_number: phoneNumber || null,
-        role,
-        status,
+        email: row.email,
+        password_hash: passwordHashCache.get(row.password),
+        first_name: row.firstName,
+        last_name: row.lastName || null,
+        phone_number: row.phoneNumber || null,
+        role: row.role,
+        status: row.status,
         is_primary: false,
         two_factor_enabled: false,
-        timezone: timezone || 'UTC',
+        timezone: row.timezone || 'UTC',
         last_active_at: new Date(),
         permissions: JSON.stringify(perms),
-        tag_ids: tagIds,
-      });
+        tag_ids: row.tagIds,
+        _meta: row,
+      };
+    });
 
-      results.successCount++;
-      results.createdUsers.push({
-        id: userId,
-        email,
-        first_name: firstName,
-        last_name: lastName,
-        phone_number: phoneNumber || null,
-        role,
-        status,
-        timezone,
-        tag_ids: tagIds,
+    try {
+      const created = await userRepository.createMany(
+        payloads.map(({ _meta, ...data }) => data),
+      );
+      created.forEach((user, idx) => {
+        const meta = payloads[idx]._meta;
+        existingEmails.add(meta.email);
+        results.successCount++;
+        results.createdUsers.push({
+          id: user.id || payloads[idx].id,
+          email: meta.email,
+          first_name: meta.firstName,
+          last_name: meta.lastName,
+          phone_number: meta.phoneNumber || null,
+          role: meta.role,
+          status: meta.status,
+          timezone: meta.timezone,
+          tag_ids: meta.tagIds,
+        });
       });
     } catch (err) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: err.message || 'Failed to insert user', reason: err.message || 'Failed to insert user' });
+      // Fall back to one-by-one so one bad row does not fail the whole chunk.
+      for (const payload of payloads) {
+        const { _meta: meta, ...data } = payload;
+        try {
+          await userRepository.create(data);
+          existingEmails.add(meta.email);
+          results.successCount++;
+          results.createdUsers.push({
+            id: data.id,
+            email: meta.email,
+            first_name: meta.firstName,
+            last_name: meta.lastName,
+            phone_number: meta.phoneNumber || null,
+            role: meta.role,
+            status: meta.status,
+            timezone: meta.timezone,
+            tag_ids: meta.tagIds,
+          });
+        } catch (rowErr) {
+          results.failedCount++;
+          results.errors.push({
+            row: meta.rowNum,
+            email: meta.email,
+            error: rowErr.message || 'Failed to insert user',
+            reason: rowErr.message || 'Failed to insert user',
+          });
+        }
+      }
     }
   }
 
+  if (results.successCount > 0) invalidateAccessCache();
   return results;
 };
 

@@ -977,9 +977,13 @@ export const ExamExplorePage = () => {
               `rows ${offset + 1}-${offset + batch.length}: ${apiErrorMessage(err, 'could not be saved')}`,
             );
           }
-          handlers?.onProgress?.(created + updated, prepared.length);
         },
-        { chunkSize: 200, onProgress: (done) => handlers?.onProgress?.(created + updated + done, prepared.length) },
+        {
+          chunkSize: 200,
+          // `done` is already cumulative rows sent — don't also add created/updated.
+          onProgress: (done) =>
+            handlers?.onProgress?.(Math.min(done + updated, prepared.length), prepared.length),
+        },
       );
     };
 
