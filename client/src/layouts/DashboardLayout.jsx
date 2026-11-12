@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppFooter } from '../components/AppFooter/AppFooter';
 import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
+import { useExamsList } from '../hooks/useExamsQuery';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
 import { apiClient } from '../api/client';
@@ -246,6 +247,10 @@ export const DashboardLayout = () => {
       // ignore storage errors
     }
   }, [examPageId]);
+  // Nothing opened yet in this browser: fall back to the first exam in the (cached) list so the
+  // sections are still clickable. Shares the exams-list query key, so no extra request.
+  const { data: examsForSidebar } = useExamsList();
+  const fallbackExamId = examsForSidebar?.[0]?.id ? String(examsForSidebar[0].id) : '';
 
   return (
     <div className="layout">
@@ -281,7 +286,7 @@ export const DashboardLayout = () => {
                     {EXAM_SUB_ITEMS.map((sub) => {
                       const SubIcon = sub.icon;
                       // Without an open exam, use the last one opened; with none, send to the exam list.
-                      const targetExam = examPageId || lastExamId;
+                      const targetExam = examPageId || lastExamId || fallbackExamId;
                       const isActive = Boolean(examPageId) && location.pathname.replace(/\/$/, '').endsWith(`/${sub.tab}`);
                       return (
                         <NavLink
