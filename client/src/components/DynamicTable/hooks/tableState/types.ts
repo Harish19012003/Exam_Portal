@@ -112,6 +112,7 @@ export interface TableStateHandlers {
     updates: Record<string, unknown>,
     lookupPicks?: import('../../components/BulkLookupPicker').BulkLookupPickMeta[],
     targetRows?: import('../../types').DataRow[],
+    assigneePicks?: import('../../components/BulkAssigneePicker').BulkAssigneePickMeta[],
   ) => void;
 
   // Drag state for column reorder

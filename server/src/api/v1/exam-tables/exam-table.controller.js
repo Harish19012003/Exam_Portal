@@ -133,6 +133,27 @@ export const updateRow = handle(async (req) => {
   );
 });
 
+/** Mass Edit: patch many rows (by ids) or every row in the exam table. */
+export const bulkUpdateRows = handle(async (req) => {
+  await assertExamVisible(req);
+  assertTable(req, TABLE, 'edit');
+  const view = viewOf(req, true);
+  const { fields } = await service.getTable(req.params.examId, view);
+  const values = writableValues(req, TABLE, req.body?.values, autoFillKeys(fields));
+  assertWritable(req, TABLE, values, {});
+  const all = Boolean(req.body?.all);
+  if (!all) {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const found = await service.getRowsByIds(req.params.examId, ids);
+    found.forEach((row) => assertRowVisible(req, TABLE, ruleValues(req, row), fields));
+  }
+  return service.bulkUpdateRows(
+    req.params.examId,
+    { values, ids: req.body?.ids, all, view },
+    req.user?.id,
+  );
+});
+
 export const deleteRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'delete');

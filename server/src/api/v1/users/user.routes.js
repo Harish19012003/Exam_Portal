@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as userController from './user.controller.js';
+import * as avatarController from './user-avatar.controller.js';
 import * as groupController from './user-group.controller.js';
 import * as tableConfigController from './user-table-config.controller.js';
 import * as tagController from './user-tag.controller.js';
@@ -14,6 +15,11 @@ const router = Router();
 router.get('/profile', authenticate, userController.getProfile);
 router.patch('/profile', authenticate, userController.updateProfile);
 router.put('/profile', authenticate, userController.updateProfile);
+
+// Profile picture: browser uploads to Cloudinary with this signature; we only store the URL.
+router.post('/profile/avatar/signature', authenticate, avatarController.getAvatarUploadSignature);
+router.put('/profile/avatar', authenticate, avatarController.saveAvatar);
+router.delete('/profile/avatar', authenticate, avatarController.removeAvatar);
 
 // Effective access of the signed-in user (groups + overrides resolved).
 router.get('/me/access', authenticate, async (req, res, next) => {
@@ -58,6 +64,7 @@ router.delete('/groups/:id', ...superAdminOnly, groupController.deleteGroup);
 
 router.post('/', ...usersPage, userController.createUser);
 router.post('/bulk', ...usersPage, userController.bulkCreateUsers);
+router.post('/bulk-update', ...usersPage, userController.bulkUpdateUsers);
 router.put('/:id', ...usersPage, userController.updateUser);
 router.patch('/:id', ...usersPage, userController.updateUser);
 router.post('/:id/disable-2fa', ...usersPage, userController.disable2FA);

@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppFooter } from '../components/AppFooter/AppFooter';
 import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
 import { useExamsList } from '../hooks/useExamsQuery';
+import { usePlatformSettings } from '../hooks/usePlatformSettings';
+import { Megaphone } from 'lucide-react';
+import { optimizedAvatarUrl } from '../utils/avatarImage';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSocketManager } from '../hooks/useSocket';
 import { apiClient } from '../api/client';
@@ -134,6 +137,13 @@ export const DashboardLayout = () => {
     return localStorage.getItem('theme') === 'dark';
   });
 
+  // Re-read the cached user when the profile page saves (name / photo) so the sidebar updates at once.
+  const [, setUserTick] = useState(0);
+  useEffect(() => {
+    const onUpdated = () => setUserTick((n) => n + 1);
+    window.addEventListener('user-profile-updated', onUpdated);
+    return () => window.removeEventListener('user-profile-updated', onUpdated);
+  }, []);
   const currentUser = (() => {
     try {
       return JSON.parse(localStorage.getItem('user') || '{}');
@@ -249,6 +259,11 @@ export const DashboardLayout = () => {
   }, [examPageId]);
   // Nothing opened yet in this browser: fall back to the first exam in the (cached) list so the
   // sections are still clickable. Shares the exams-list query key, so no extra request.
+  // Platform-wide settings (portal name, maintenance banner). Cached, so no refetch per page.
+  const { settings: platform } = usePlatformSettings();
+  useEffect(() => {
+    document.title = `${platform.portal_name} Portal`;
+  }, [platform.portal_name]);
   const { data: examsForSidebar } = useExamsList();
   const fallbackExamId = examsForSidebar?.[0]?.id ? String(examsForSidebar[0].id) : '';
 
@@ -263,7 +278,7 @@ export const DashboardLayout = () => {
           <div className="xs-logo-icon">
             <LayoutGrid size={20} strokeWidth={2.5} />
           </div>
-          <span className="xs-logo-text">Exam View</span>
+          <span className="xs-logo-text" title={platform.portal_name}>{platform.portal_name}</span>
         </div>
 
         <nav className="xs-nav" aria-label="Main Navigation">
@@ -340,7 +355,18 @@ export const DashboardLayout = () => {
           >
             <div className="xs-profile-main">
               <div className="xs-avatar">
-                {avatarLetter}
+                {currentUser.avatar_url ? (
+                  <img
+                    className="xs-avatar-img"
+                    src={optimizedAvatarUrl(currentUser.avatar_url)}
+                    alt=""
+                    width={32}
+                    height={32}
+                    decoding="async"
+                  />
+                ) : (
+                  avatarLetter
+                )}
                 <span className="xs-online" title="Active" />
               </div>
               <div className="xs-user xs-label">
@@ -442,6 +468,13 @@ export const DashboardLayout = () => {
             </div>
           </div>
         </header>
+
+        {platform.maintenance.enabled && platform.maintenance.message && (
+          <div className="platform-banner" role="status">
+            <Megaphone size={16} aria-hidden="true" />
+            <span>{platform.maintenance.message}</span>
+          </div>
+        )}
 
         <main className="main-content">
           <Outlet context={{ setBreadcrumbTail, topbarSlot }} />

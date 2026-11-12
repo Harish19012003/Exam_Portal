@@ -54,6 +54,25 @@ export const updateExamRow = async (examId, rowId, values, view = DEFAULT_EXAM_V
       ...withView(view),
     }),
   );
+
+/**
+ * Mass Edit against the database.
+ * - `{ all: true, values }` → every row in the exam table
+ * - `{ ids, values }` → only those row ids
+ */
+export const bulkUpdateExamRows = async (
+  examId,
+  { values, ids, all = false, view = DEFAULT_EXAM_VIEW } = {},
+) =>
+  unwrap(
+    await apiClient.post(`${base(examId)}/rows/bulk-update`, {
+      values,
+      ids,
+      all: Boolean(all),
+      ...withView(view),
+    }),
+  );
+
 export const deleteExamRows = async (examId, ids) =>
   unwrap(await apiClient.post(`${base(examId)}/rows/delete`, { ids }));
 

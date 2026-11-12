@@ -44,6 +44,16 @@ export const bulkCreateUsers = async (req, res, next) => {
   }
 };
 
+export const bulkUpdateUsers = async (req, res, next) => {
+  try {
+    const users = req.body.users || req.body;
+    const result = await userService.bulkUpdateUsers(users, req.user);
+    return successResponse(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const listUsers = async (req, res, next) => {
   try {
     const users = await userService.getAllUsers();

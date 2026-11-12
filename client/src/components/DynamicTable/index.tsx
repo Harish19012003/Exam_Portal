@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useState, useMemo, useRef, type MutableRefObject, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 // Dynamic Table Root Component
 
-import { ChevronDown, ChevronUp, Copy } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Loader2 } from 'lucide-react';
 import { TransposeIcon } from './icons/TransposeIcon';
 import { COLUMN_CONFIG, MOCK_ROWS } from './tableData';
 import { useTableState } from './hooks/useTableState';
@@ -100,6 +101,21 @@ interface DynamicTableProps {
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
   /** Called once for a bulk update (all selected rows). Falls back to onRowUpdate per row. */
   onBulkUpdate?: (items: { rowId: string; values: Record<string, unknown>; row: DataRow }[]) => Promise<void> | void;
+  /**
+   * DB-scoped Mass Edit (Selected / Filtered / All). When set, the page resolves which
+   * database rows to update — not only the currently loaded page.
+   */
+  onBulkUpdateByScope?: (payload: {
+    updates: Record<string, unknown>;
+    scope: 'selected' | 'filtered' | 'all';
+    selectedRowIds: string[];
+    filters: Record<string, unknown>;
+    search: string;
+    columns: ColumnConfig[];
+    columnVisibility: Record<string, boolean>;
+    lookupPicks?: import('./components/BulkLookupPicker').BulkLookupPickMeta[];
+    assigneePicks?: import('./components/BulkAssigneePicker').BulkAssigneePickMeta[];
+  }) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
   /**
    * CSV import: receives parsed objects keyed by column label/key.
@@ -209,6 +225,7 @@ export function DynamicTable({
   onRowUpdate,
   onRowDelete,
   onBulkUpdate,
+  onBulkUpdateByScope,
   onRefresh,
   onEditRow,
   onDeleteRowRequest,
@@ -286,6 +303,11 @@ export function DynamicTable({
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importBgJob, setImportBgJob] = useState<{
+    done: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   const handleOpenRecordSidebar = useCallback((row: DataRow) => {
     setEditingRecordSidebarRow(row);
@@ -1554,17 +1576,68 @@ export function DynamicTable({
         <BulkUpdateModal
           columns={state.columns}
           selectedCount={state.selectedRows.size}
-          filteredCount={filteredRows.length}
-          totalCount={state.rows.length}
+          filteredCount={
+            serverPagination
+              ? // No client filter → Filtered = whole table; else unknown until scan (show page matches as hint).
+                Object.keys(state.filters || {}).length || state.search
+                  ? filteredRows.length
+                  : serverPagination.totalRowCount
+              : filteredRows.length
+          }
+          totalCount={serverPagination ? serverPagination.totalRowCount : state.rows.length}
           serverPaginated={Boolean(serverPagination)}
-          onApply={(updates, picks, scope = 'selected') => {
+          dbScoped={Boolean(onBulkUpdateByScope)}
+          onApply={(updates, picks, scope = 'selected', assigneePicks) => {
+            if (onBulkUpdateByScope) {
+              // Page writes to the DB (Selected / Filtered / All). Only paint locally here —
+              // do not call handleBulkUpdate (that would fire onBulkUpdate again per loaded row).
+              const selectedRowIds = Array.from(state.selectedRows);
+              const visibleTargets =
+                scope === 'selected'
+                  ? state.rows.filter((r) => selectedRowIds.includes(r.rowId))
+                  : scope === 'filtered'
+                    ? filteredRows
+                    : state.rows;
+              const visibleIds = new Set(visibleTargets.map((r) => r.rowId));
+              const displayUpdates: Record<string, unknown> = { ...updates };
+              (assigneePicks || []).forEach((pick) => {
+                const labelList = (pick.ids || []).map((id) => pick.labels?.[id] || id);
+                displayUpdates[pick.columnKey] =
+                  labelList.length > 1 || Array.isArray(updates[pick.columnKey])
+                    ? labelList
+                    : labelList[0] || '';
+              });
+              if (visibleIds.size) {
+                state.setRows((prev) =>
+                  prev.map((r) =>
+                    visibleIds.has(r.rowId) ? { ...r, values: { ...r.values, ...displayUpdates } } : r,
+                  ),
+                );
+              }
+              state.setShowBulkUpdate(false);
+              state.setSelectedRows(new Set());
+              void Promise.resolve(
+                onBulkUpdateByScope({
+                  updates,
+                  scope,
+                  selectedRowIds,
+                  filters: state.filters || {},
+                  search: state.search || '',
+                  columns: state.columns,
+                  columnVisibility: state.columnVisibility || {},
+                  lookupPicks: picks,
+                  assigneePicks,
+                }),
+              );
+              return;
+            }
             const targets =
               scope === 'all'
                 ? state.rows
                 : scope === 'filtered'
                   ? filteredRows
                   : state.rows.filter((r) => state.selectedRows.has(r.rowId));
-            state.handleBulkUpdate(updates, picks, targets);
+            state.handleBulkUpdate(updates, picks, targets, assigneePicks);
           }}
           onClose={() => state.setShowBulkUpdate(false)}
           isDarkMode={isDarkMode}
@@ -1591,23 +1664,75 @@ export function DynamicTable({
           scopeHint={importScopeHint}
           scopeHelp={importScopeHelp}
           onClose={() => setImportModalOpen(false)}
-          onImport={async (rows, handlers) => {
-            await onImportRows(rows, handlers);
-            const mode = handlers?.mode || 'add';
-            const n = rows.length;
-            const scopeBit = importScopeLabel ? ` in “${importScopeLabel}”` : '';
-            showSuccess(
-              mode === 'update'
-                ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}${scopeBit}`
-                : mode === 'upsert'
-                  ? `Upserted ${n} row${n === 1 ? '' : 's'}${scopeBit}`
+          onMinimize={({ done, total, mode }) => {
+            setImportBgJob({
+              done,
+              total,
+              label:
+                mode === 'update'
+                  ? 'Updating rows'
                   : mode === 'replace'
-                    ? `Replaced all${scopeBit} with ${n} incoming row${n === 1 ? '' : 's'}`
-                    : `Imported ${n} row${n === 1 ? '' : 's'}${scopeBit}`,
-            );
+                    ? 'Replacing rows'
+                    : mode === 'upsert'
+                      ? 'Upserting rows'
+                      : 'Importing rows',
+            });
+          }}
+          onImportProgress={(done, total) => {
+            setImportBgJob((prev) => (prev ? { ...prev, done, total } : prev));
+          }}
+          onImport={async (rows, handlers) => {
+            try {
+              await onImportRows(rows, handlers);
+              const mode = handlers?.mode || 'add';
+              const n = rows.length;
+              const scopeBit = importScopeLabel ? ` in “${importScopeLabel}”` : '';
+              showSuccess(
+                mode === 'update'
+                  ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}${scopeBit}`
+                  : mode === 'upsert'
+                    ? `Upserted ${n} row${n === 1 ? '' : 's'}${scopeBit}`
+                    : mode === 'replace'
+                      ? `Replaced all${scopeBit} with ${n} incoming row${n === 1 ? '' : 's'}`
+                      : `Imported ${n} row${n === 1 ? '' : 's'}${scopeBit}`,
+              );
+            } finally {
+              setImportBgJob(null);
+            }
           }}
         />
       )}
+
+      {importBgJob &&
+        createPortal(
+          <div
+            className={`fixed bottom-4 right-4 z-[10001] flex max-w-[min(360px,92vw)] items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl
+              ${isDarkMode ? 'border-gray-600 bg-[#0f1c18] text-gray-100' : 'border-gray-200 bg-white text-gray-900'}`}
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#13C296]" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{importBgJob.label}…</p>
+              <p className={`text-[12px] tabular-nums ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {(importBgJob.done || 0).toLocaleString()} / {(importBgJob.total || 0).toLocaleString()}
+              </p>
+              <div className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>
+                <div
+                  className="h-full rounded-full bg-[#13C296] transition-[width] duration-300"
+                  style={{
+                    width: `${
+                      importBgJob.total
+                        ? Math.min(100, Math.round((100 * (importBgJob.done || 0)) / importBgJob.total))
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
 
       {editingRecordSidebarRow && (
