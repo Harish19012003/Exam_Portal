@@ -288,7 +288,9 @@ export const DashboardLayout = () => {
                           key={sub.tab}
                           to={targetExam ? examPath(targetExam, sub.tab) : '/exams'}
                           onClick={closeMobile}
-                          className={`xs-nav-item xs-subnav-item ${isActive ? 'active' : ''}`}
+                          // Function form stops NavLink adding its own "active" when `to` matches the URL
+                          // (all items point at /exams while no exam is open).
+                          className={() => `xs-nav-item xs-subnav-item${isActive ? ' active' : ''}${targetExam ? '' : ' xs-subnav-item--idle'}`}
                           title={targetExam ? sub.label : `${sub.label} — pick an exam first`}
                         >
                           <SubIcon className="xs-nav-icon" size={16} strokeWidth={2} />
