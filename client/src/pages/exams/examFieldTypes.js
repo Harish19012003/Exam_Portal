@@ -16,7 +16,8 @@ export const EXAM_FIELD_TYPES = [
   { value: 'datetime', label: 'Date & time' },
   { value: 'time', label: 'Time' },
   { value: 'dropdown', label: 'Dropdown' },
-  { value: 'multiselect', label: 'Multi-select' },
+  /** Same options UI as Dropdown, but the cell stores several values. */
+  { value: 'multiselect', label: 'Multiselect dropdown' },
   { value: 'status', label: 'Status' },
   { value: 'tags', label: 'Tags' },
   { value: 'boolean', label: 'Boolean' },

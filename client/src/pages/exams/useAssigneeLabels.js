@@ -57,10 +57,20 @@ export const useAssigneeDisplayRows = (rows, fields) => {
         if (cancelled) return;
         const next = {};
         Object.entries(map || {}).forEach(([id, u]) => {
-          next[id] = u?.name || u?.email || id;
+          next[id] = u && typeof u === 'object' ? u : { id, name: String(u || id) };
         });
         seedAssigneeLabels(next);
-        setLabels((prev) => ({ ...prev, ...next }));
+        setLabels((prev) => {
+          const merged = { ...prev };
+          Object.entries(next).forEach(([id, u]) => {
+            const name =
+              typeof u === 'object'
+                ? [u.name || u.email, u.user_code].filter(Boolean).join(' · ') || id
+                : String(u);
+            merged[id] = name;
+          });
+          return merged;
+        });
       })
       .catch(() => {});
     return () => {

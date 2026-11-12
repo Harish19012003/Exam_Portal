@@ -89,6 +89,7 @@ const USER_COLUMNS = [
       { field: 'phone_number', role: 'tertiary' },
     ] },
   { key: 'role', label: 'Role', dataType: 'dropdown', options: Object.values(ROLE_LABELS), order: 2, visible: true, width: 150, editable: false, filterable: true, sortable: true },
+  { key: 'user_code', label: 'User Code', dataType: 'text', order: 3.5, visible: true, width: 120, editable: false, filterable: true, sortable: true },
   { key: 'status', label: 'Status', dataType: 'status', options: Object.values(STATUS_LABELS), order: 4, visible: true, width: 130, editable: false, filterable: true, sortable: true },
   { key: 'two_fa', label: '2FA Security', dataType: 'status', options: ['2FA ON', '2FA OFF'], order: 5, visible: true, width: 140, editable: false, filterable: true, sortable: true },
   { key: 'timezone', label: 'Timezone', dataType: 'text', order: 6, visible: true, width: 170, editable: false, filterable: true, sortable: true },
@@ -105,22 +106,23 @@ const buildUserImportColumns = (tags = []) => [
   { key: 'first_name', label: 'First Name', dataType: 'text', order: 1, visible: true, width: 140, editable: true, required: true },
   { key: 'last_name', label: 'Last Name', dataType: 'text', order: 2, visible: true, width: 140, editable: true },
   { key: 'email', label: 'Email', dataType: 'email', order: 3, visible: true, width: 220, editable: true, required: true },
-  { key: 'phone_number', label: 'Phone Number', dataType: 'text', order: 4, visible: true, width: 150, editable: true },
+  { key: 'user_code', label: 'User Code', dataType: 'text', order: 4, visible: true, width: 130, editable: true },
+  { key: 'phone_number', label: 'Phone Number', dataType: 'text', order: 5, visible: true, width: 150, editable: true },
   {
     key: 'tags',
     label: 'Tags',
     dataType: 'tags',
     options: tags.map((t) => t.name),
     optionColors: Object.fromEntries(tags.map((t) => [t.name, t.color])),
-    order: 5,
+    order: 6,
     visible: true,
     width: 200,
     editable: true,
   },
-  { key: 'role', label: 'Role', dataType: 'dropdown', options: ['user', 'admin', 'global_admin', 'super_admin'], order: 6, visible: true, width: 140, editable: true },
-  { key: 'status', label: 'Status', dataType: 'dropdown', options: ['active', 'inactive', 'suspended'], order: 7, visible: true, width: 120, editable: true },
-  { key: 'timezone', label: 'Timezone', dataType: 'text', order: 8, visible: true, width: 160, editable: true },
-  { key: 'password', label: 'Password', dataType: 'text', order: 9, visible: true, width: 140, editable: true },
+  { key: 'role', label: 'Role', dataType: 'dropdown', options: ['user', 'admin', 'global_admin', 'super_admin'], order: 7, visible: true, width: 140, editable: true },
+  { key: 'status', label: 'Status', dataType: 'dropdown', options: ['active', 'inactive', 'suspended'], order: 8, visible: true, width: 120, editable: true },
+  { key: 'timezone', label: 'Timezone', dataType: 'text', order: 9, visible: true, width: 160, editable: true },
+  { key: 'password', label: 'Password', dataType: 'text', order: 10, visible: true, width: 140, editable: true },
 ];
 
 /** The Tags column is built from the current tag list, so its filter options and chip colours stay in step. */
@@ -474,6 +476,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   const userImportMatchKeys = useMemo(
     () => [
       { key: 'email', label: 'Email' },
+      { key: 'user_code', label: 'User Code' },
       { key: 'phone_number', label: 'Phone Number' },
     ],
     [],
@@ -644,6 +647,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
         id: String(u.id),
         values: {
           email: u.email || '',
+          user_code: u.user_code || '',
           phone_number: u.phone_number || '',
           first_name: u.first_name || '',
           last_name: u.last_name || '',
@@ -683,6 +687,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           full_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || 'User',
           email: u.email || '',
           phone_number: u.phone_number || '',
+          user_code: u.user_code || '',
           primary_tag: u.is_primary ? 'Primary' : '',
           tags: (u.tag_ids || []).map((id) => tagById.get(String(id))?.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
           role: ROLE_LABELS[u.role] || 'User',
@@ -976,6 +981,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
             last_name: String(row.last_name || '').trim(),
             email,
             phone_number: String(row.phone_number || '').trim(),
+            user_code: String(row.user_code || '').trim(),
             tags: tagNames,
             role,
             status: String(row.status || 'active').trim().toLowerCase() || 'active',
@@ -1153,6 +1159,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
                 first_name: row.first_name,
                 last_name: row.last_name || null,
                 phone_number: row.phone_number || null,
+                user_code: row.user_code || null,
                 role: row.role,
                 status: row.status,
                 timezone: row.timezone || 'UTC',
@@ -2009,7 +2016,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           isDarkMode={isDarkMode}
           title="Bulk Import"
           subtitle="Upload CSV, Excel, or JSON — or paste table data to add or update users. Tags: comma-separated names."
-          draftKey={`${TABLE_IDS.USERS}:import`}
+          draftKey={`${TABLE_IDS.USERS}:import:v2`}
           matchKeyOptions={userImportMatchKeys}
           defaultMatchKey="email"
           existingRows={userImportExistingRows}

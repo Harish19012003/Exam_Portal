@@ -33,6 +33,7 @@ export const getUserById = async (id) => {
   // Remove password hash before returning
   const { password_hash, ...safeUser } = user;
   safeUser.phone_number = user.phone_number || null;
+  safeUser.user_code = user.user_code || null;
   safeUser.is_primary = Boolean(user.is_primary);
   safeUser.two_factor_enabled = Boolean(user.two_factor_enabled);
   safeUser.timezone = user.timezone || 'UTC';
@@ -86,6 +87,7 @@ export const createUser = async (userData, creatorUser) => {
     first_name: userData.first_name,
     last_name: userData.last_name,
     phone_number: userData.phone_number || userData.phone || null,
+    user_code: userData.user_code ? String(userData.user_code).trim() || null : null,
     role: userData.role || 'user',
     status: userData.status || 'active',
     is_primary: false,
@@ -141,6 +143,10 @@ export const updateUser = async (targetId, updateData, currentActor) => {
   if (updateData.last_name !== undefined) payload.last_name = updateData.last_name;
   if (updateData.phone_number !== undefined) payload.phone_number = updateData.phone_number;
   if (updateData.phone !== undefined) payload.phone_number = updateData.phone;
+  if (updateData.user_code !== undefined) {
+    const code = updateData.user_code == null ? '' : String(updateData.user_code).trim();
+    payload.user_code = code || null;
+  }
   if (updateData.role !== undefined) payload.role = updateData.role;
   if (updateData.status !== undefined) payload.status = updateData.status;
   if (updateData.timezone !== undefined) payload.timezone = updateData.timezone;
@@ -292,6 +298,7 @@ const toAssignable = (u) => ({
   id: String(u.id),
   name: displayName(u),
   email: u.email || '',
+  user_code: u.user_code ? String(u.user_code).trim() : '',
   tag_ids: Array.isArray(u.tag_ids) ? u.tag_ids.map(String) : [],
 });
 
@@ -370,6 +377,7 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     const firstName = String(raw.first_name || raw['First Name'] || raw.firstName || '').trim();
     const lastName = String(raw.last_name || raw['Last Name'] || raw.lastName || '').trim();
     const phoneNumber = String(raw.phone_number || raw['Phone Number'] || raw.phone || raw.Phone || '').trim();
+    const userCode = String(raw.user_code || raw['User Code'] || raw.userCode || raw.code || '').trim();
     const rawRole = String(raw.role || raw.Role || 'user').trim().toLowerCase().replace(/\s+/g, '_');
     const role = ['super_admin', 'global_admin', 'admin', 'user'].includes(rawRole) ? rawRole : 'user';
     const rawStatus = String(raw.status || raw.Status || 'active').trim().toLowerCase();
@@ -434,6 +442,7 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
       firstName,
       lastName,
       phoneNumber,
+      userCode,
       role,
       status,
       timezone,
@@ -459,6 +468,7 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
         first_name: row.firstName,
         last_name: row.lastName || null,
         phone_number: row.phoneNumber || null,
+        user_code: row.userCode || null,
         role: row.role,
         status: row.status,
         is_primary: false,

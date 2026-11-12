@@ -102,6 +102,7 @@ class UserRepository extends BaseRepository {
       first_name: entity.first_name,
       last_name: entity.last_name,
       phone_number: entity.phone_number || null,
+      user_code: entity.user_code || null,
       role: entity.role,
       status: entity.status,
       is_primary: Boolean(entity.is_primary),
