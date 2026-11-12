@@ -111,11 +111,29 @@
   color: var(--text-primary, #030712);
 }
 
-.page-info-popover p {
+.page-info-popover p,
+.page-info-popover-body {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--text-secondary, #6b7280);
+}
+
+.page-info-popover-body p {
+  margin: 0 0 0.55em;
+}
+
+.page-info-popover-body p:last-child {
+  margin-bottom: 0;
+}
+
+.page-info-popover-body ul {
+  margin: 0.35em 0 0;
+  padding-left: 1.1em;
+}
+
+.page-info-popover-body li {
+  margin: 0.2em 0;
 }
 
 @media (max-width: 768px) {

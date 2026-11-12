@@ -820,9 +820,11 @@
   flex-direction: column;
 }
 
-/* Dynamic table pages need a fixed-height flex chain (not document scroll) */
+/* Dynamic table pages need a fixed-height flex chain (not document scroll)
+   and the same tight outer L/R padding (Users/Settings fill included). */
 .main-content:has(.exams-page--table),
-.main-content:has(.tables-page--dynamic) {
+.main-content:has(.tables-page--dynamic),
+.main-content:has(.settings-page--fill) {
   overflow: hidden;
   padding: 8px 6px 0;
 }

@@ -917,7 +917,7 @@ export const ExamExplorePage = () => {
     [rows],
   );
 
-  /** CSV / paste import: add new rows, or update / upsert by a match column. */
+  /** CSV / paste import: add, update / upsert by key, or replace all with incoming. */
   const handleImportRows = async (csvRows, handlers) => {
     const mode = handlers?.mode || 'add';
     const matchKey = String(handlers?.matchKey || '').trim();
@@ -958,6 +958,7 @@ export const ExamExplorePage = () => {
     const failures = [];
     let created = 0;
     let updated = 0;
+    let deleted = 0;
 
     const createBatches = async (rowsToCreate) => {
       if (!rowsToCreate.length) return;
@@ -982,6 +983,52 @@ export const ExamExplorePage = () => {
       );
     };
 
+    /** Load every existing row (paginated) for match or replace. */
+    const loadAllExisting = async () => {
+      const allExisting = [];
+      let page = 1;
+      const limit = 500;
+      for (;;) {
+        const res = await listExamRows(examId, { page, limit });
+        const batch = Array.isArray(res?.rows) ? res.rows : [];
+        allExisting.push(...batch);
+        const total = Number(res?.total) || allExisting.length;
+        if (batch.length < limit || allExisting.length >= total) break;
+        page += 1;
+        if (page > 200) break;
+      }
+      return allExisting;
+    };
+
+    if (mode === 'replace') {
+      const allExisting = await loadAllExisting();
+      const ids = allExisting.map((r) => String(r.id)).filter(Boolean);
+      const DELETE_CHUNK = 200;
+      for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+        const chunk = ids.slice(i, i + DELETE_CHUNK);
+        try {
+          await deleteExamRows(examId, chunk);
+          deleted += chunk.length;
+        } catch (err) {
+          throw new Error(
+            `Could not clear existing rows (${deleted} removed before failure): ${apiErrorMessage(err, 'delete failed')}`,
+          );
+        }
+        handlers?.onProgress?.(i + chunk.length, ids.length + prepared.length);
+      }
+      await createBatches(prepared);
+      await loadRows();
+      if (created === 0 && prepared.length > 0) {
+        throw new Error(`Existing rows were cleared (${deleted}), but nothing was imported. ${failures[0] || ''}`.trim());
+      }
+      setMessage(
+        failures.length
+          ? `Replaced all — removed ${deleted}, imported ${created} of ${prepared.length}. ${failures.length} failed (${failures[0]})`
+          : `Replaced all — removed ${deleted}, imported ${created} center${created === 1 ? '' : 's'}`,
+      );
+      return;
+    }
+
     if (mode === 'add' || !matchKey) {
       await createBatches(prepared);
       await loadRows();
@@ -995,20 +1042,7 @@ export const ExamExplorePage = () => {
     }
 
     // Load every existing row so Update / Upsert can match beyond the current page.
-    const allExisting = [];
-    {
-      let page = 1;
-      const limit = 500;
-      for (;;) {
-        const res = await listExamRows(examId, { page, limit });
-        const batch = Array.isArray(res?.rows) ? res.rows : [];
-        allExisting.push(...batch);
-        const total = Number(res?.total) || allExisting.length;
-        if (batch.length < limit || allExisting.length >= total) break;
-        page += 1;
-        if (page > 200) break;
-      }
-    }
+    const allExisting = await loadAllExisting();
 
     const lookup = new Map();
     allExisting.forEach((r) => {
@@ -1312,6 +1346,7 @@ export const ExamExplorePage = () => {
               importMatchKeys={importMatchKeys}
               importDefaultMatchKey={importDefaultMatchKey}
               importExistingRows={importExistingRows}
+              importAllowReplaceAll
               showAddRow={false}
               permissions={tablePerms}
               enableFeatureBuilder={isAdmin}

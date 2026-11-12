@@ -11,13 +11,14 @@
 .dt-sticky-cell--left {
   left: 0;
   z-index: 12 !important;
-  box-shadow: 12px 0 0 0 #ffffff, 1px 0 0 0 #ffffff !important;
+  /* Thin edge only — a wide curtain covers the next cell’s padding and clips text. */
+  box-shadow: 2px 0 0 0 #ffffff, 1px 0 0 0 #e5e7eb !important;
 }
 
 .dt-sticky-cell--right {
   right: 0;
   z-index: 12 !important;
-  box-shadow: -12px 0 0 0 #ffffff, -1px 0 0 0 #ffffff !important;
+  box-shadow: -2px 0 0 0 #ffffff, -1px 0 0 0 #e5e7eb !important;
 }
 
 /* Actions / checkbox headers: sit above pinned cols + opaque curtain (no letter bleed). */
@@ -27,22 +28,22 @@
 
 .dt-grid > thead th.dt-sticky-th--left {
   z-index: 30 !important;
-  box-shadow: 12px 0 0 0 #ede9fe, 1px 0 0 0 #ede9fe !important;
+  box-shadow: 2px 0 0 0 #ede9fe, 1px 0 0 0 #c4b5fd !important;
 }
 
 .dt-grid > thead th.dt-sticky-th--right {
   z-index: 30 !important;
-  box-shadow: -12px 0 0 0 #ede9fe, -1px 0 0 0 #ede9fe !important;
+  box-shadow: -2px 0 0 0 #ede9fe, -1px 0 0 0 #c4b5fd !important;
 }
 
 [data-theme='dark'] .dt-grid > thead th.dt-sticky-th--left,
 .dark .dt-grid > thead th.dt-sticky-th--left {
-  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+  box-shadow: 2px 0 0 0 #1f2937, 1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .dt-grid > thead th.dt-sticky-th--right,
 .dark .dt-grid > thead th.dt-sticky-th--right {
-  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
+  box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
 }
 
 /* Keep the actions body cell above any right-pinned data columns. */
@@ -56,11 +57,11 @@
 }
 
 .group:hover > .dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #f3f0ff, 1px 0 0 0 #f3f0ff !important;
+  box-shadow: 2px 0 0 0 #f3f0ff, 1px 0 0 0 #c4b5fd !important;
 }
 
 .group:hover > .dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #f3f0ff, -1px 0 0 0 #f3f0ff !important;
+  box-shadow: -2px 0 0 0 #f3f0ff, -1px 0 0 0 #c4b5fd !important;
 }
 
 .dt-sticky-cell--selected {
@@ -68,21 +69,21 @@
 }
 
 .dt-sticky-cell--selected.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #ebe4ff, 1px 0 0 0 #ebe4ff !important;
+  box-shadow: 2px 0 0 0 #ebe4ff, 1px 0 0 0 #c4b5fd !important;
 }
 
 .dt-sticky-cell--selected.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #ebe4ff, -1px 0 0 0 #ebe4ff !important;
+  box-shadow: -2px 0 0 0 #ebe4ff, -1px 0 0 0 #c4b5fd !important;
 }
 
 .group:hover > .dt-sticky-cell--selected.dt-sticky-cell--left {
   background-color: #ebe4ff !important;
-  box-shadow: 12px 0 0 0 #ebe4ff, 1px 0 0 0 #ebe4ff !important;
+  box-shadow: 2px 0 0 0 #ebe4ff, 1px 0 0 0 #c4b5fd !important;
 }
 
 .group:hover > .dt-sticky-cell--selected.dt-sticky-cell--right {
   background-color: #ebe4ff !important;
-  box-shadow: -12px 0 0 0 #ebe4ff, -1px 0 0 0 #ebe4ff !important;
+  box-shadow: -2px 0 0 0 #ebe4ff, -1px 0 0 0 #c4b5fd !important;
 }
 
 /* Dark theme */
@@ -93,12 +94,12 @@
 
 [data-theme='dark'] .dt-sticky-cell--left,
 .dark .dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #111827, 1px 0 0 0 #111827 !important;
+  box-shadow: 2px 0 0 0 #111827, 1px 0 0 0 #374151 !important;
 }
 
 [data-theme='dark'] .dt-sticky-cell--right,
 .dark .dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #111827, -1px 0 0 0 #111827 !important;
+  box-shadow: -2px 0 0 0 #111827, -1px 0 0 0 #374151 !important;
 }
 
 [data-theme='dark'] .group:hover > .dt-sticky-cell--left,
@@ -110,12 +111,12 @@
 
 [data-theme='dark'] .group:hover > .dt-sticky-cell--left,
 .dark .group:hover > .dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+  box-shadow: 2px 0 0 0 #1f2937, 1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .group:hover > .dt-sticky-cell--right,
 .dark .group:hover > .dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
+  box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .dt-sticky-cell--selected,
@@ -125,12 +126,12 @@
 
 [data-theme='dark'] .dt-sticky-cell--selected.dt-sticky-cell--left,
 .dark .dt-sticky-cell--selected.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #172554, 1px 0 0 0 #172554 !important;
+  box-shadow: 2px 0 0 0 #172554, 1px 0 0 0 #3b82f6 !important;
 }
 
 [data-theme='dark'] .dt-sticky-cell--selected.dt-sticky-cell--right,
 .dark .dt-sticky-cell--selected.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #172554, -1px 0 0 0 #172554 !important;
+  box-shadow: -2px 0 0 0 #172554, -1px 0 0 0 #3b82f6 !important;
 }
 
 /* Scrolling body cells must stay under sticky columns */
@@ -211,34 +212,34 @@
 /* Pinned accent columns: opaque curtain must match accent fill (not white). */
 .dt-grid > thead > tr > th.dt-sticky-th--left[data-col-accent] {
   z-index: 31 !important;
-  box-shadow: 12px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
+  box-shadow: 2px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
 }
 
 .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-accent] {
   z-index: 31 !important;
-  box-shadow: -12px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
+  box-shadow: -2px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
 }
 
 .dt-grid > tbody > tr > td.dt-sticky-cell--left[data-col-accent] {
   z-index: 14 !important;
   background-color: var(--dt-col-accent-bg) !important;
-  box-shadow: 12px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
+  box-shadow: 2px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
 }
 
 .dt-grid > tbody > tr > td.dt-sticky-cell--right[data-col-accent] {
   z-index: 14 !important;
   background-color: var(--dt-col-accent-bg) !important;
-  box-shadow: -12px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
+  box-shadow: -2px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
 }
 
 .group:hover > td.dt-sticky-cell--left[data-col-accent],
 .group:hover > td.dt-sticky-cell--right[data-col-accent] {
   background-color: var(--dt-col-accent-bg) !important;
-  box-shadow: 12px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
+  box-shadow: 2px 0 0 0 var(--dt-col-accent-bg), 1px 0 0 0 var(--dt-col-accent-bg) !important;
 }
 
 .group:hover > td.dt-sticky-cell--right[data-col-accent] {
-  box-shadow: -12px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
+  box-shadow: -2px 0 0 0 var(--dt-col-accent-bg), -1px 0 0 0 var(--dt-col-accent-bg) !important;
 }
 
 .dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']),
@@ -248,11 +249,11 @@
 
 /* The sticky columns' opaque edge must match the shaded row, or it shows as a white band beside them. */
 .dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 var(--dt-stripe-bg), 1px 0 0 0 var(--dt-stripe-bg) !important;
+  box-shadow: 2px 0 0 0 var(--dt-stripe-bg), 1px 0 0 0 #e5e7eb !important;
 }
 
 .dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 var(--dt-stripe-bg), -1px 0 0 0 var(--dt-stripe-bg) !important;
+  box-shadow: -2px 0 0 0 var(--dt-stripe-bg), -1px 0 0 0 #e5e7eb !important;
 }
 
 .dt-themed[data-dt-foot] [data-dt-footer-bar],
@@ -269,36 +270,35 @@
 }
 
 /*
- * Actions last: override the -12px sticky curtain (looks like empty left padding).
- * Thin edge still masks horizontal scroll bleed.
+ * Edge + first/last data gutters — same L/R padding on every DynamicTable
+ * (Users, Exams, Vendors, …). Wide sticky curtains used to eat this space.
  */
-.dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'],
-.dt-themed[data-dt-head] .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'] {
-  box-shadow: -2px 0 0 0 #ede9fe, -1px 0 0 0 #c4b5fd !important;
+.dt-grid > thead > tr > th[data-col-key='__checkbox'] + th > div {
+  padding-left: 12px !important;
 }
-.dt-grid > tbody > tr > td.dt-sticky-cell--right.dt-sticky-cell--actions,
-.group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions,
-.dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions,
-.group:hover > .dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions {
-  box-shadow: -2px 0 0 0 #ffffff, -1px 0 0 0 #e5e7eb !important;
+.dt-grid > tbody > tr > td[data-col-key='__checkbox'] + td {
+  padding-left: 12px !important;
 }
-.group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions {
-  box-shadow: -2px 0 0 0 #f3f0ff, -1px 0 0 0 #c4b5fd !important;
+.dt-grid > tfoot > tr > td[data-col-key='__checkbox'] + td {
+  padding-left: 12px !important;
 }
-.dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions,
-.group:hover > .dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions {
-  box-shadow: -2px 0 0 0 #ebe4ff, -1px 0 0 0 #c4b5fd !important;
+
+/* Match the right edge to the left: pad sticky Actions the same as checkbox. */
+.dt-grid > thead > tr > th[data-col-key='__actions'],
+.dt-grid > tbody > tr > td.dt-sticky-cell--actions,
+.dt-grid > tfoot > tr > td[data-col-key='__actions'] {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
 }
-[data-theme='dark'] .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'],
-.dark .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'] {
-  box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
+
+/* Last data column before Actions — same breathing room as first after checkbox. */
+.dt-grid > thead > tr > th:has(+ th[data-col-key='__actions']) > div,
+.dt-grid > thead > tr > th:has(+ th[data-col-key='__add_column']) > div {
+  padding-right: 12px !important;
 }
-[data-theme='dark'] .dt-grid > tbody > tr > td.dt-sticky-cell--right.dt-sticky-cell--actions,
-[data-theme='dark'] .group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions,
-.dark .dt-grid > tbody > tr > td.dt-sticky-cell--right.dt-sticky-cell--actions,
-.dark .group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions {
-  box-shadow: -2px 0 0 0 #111827, -1px 0 0 0 #374151 !important;
-}
-.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td.dt-sticky-cell--right.dt-sticky-cell--actions {
-  box-shadow: -2px 0 0 0 var(--dt-stripe-bg), -1px 0 0 0 #e5e7eb !important;
+.dt-grid > tbody > tr > td:has(+ td.dt-sticky-cell--actions),
+.dt-grid > tbody > tr > td:has(+ td[data-col-key='__add_column']),
+.dt-grid > tfoot > tr > td:has(+ td[data-col-key='__actions']),
+.dt-grid > tfoot > tr > td:has(+ td[data-col-key='__add_column']) {
+  padding-right: 12px !important;
 }

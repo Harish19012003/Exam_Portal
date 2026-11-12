@@ -245,7 +245,7 @@ export const SettingsPage = () => {
   const dropdownInTopbar = Boolean(topbarSlot) && isWide;
 
   return (
-    <div className={`settings-page ${activeTab === 'users' ? 'settings-page--fill' : ''}`}>
+    <div className={`settings-page ${activeTab === 'users' ? 'settings-page--fill tables-page--dynamic' : ''}`}>
       {dropdownInTopbar && createPortal(tabDropdown, topbarSlot)}
       {/* TOP TOOLBAR: Left Title & Right-Aligned Tab Selector Dropdown */}
       <div className="settings-top-toolbar">

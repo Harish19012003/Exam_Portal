@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, useMemo, useRef, type MutableRefObject } from 'react';
+import { Fragment, useCallback, useEffect, useState, useMemo, useRef, type MutableRefObject, type ReactNode } from 'react';
 // Dynamic Table Root Component
 
 import { ChevronDown, ChevronUp, Copy } from 'lucide-react';
@@ -110,7 +110,7 @@ interface DynamicTableProps {
     rows: Record<string, string>[],
     handlers?: {
       onProgress?: (done: number, total: number) => void;
-      mode?: 'add' | 'update' | 'upsert';
+      mode?: 'add' | 'update' | 'upsert' | 'replace';
       matchKey?: string;
     },
   ) => Promise<void> | void;
@@ -120,6 +120,17 @@ interface DynamicTableProps {
   importDefaultMatchKey?: string;
   /** Existing rows used for match preview (id + values). */
   importExistingRows?: { id: string; values?: Record<string, unknown> | null }[];
+  /** Show “Replace all” (wipe existing, then import incoming). Off by default. */
+  importAllowReplaceAll?: boolean;
+  /**
+   * Columns for the Bulk Import modal. When set, used instead of the live table columns
+   * (needed when the grid is display-only / editable:false, e.g. Users).
+   */
+  importModalColumns?: ColumnConfig[];
+  /** Shown in Bulk Import so the operator knows which list/group the import targets. */
+  importScopeLabel?: string;
+  importScopeHint?: string;
+  importScopeHelp?: ReactNode;
   /** Actions column Explore — page defines destination. */
   onExploreRow?: (row: DataRow) => void;
   /** Actions column Duplicate — page creates a copy of the row. */
@@ -205,6 +216,11 @@ export function DynamicTable({
   importMatchKeys,
   importDefaultMatchKey,
   importExistingRows,
+  importAllowReplaceAll = false,
+  importModalColumns,
+  importScopeLabel,
+  importScopeHint,
+  importScopeHelp,
   onExploreRow,
   onDuplicateRow: onDuplicateRowProp,
   showAddRow,
@@ -644,8 +660,10 @@ export function DynamicTable({
    * Bulk Import column order = what the user sees in the table: pinned-left, normal, pinned-right
    * (same arrangement as the grid), then hidden columns last so pasting a copy of the visible
    * table lines up column-for-column.
+   * Pages can pass `importModalColumns` when the grid itself is not editable (e.g. Users).
    */
   const importColumns = useMemo(() => {
+    if (Array.isArray(importModalColumns) && importModalColumns.length) return importModalColumns;
     if (featureConfig.isTransposed) return state.columns;
     const shown = new Set(visibleColumns.map((c) => c.key));
     const rest = state.columnOrder
@@ -654,7 +672,7 @@ export function DynamicTable({
     const restKeys = new Set(rest.map((c) => c.key));
     const orphans = state.columns.filter((c) => !shown.has(c.key) && !restKeys.has(c.key));
     return [...visibleColumns, ...rest, ...orphans];
-  }, [featureConfig.isTransposed, visibleColumns, state.columnOrder, state.columns]);
+  }, [importModalColumns, featureConfig.isTransposed, visibleColumns, state.columnOrder, state.columns]);
 
   const handleOpenFilter = useCallback(
     (key: string, rect: DOMRect) => {
@@ -717,16 +735,20 @@ export function DynamicTable({
     ],
   );
 
-  // Seed / re-seed Actions width from the feature preset so a fat layout leftover
-  // (old 132–168 defaults or accidental drag) doesn’t leave empty padding.
+  // When Feature Builder Actions width preset changes, adopt it. On first mount
+  // keep the saved/user width — forcing the preset here was wiping resize on refresh.
   const actionsWidthPresetKey = `${activeFeatures.rowActions?.widthPreset ?? ''}:${activeFeatures.rowActions?.width ?? ''}:${activeFeatures.enableActionsColumn ? 1 : 0}`;
   const actionsWidthSyncRef = useRef<string | null>(null);
   useEffect(() => {
     if (featureConfig.isTransposed || activeFeatures.enableActionsColumn === false) return;
     const nextW = resolveActionsColumnWidthPx(activeFeatures.rowActions);
     const cur = state.columnWidths['__actions'];
-    const presetChanged = actionsWidthSyncRef.current !== actionsWidthPresetKey;
-    if (!presetChanged && cur != null && cur <= nextW) return;
+    const prevKey = actionsWidthSyncRef.current;
+    if (prevKey === null) {
+      actionsWidthSyncRef.current = actionsWidthPresetKey;
+      return;
+    }
+    if (prevKey === actionsWidthPresetKey) return;
     actionsWidthSyncRef.current = actionsWidthPresetKey;
     if (cur !== nextW) state.handleColumnWidthChange('__actions', nextW);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when feature Actions width changes; ignore live drag
@@ -884,7 +906,7 @@ export function DynamicTable({
 
         <div
           ref={scrollWrapperRef}
-          className="flex-1 overflow-auto print:overflow-visible min-h-0 print:min-h-auto relative outline-none print:block"
+          className="flex-1 overflow-auto overscroll-x-none print:overflow-visible min-h-0 print:min-h-auto relative outline-none print:block"
           onScroll={handleScroll}
           tabIndex={0}
           onKeyDown={handleKeyDown}
@@ -1183,12 +1205,13 @@ export function DynamicTable({
                 <tr className="group">
                   {activeFeatures.enableRowSelection && (
                     <td
+                      data-col-key="__checkbox"
                       style={{
                         width: CHECKBOX_WIDTH,
                         minWidth: CHECKBOX_WIDTH,
                         maxWidth: CHECKBOX_WIDTH,
                       }}
-                      className={`px-3 py-3 border-r ${theme.borderRow}`}
+                      className={`px-2 py-3 border-r ${theme.borderRow}`}
                     />
                   )}
                   {visibleColumns.map(col => {
@@ -1232,6 +1255,7 @@ export function DynamicTable({
                   )}
                   {activeFeatures.enableActionsColumn && (
                     <td
+                      data-col-key="__actions"
                       style={{
                         width: ACTIONS_WIDTH,
                         minWidth: ACTIONS_WIDTH,
@@ -1240,7 +1264,7 @@ export function DynamicTable({
                         position: 'sticky',
                         zIndex: 30,
                       }}
-                      className={`px-1 py-3 dt-sticky-th dt-sticky-th--right ${theme.bgPinnedFooter}`}
+                      className={`px-2 py-3 dt-sticky-th dt-sticky-th--right dt-sticky-cell--actions ${theme.bgPinnedFooter}`}
                     >
                       {Object.keys(aggregations).length > 0 && (
                         <div className="flex items-center justify-center w-full h-full">
@@ -1550,7 +1574,11 @@ export function DynamicTable({
       {importModalOpen && onImportRows && (
         <ImportDataModal
           columns={importColumns}
-          visibleKeys={visibleColumns.map((c) => c.key)}
+          visibleKeys={
+            Array.isArray(importModalColumns) && importModalColumns.length
+              ? importModalColumns.map((c) => c.key)
+              : visibleColumns.map((c) => c.key)
+          }
           isDarkMode={isDarkMode}
           title="Bulk Import"
           draftKey={tableId}
@@ -1558,17 +1586,24 @@ export function DynamicTable({
           matchKeyOptions={importMatchKeys}
           defaultMatchKey={importDefaultMatchKey}
           existingRows={importExistingRows}
+          allowReplaceAll={importAllowReplaceAll}
+          scopeLabel={importScopeLabel}
+          scopeHint={importScopeHint}
+          scopeHelp={importScopeHelp}
           onClose={() => setImportModalOpen(false)}
           onImport={async (rows, handlers) => {
             await onImportRows(rows, handlers);
             const mode = handlers?.mode || 'add';
             const n = rows.length;
+            const scopeBit = importScopeLabel ? ` in “${importScopeLabel}”` : '';
             showSuccess(
               mode === 'update'
-                ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}`
+                ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}${scopeBit}`
                 : mode === 'upsert'
-                  ? `Upserted ${n} row${n === 1 ? '' : 's'}`
-                  : `Imported ${n} row${n === 1 ? '' : 's'}`,
+                  ? `Upserted ${n} row${n === 1 ? '' : 's'}${scopeBit}`
+                  : mode === 'replace'
+                    ? `Replaced all${scopeBit} with ${n} incoming row${n === 1 ? '' : 's'}`
+                    : `Imported ${n} row${n === 1 ? '' : 's'}${scopeBit}`,
             );
           }}
         />

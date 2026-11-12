@@ -1359,11 +1359,11 @@ html.dark .exams-dynamic-table-wrap,
 }
 
 .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #f3f0ff, 1px 0 0 0 #f3f0ff !important;
+  box-shadow: 2px 0 0 0 #f3f0ff, 1px 0 0 0 #c4b5fd !important;
 }
 
 .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #f3f0ff, -1px 0 0 0 #f3f0ff !important;
+  box-shadow: -2px 0 0 0 #f3f0ff, -1px 0 0 0 #c4b5fd !important;
 }
 
 /* Keep action buttons visible + brand-tinted */
@@ -1405,12 +1405,12 @@ html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell {
 
 [data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left,
 html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+  box-shadow: 2px 0 0 0 #1f2937, 1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right,
 html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
+  box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-full'],

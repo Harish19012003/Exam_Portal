@@ -29,7 +29,7 @@ export const InfoTip = ({ title, label, children, className = '' }) => {
               <span>{title}</span>
             </div>
           ) : null}
-          <p>{children}</p>
+          <div className="page-info-popover-body">{children}</div>
         </div>
       )}
     </div>

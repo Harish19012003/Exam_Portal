@@ -61,11 +61,21 @@ const resolveLayoutSeed = (
   const local = loadTablePrefs(tableId);
   const layout = pickLayoutSlice(serverLayout);
   const fromLocal = pickLayoutSlice(local);
-  // Server (user/org) wins over localStorage cache
+  // Server (user/org) wins over localStorage — but empty objects must not
+  // wipe a good local cache (that looked like “reset on refresh”).
+  const hasKeys = (obj?: Record<string, unknown> | null) =>
+    Boolean(obj && typeof obj === 'object' && Object.keys(obj).length > 0);
   const preferred = {
-    columnOrder: layout.columnOrder ?? fromLocal.columnOrder,
-    columnVisibility: layout.columnVisibility ?? fromLocal.columnVisibility,
-    columnWidths: layout.columnWidths ?? fromLocal.columnWidths,
+    columnOrder:
+      Array.isArray(layout.columnOrder) && layout.columnOrder.length > 0
+        ? layout.columnOrder
+        : fromLocal.columnOrder,
+    columnVisibility: hasKeys(layout.columnVisibility as Record<string, unknown>)
+      ? layout.columnVisibility
+      : fromLocal.columnVisibility,
+    columnWidths: hasKeys(layout.columnWidths as Record<string, unknown>)
+      ? layout.columnWidths
+      : fromLocal.columnWidths,
   };
 
   // Server density always wins. A page-level default (e.g. center list → compact)
@@ -87,6 +97,10 @@ const resolveLayoutSeed = (
     } else if (c.width) {
       columnWidths[c.key] = c.width;
     }
+  });
+  // Sticky chrome columns are not in the schema — still restore their saved widths.
+  ['__checkbox', '__actions'].forEach((k) => {
+    if (preferredWidths[k] != null) columnWidths[k] = preferredWidths[k];
   });
 
   return {
@@ -223,8 +237,13 @@ export function useTableState(
     setColumnOrder(seed.columnOrder);
     setColumnVisibility(seed.columnVisibility);
     // Merge: keep in-session (or just-resized) widths; adopt new template when it changes.
+    // Preserve sticky chrome cols (__checkbox / __actions) — dropping them forced preset reset.
     setColumnWidths((prev) => {
       const next: Record<string, number> = {};
+      ['__checkbox', '__actions'].forEach((k) => {
+        if (prev[k] != null) next[k] = prev[k];
+        else if (seed.columnWidths[k] != null) next[k] = seed.columnWidths[k];
+      });
       keySet.forEach((k) => {
         const col = cleanCols.find((c) => c.key === k);
         const templateW = col?.width;
