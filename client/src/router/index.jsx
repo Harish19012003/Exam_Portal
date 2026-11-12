@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { AuthGuard } from './AuthGuard';
+import { AppFooter } from '../components/AppFooter/AppFooter';
 import { PageGate } from './PageGate';
 import { ROLES } from '@exam-view/shared';
 import { DashboardLayout } from '../layouts/DashboardLayout';
@@ -25,8 +26,16 @@ const UnauthorizedPage = () => (
     <h1 style={{ fontSize: '72px', fontWeight: '800', margin: 0, color: '#dc2626' }}>403</h1>
     <h2 style={{ fontSize: '22px', fontWeight: '700', margin: 0 }}>Access Denied</h2>
     <p style={{ color: 'var(--text-secondary, #6b7280)', maxWidth: '420px', margin: 0 }}>You do not have the required permissions to view this resource.</p>
+    <AppFooter variant="floating" />
     <a href="/dashboard" style={{ marginTop: '12px', padding: '10px 20px', borderRadius: '8px', background: 'var(--primary-color, #2563eb)', color: '#fff', textDecoration: 'none', fontWeight: '600', fontSize: '14px' }}>Back to Dashboard</a>
   </div>
+);
+
+const PublicShell = () => (
+  <>
+    <AuthGuard requireAuth={false} />
+    <AppFooter variant="floating" />
+  </>
 );
 
 const NotFoundPage = () => (
@@ -34,6 +43,7 @@ const NotFoundPage = () => (
     <h1 style={{ fontSize: '72px', fontWeight: '800', margin: 0, color: 'var(--primary-color, #2563eb)' }}>404</h1>
     <h2 style={{ fontSize: '22px', fontWeight: '700', margin: 0 }}>Page Not Found</h2>
     <p style={{ color: 'var(--text-secondary, #6b7280)', maxWidth: '420px', margin: 0 }}>The requested page could not be found. Please check the URL or return to the dashboard.</p>
+    <AppFooter variant="floating" />
     <a href="/dashboard" style={{ marginTop: '12px', padding: '10px 20px', borderRadius: '8px', background: 'var(--primary-color, #2563eb)', color: '#fff', textDecoration: 'none', fontWeight: '600', fontSize: '14px' }}>Back to Dashboard</a>
   </div>
 );
@@ -45,7 +55,7 @@ export const router = createBrowserRouter([
   },
   {
     // Public routes (accessible only when NOT logged in)
-    element: <AuthGuard requireAuth={false} />,
+    element: <PublicShell />,
     children: [
       {
         path: '/login',

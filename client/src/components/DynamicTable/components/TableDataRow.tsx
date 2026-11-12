@@ -157,7 +157,7 @@ function TableDataRowComponent({
     <tr
       data-row-id={row.rowId}
       data-stripe={stripe ? '1' : '0'}
-      style={{ height: rowHeight, ...stickyRowStyle, ...(!isSelected && rowFormatCss ? rowFormatCss : {}) }}
+      style={{ height: rowHeight, maxHeight: rowHeight, ...stickyRowStyle, ...(!isSelected && rowFormatCss ? rowFormatCss : {}) }}
       className={`group cursor-pointer transition-colors duration-150 ${
         isTransposedGridRow ? '' : 'animate-in fade-in slide-in-from-bottom-1'
       }
@@ -179,7 +179,7 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`px-2 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })}`}
+          className={`px-1 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })}`}
         >
           <div className="flex items-center justify-center gap-1.5">
             {(selectionColumn?.elementOrder ?? ['checkbox']).map(itemId => {
@@ -446,7 +446,7 @@ function TableDataRowComponent({
                 ...formatCss,
               } as React.CSSProperties
             }
-            className={`px-3 border-b overflow-hidden whitespace-nowrap ${theme.borderRow} ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
+            className={`px-2 border-b overflow-hidden whitespace-nowrap ${theme.borderRow} ${isHiding ? 'transition-all duration-300 ease-in-out' : isShowing ? 'animate-expand' : ''} ${highlightBg}
               ${isPinned && !isHighlighted && !isHiding && !formatCss.backgroundColor
                 ? getStickyCellClassName(isRightPinned ? 'right' : 'left', { isSelected })
                 : 'dt-scroll-cell'}
@@ -462,13 +462,14 @@ function TableDataRowComponent({
             aria-readonly={!canEdit}
           >
             <div
-              className={`flex items-center outline-none relative
+              className={`flex items-center outline-none relative min-h-0 overflow-hidden
                 ${focusedCell?.rowId === row.rowId && focusedCell?.colKey === col.key && !isEditingThisCell
                   ? 'after:content-[""] after:absolute after:right-3 after:top-1/2 after:-translate-y-1/2 after:h-[16px] after:w-[2px] after:bg-[#13C296] after:animate-pulse'
                   : ''}`}
               style={{
-                height: rowHeight - 1,
-                minHeight: rowHeight - 1,
+                height: Math.max(24, rowHeight - 1),
+                minHeight: Math.max(24, rowHeight - 1),
+                maxHeight: Math.max(24, rowHeight - 1),
                 color: formatCss.color || accentHex || undefined,
                 fontWeight: formatCss.fontWeight,
               }}
@@ -479,7 +480,11 @@ function TableDataRowComponent({
             >
               {isEditingThisCell ? (
                 <div
-                  className={isComposite ? 'absolute z-50 mt-1' : 'w-full relative'}
+                  className={
+                    isComposite
+                      ? 'absolute z-50 mt-1'
+                      : 'absolute inset-y-[2px] inset-x-0 z-[1] min-h-0 overflow-hidden flex items-stretch'
+                  }
                   onClick={e => e.stopPropagation()}
                   onFocus={() => onSetFocusedCell({ rowId: row.rowId, colKey: col.key })}
                 >
@@ -614,10 +619,10 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`border-b ${theme.borderRow} px-1 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
+          className={`border-b ${theme.borderRow} px-0.5 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
         >
           <div
-            className={`flex items-center justify-center gap-2 transition-opacity ${
+            className={`flex items-center justify-center gap-1 transition-opacity ${
               isEditingThisRow
                 ? 'opacity-100'
                 : rowActions?.showOnHover !== false

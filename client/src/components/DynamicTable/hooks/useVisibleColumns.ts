@@ -1,5 +1,10 @@
 import { useMemo } from 'react';
-import { resolveActionsColumnWidthPx, type ColumnConfig, type RowActionsConfig, type SelectionColumnConfig } from '../types';
+import {
+  resolveActionsColumnWidthPx,
+  type ColumnConfig,
+  type RowActionsConfig,
+  type SelectionColumnConfig,
+} from '../types';
 
 interface UseVisibleColumnsOptions {
   columns: ColumnConfig[];
@@ -63,11 +68,21 @@ export function useVisibleColumns({
 
 
   const presetActionsW = resolveActionsColumnWidthPx(rowActions);
+  const actionsHasExtras = Boolean(
+    rowActions?.showExplore ||
+      rowActions?.showDuplicate ||
+      rowActions?.showRecordSidebar ||
+      rowActions?.customButtons?.some((b) => b?.enabled) ||
+      rowActions?.renderCustomActions,
+  );
+  // Edit+Delete only: never let a fat layout/drag leftover widen past the preset
+  // (that empty space reads as left padding beside the icons).
+  const actionsResolved = actionsHasExtras
+    ? (columnWidths['__actions'] ?? presetActionsW)
+    : Math.min(columnWidths['__actions'] ?? presetActionsW, presetActionsW);
 
   const ACTIONS_WIDTH =
-    enableActionsColumn === false
-      ? 0
-      : Math.max(40, columnWidths['__actions'] ?? presetActionsW);
+    enableActionsColumn === false ? 0 : Math.max(40, actionsResolved);
 
   const ADD_COLUMN_WIDTH = enableAddColumn ? 44 : 0;
 

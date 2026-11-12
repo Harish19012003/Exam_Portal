@@ -824,6 +824,7 @@
 .main-content:has(.exams-page--table),
 .main-content:has(.tables-page--dynamic) {
   overflow: hidden;
+  padding: 8px 6px 0;
 }
 /* Shown in place of a page the user's groups don't include */
 .page-gate {

@@ -6,24 +6,30 @@ import './PageHeading.css';
  * Title block used by every page: heading, optional subtitle, optional info tooltip,
  * optional leading element (e.g. a back button). Use this alone when the page already
  * has its own toolbar; otherwise use <PageHeading>.
+ * Omit `title` to show only leading/actions (e.g. exam sub-pages that use ExamSubNav).
  */
 export const PageTitle = ({ title, subtitle, info, leading }) => {
-  const about = typeof title === 'string' ? title : 'this page';
+  const hasTitle = title != null && title !== '';
+  const about = typeof title === 'string' && title ? title : 'this page';
 
   return (
     <div className="page-title-block">
       {leading}
-      <div className="page-title-group">
-        <div className="page-title-row">
-          <h1 className="page-title">{title}</h1>
-          {info ? (
-            <InfoTip title={`About ${about}`} label={`About ${about}`}>
-              {info}
-            </InfoTip>
+      {(hasTitle || subtitle || info) ? (
+        <div className="page-title-group">
+          {(hasTitle || info) ? (
+            <div className="page-title-row">
+              {hasTitle ? <h1 className="page-title">{title}</h1> : null}
+              {info ? (
+                <InfoTip title={`About ${about}`} label={`About ${about}`}>
+                  {info}
+                </InfoTip>
+              ) : null}
+            </div>
           ) : null}
+          {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
         </div>
-        {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
-      </div>
+      ) : null}
     </div>
   );
 };

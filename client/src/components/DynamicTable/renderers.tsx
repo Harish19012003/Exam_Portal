@@ -328,14 +328,20 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
         </div>
       );
 
-    case 'number':
-      // Keep the value visible: sit the copy control beside the digits (not over them).
+    case 'number': {
+      // Copy only for longer numbers (IDs / codes) — hide on short counts like 0–9999.
+      const numAbs = Math.trunc(Math.abs(Number(value)));
+      const digitCount =
+        value !== null && value !== undefined && Number.isFinite(numAbs)
+          ? String(numAbs).length
+          : 0;
+      const showCopy = digitCount >= 5;
       return (
         <div className={`group flex items-center gap-1 min-w-0 w-full text-[13px] font-medium tabular-nums ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
           <span className="min-w-0 truncate">
             {value !== null && value !== undefined ? formatNumber(value) : <span className="text-gray-400">—</span>}
           </span>
-          {value !== null && value !== undefined && (
+          {showCopy && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(value)); }}
@@ -347,6 +353,7 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
           )}
         </div>
       );
+    }
 
     case 'currency':
       return (

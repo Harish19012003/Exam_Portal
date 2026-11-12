@@ -29,12 +29,15 @@ import {
   parseClipboardGridInWorker,
   parseImportFileInWorker,
 } from '../export/parseImportInWorker';
+import { SearchableSelect } from '../../../pages/exams/SearchableSelect';
 
 export type ImportColumn = {
   key: string;
   label: string;
   required?: boolean;
   dataType?: string;
+  /** Shown in the paste grid to keep positions aligned with the table, but never imported. */
+  skip?: boolean;
 };
 
 /** Rows shown per preview page (paste grid + upload preview). All rows still import. */
@@ -42,12 +45,25 @@ const PREVIEW_PAGE_SIZE = 100;
 
 type TabId = 'upload' | 'paste';
 
+export type ImportMode = 'add' | 'update' | 'upsert';
+
 export type ImportProgressHandlers = {
   onProgress?: (done: number, total: number) => void;
+  mode?: ImportMode;
+  matchKey?: string;
+};
+
+export type ImportMatchKeyOption = { key: string; label: string };
+
+export type ImportExistingRow = {
+  id: string;
+  values?: Record<string, unknown> | null;
 };
 
 interface ImportDataModalProps {
   columns: ColumnConfig[];
+  /** Keys of columns currently visible in the table. Non-importable ones among them stay in the paste grid as greyed placeholders. */
+  visibleKeys?: string[];
   isDarkMode: boolean;
   title?: string;
   subtitle?: string;
@@ -58,7 +74,17 @@ interface ImportDataModalProps {
   ) => Promise<void> | void;
   /** Stable id (the table id). When set, pasted rows survive closing the dialog as a local draft. */
   draftKey?: string;
+  /**
+   * When set, show Add / Update / Upsert and match-key picker.
+   * Update & Upsert match pasted rows to these existing records by the chosen key.
+   */
+  matchKeyOptions?: ImportMatchKeyOption[];
+  existingRows?: ImportExistingRow[];
+  /** Preferred match column (e.g. unique-row key / center code). */
+  defaultMatchKey?: string;
 }
+
+const normalizeMatchValue = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
 
 // Browser storage holds only the unsaved paste draft; the import itself goes through the API.
 const draftStorageKey = (draftKey: string) => `table_import_draft_v1:${draftKey}`;
@@ -105,15 +131,17 @@ const SKIP_KEYS = new Set([
   '__updated_by',
 ]);
 
+function isImportableColumn(c: ColumnConfig): boolean {
+  if (!isFieldColumn(c)) return false;
+  if (c.dataType === 'formula' || c.dataType === 'composite') return false;
+  if (SKIP_KEYS.has(c.key) || c.key.startsWith('__')) return false;
+  if (c.editable === false) return false;
+  return true;
+}
+
 export function getImportableColumns(columns: ColumnConfig[]): ImportColumn[] {
   return (columns || [])
-    .filter((c) => {
-      if (!isFieldColumn(c)) return false;
-      if (c.dataType === 'formula' || c.dataType === 'composite') return false;
-      if (SKIP_KEYS.has(c.key) || c.key.startsWith('__')) return false;
-      if (c.editable === false) return false;
-      return true;
-    })
+    .filter(isImportableColumn)
     .map((c) => ({
       key: c.key,
       label: c.label || c.key,
@@ -122,12 +150,36 @@ export function getImportableColumns(columns: ColumnConfig[]): ImportColumn[] {
     }));
 }
 
+/**
+ * Paste-grid columns: importable columns plus, in table order, the visible columns that can't be
+ * imported (formula / read-only / system). Those stay as greyed placeholders so a block copied from
+ * the table pastes column-for-column.
+ */
+export function getGridColumns(columns: ColumnConfig[], visibleKeys?: string[]): ImportColumn[] {
+  const visible = visibleKeys ? new Set(visibleKeys) : null;
+  const out: ImportColumn[] = [];
+  (columns || []).forEach((c) => {
+    if (isImportableColumn(c)) {
+      out.push({ key: c.key, label: c.label || c.key, required: Boolean(c.required), dataType: c.dataType });
+    } else if (visible?.has(c.key)) {
+      out.push({ key: c.key, label: c.label || c.key, skip: true });
+    }
+  });
+  return out;
+}
+
 function emptyRow(cols: ImportColumn[]): Record<string, string> {
   const row: Record<string, string> = {};
   cols.forEach((c) => {
     row[c.key] = '';
   });
   return row;
+}
+
+const BLANK_PASTE_ROWS = 10;
+
+function blankPasteGrid(cols: ImportColumn[], count = BLANK_PASTE_ROWS): Record<string, string>[] {
+  return Array.from({ length: count }, () => emptyRow(cols));
 }
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -208,15 +260,31 @@ function rowHasData(row: Record<string, string>): boolean {
 
 export function ImportDataModal({
   columns,
+  visibleKeys,
   isDarkMode,
   title = 'Bulk Import',
   subtitle = 'Upload CSV, Excel, or JSON — or paste table data to add multiple rows.',
   onClose,
   onImport,
   draftKey,
+  matchKeyOptions,
+  existingRows,
+  defaultMatchKey,
 }: ImportDataModalProps) {
   const importCols = useMemo(() => getImportableColumns(columns), [columns]);
+  const gridCols = useMemo(() => getGridColumns(columns, visibleKeys), [columns, visibleKeys]);
+  const matchKeys = useMemo(() => {
+    if (!Array.isArray(matchKeyOptions) || !matchKeyOptions.length) return [];
+    const importable = new Set(importCols.map((c) => c.key));
+    return matchKeyOptions.filter((m) => importable.has(m.key));
+  }, [matchKeyOptions, importCols]);
+  const replaceEnabled = matchKeys.length > 0;
   const [tab, setTab] = useState<TabId>('paste');
+  const [importMode, setImportMode] = useState<ImportMode>('update');
+  const [matchKey, setMatchKey] = useState(() => {
+    if (defaultMatchKey && matchKeys.some((m) => m.key === defaultMatchKey)) return defaultMatchKey;
+    return matchKeys[0]?.key || '';
+  });
   const [draftRestored, setDraftRestored] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -226,7 +294,7 @@ export function ImportDataModal({
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [pasteRows, setPasteRows] = useState<Record<string, string>[]>(
     () =>
-      readDraft(draftKey, importCols) ?? [emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)],
+      readDraft(draftKey, importCols) ?? blankPasteGrid(importCols),
   );
   const [pastePage, setPastePage] = useState(1);
   const [error, setError] = useState('');
@@ -236,9 +304,21 @@ export function ImportDataModal({
   const pasteTableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!replaceEnabled) {
+      setImportMode('add');
+      return;
+    }
+    setMatchKey((prev) => {
+      if (prev && matchKeys.some((m) => m.key === prev)) return prev;
+      if (defaultMatchKey && matchKeys.some((m) => m.key === defaultMatchKey)) return defaultMatchKey;
+      return matchKeys[0]?.key || '';
+    });
+  }, [replaceEnabled, matchKeys, defaultMatchKey]);
+
+  useEffect(() => {
     const draft = readDraft(draftKey, importCols);
     setDraftRestored(Boolean(draft));
-    setPasteRows(draft ?? [emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
+    setPasteRows(draft ?? blankPasteGrid(importCols));
     setPastePage(1);
     setPreviewRows([]);
     setFileName('');
@@ -253,7 +333,7 @@ export function ImportDataModal({
   }, [draftKey, pasteRows]);
 
   const clearPasteRows = () => {
-    setPasteRows([emptyRow(importCols), emptyRow(importCols), emptyRow(importCols)]);
+    setPasteRows(blankPasteGrid(importCols));
     setPastePage(1);
     setDraftRestored(false);
     setError('');
@@ -326,10 +406,10 @@ export function ImportDataModal({
 
     const startColIdx = Math.max(
       0,
-      startColKey ? importCols.findIndex((c) => c.key === startColKey) : 0,
+      startColKey ? gridCols.findIndex((c) => c.key === startColKey) : 0,
     );
     const startRowIdx = Math.max(0, startRow);
-    const colsSnapshot = importCols;
+    const colsSnapshot = gridCols;
 
     void (async () => {
       try {
@@ -357,7 +437,7 @@ export function ImportDataModal({
             const col = colsSnapshot.find(
               (c) => c.label.toLowerCase() === h || c.key.toLowerCase() === h,
             );
-            return col?.key ?? null;
+            return col && !col.skip ? col.key : null;
           });
         }
 
@@ -369,7 +449,10 @@ export function ImportDataModal({
         const canWrite = headerMap
           ? headerMap.some(Boolean)
           : dataLines.some((cells) =>
-              cells.some((_, ci) => Boolean(colsSnapshot[startColIdx + ci])),
+              cells.some((_, ci) => {
+                const col = colsSnapshot[startColIdx + ci];
+                return Boolean(col) && !col.skip;
+              }),
             );
         if (!canWrite) {
           setError('Nothing to paste — copy cells from Excel/Sheets and try again.');
@@ -392,7 +475,7 @@ export function ImportDataModal({
             } else {
               cells.forEach((val, ci) => {
                 const col = colsSnapshot[startColIdx + ci];
-                if (!col) return;
+                if (!col || col.skip) return;
                 row[col.key] = val ?? '';
               });
             }
@@ -448,6 +531,38 @@ export function ImportDataModal({
     ).length;
   }, [activeRows, importCols]);
 
+  const existingLookup = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!matchKey || !Array.isArray(existingRows)) return map;
+    existingRows.forEach((r) => {
+      const v = normalizeMatchValue(r?.values?.[matchKey]);
+      if (!v || map.has(v)) return;
+      map.set(v, String(r.id));
+    });
+    return map;
+  }, [existingRows, matchKey]);
+
+  const matchPreview = useMemo(() => {
+    if (!replaceEnabled || importMode === 'add' || !matchKey) {
+      return { update: 0, create: 0, unmatched: 0, blankKey: 0 };
+    }
+    let update = 0;
+    let create = 0;
+    let unmatched = 0;
+    let blankKey = 0;
+    activeRows.forEach((row) => {
+      const v = normalizeMatchValue(row[matchKey]);
+      if (!v) {
+        blankKey += 1;
+        return;
+      }
+      if (existingLookup.has(v)) update += 1;
+      else if (importMode === 'upsert') create += 1;
+      else unmatched += 1;
+    });
+    return { update, create, unmatched, blankKey };
+  }, [replaceEnabled, importMode, matchKey, activeRows, existingLookup]);
+
   const handleSubmit = async () => {
     setError('');
     setImportProgress(null);
@@ -469,6 +584,20 @@ export function ImportDataModal({
       );
       return;
     }
+    if (replaceEnabled && importMode !== 'add') {
+      if (!matchKey) {
+        setError('Choose a column to match existing records.');
+        return;
+      }
+      if (importMode === 'update' && matchPreview.update === 0) {
+        setError(
+          matchPreview.blankKey
+            ? `No matching rows. ${matchPreview.blankKey} pasted row${matchPreview.blankKey === 1 ? '' : 's'} missing “${matchKeys.find((m) => m.key === matchKey)?.label || matchKey}”.`
+            : 'No pasted rows match existing records for the selected key.',
+        );
+        return;
+      }
+    }
 
     // Emit rows keyed by label so ExamsPage mapping (label/key) still works
     const payload = activeRows.map((row) => {
@@ -485,6 +614,8 @@ export function ImportDataModal({
     try {
       await onImport(payload, {
         onProgress: (done, total) => setImportProgress({ done, total }),
+        mode: replaceEnabled ? importMode : 'add',
+        matchKey: replaceEnabled && importMode !== 'add' ? matchKey : undefined,
       });
       if (tab === 'paste') writeDraft(draftKey, []);
       onClose();
@@ -584,7 +715,97 @@ export function ImportDataModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {replaceEnabled && (
+            <div className={`rounded-xl border px-2.5 py-2 space-y-1.5 ${border} ${surface}`}>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Import mode">
+                {(
+                  [
+                    { id: 'add', label: 'Add new', hint: 'Create rows only' },
+                    { id: 'update', label: 'Update matching', hint: 'Overwrite existing by key' },
+                    { id: 'upsert', label: 'Upsert', hint: 'Update if found, else add' },
+                  ] as const
+                ).map(({ id, label, hint }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    title={hint}
+                    aria-pressed={importMode === id}
+                    onClick={() => setImportMode(id)}
+                    className={`min-h-[32px] px-2.5 rounded-lg text-[12px] font-bold transition-colors
+                      ${importMode === id
+                        ? 'bg-[#13C296] text-white shadow-[0_1px_3px_rgba(19,194,150,0.35)]'
+                        : isDarkMode
+                          ? 'bg-white/5 text-gray-300 hover:bg-white/10'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:border-[#13C296]/50'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {importMode !== 'add' && (
+                <div className="flex items-center gap-2 flex-1 min-w-[200px] sm:max-w-[320px] sm:ml-auto">
+                  <span className={`text-[12px] font-semibold whitespace-nowrap ${muted}`}>
+                    Match on
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <SearchableSelect
+                      id="import-match-key"
+                      ariaLabel="Match on"
+                      value={matchKey}
+                      options={matchKeys.map((m) => ({ value: m.key, label: m.label }))}
+                      portal
+                      searchThreshold={6}
+                      placeholder="Select column…"
+                      onChange={(key) => setMatchKey(String(key || ''))}
+                    />
+                  </div>
+                </div>
+              )}
+              </div>
+              {importMode !== 'add' && activeRows.length > 0 && (
+                <p className={`text-[12px] font-medium ${muted}`}>
+                  Preview
+                  {existingLookup.size === 0 ? ' (no loaded rows to match yet)' : ''}
+                  :{' '}
+                  <span className={isDarkMode ? 'text-sky-300' : 'text-sky-700'}>
+                    {matchPreview.update} update
+                  </span>
+                  {importMode === 'upsert' && (
+                    <>
+                      {' · '}
+                      <span className={isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}>
+                        {matchPreview.create} new
+                      </span>
+                    </>
+                  )}
+                  {importMode === 'update' && matchPreview.unmatched > 0 && (
+                    <>
+                      {' · '}
+                      <span className={isDarkMode ? 'text-amber-300' : 'text-amber-700'}>
+                        {matchPreview.unmatched} unmatched (skipped)
+                      </span>
+                    </>
+                  )}
+                  {matchPreview.blankKey > 0 && (
+                    <>
+                      {' · '}
+                      <span className={isDarkMode ? 'text-rose-300' : 'text-rose-600'}>
+                        {matchPreview.blankKey} missing key
+                      </span>
+                    </>
+                  )}
+                  <span className="opacity-70">
+                    {' '}
+                    — only pasted columns are written; other fields stay as-is.
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+
           {tab === 'upload' && (
             <>
               <div className="flex flex-wrap gap-2">
@@ -724,7 +945,7 @@ export function ImportDataModal({
                   // Cell inputs handle paste with their own row/col; this is the fallback
                   // when the table wrapper itself is focused.
                   if ((e.target as HTMLElement).tagName === 'INPUT') return;
-                  handlePasteOnGrid(e, pastePageOffset, importCols[0]?.key);
+                  handlePasteOnGrid(e, pastePageOffset, gridCols[0]?.key);
                 }}
                 className={`rounded-xl border overflow-auto max-h-[min(420px,50vh)] relative ${border}`}
                 tabIndex={0}
@@ -746,13 +967,17 @@ export function ImportDataModal({
                       >
                         #
                       </th>
-                      {importCols.map((c) => (
+                      {gridCols.map((c) => (
                         <th
                           key={c.key}
+                          title={c.skip ? 'Calculated / read-only in the table — not imported' : undefined}
                           className={`sticky top-0 z-[1] px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap border-b ${border}
-                            ${isDarkMode ? 'bg-[#1a2e28] text-[#13C296]' : 'bg-[#eefaf5] text-[#0f766e]'}`}
+                            ${c.skip
+                              ? (isDarkMode ? 'bg-[#1a2e28] text-gray-500' : 'bg-[#eefaf5] text-gray-400')
+                              : (isDarkMode ? 'bg-[#1a2e28] text-[#13C296]' : 'bg-[#eefaf5] text-[#0f766e]')}`}
                         >
                           {c.label}
+                          {c.skip && <span className="ml-1 normal-case font-medium opacity-80">(auto)</span>}
                           {c.required && <span className="text-rose-500 ml-0.5">*</span>}
                         </th>
                       ))}
@@ -772,7 +997,16 @@ export function ImportDataModal({
                         <td className={`px-2 py-1 border-b text-[11px] tabular-nums ${border} ${muted}`}>
                           {ri + 1}
                         </td>
-                        {importCols.map((c) => (
+                        {gridCols.map((c) => c.skip ? (
+                          <td
+                            key={c.key}
+                            className={`px-3 py-1 border-b text-[13px] select-none ${border} ${muted}
+                              ${isDarkMode ? 'bg-white/[0.02]' : 'bg-gray-50'}`}
+                            title="Calculated / read-only in the table — not imported"
+                          >
+                            <span className="inline-block min-w-[100px]">—</span>
+                          </td>
+                        ) : (
                           <td key={c.key} className={`px-1.5 py-1 border-b ${border}`}>
                             <input
                               value={row[c.key] ?? ''}
@@ -872,6 +1106,10 @@ export function ImportDataModal({
                     ? `Importing ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}…`
                     : 'Importing…'}
                 </>
+              ) : importMode === 'update' ? (
+                `Update ${matchPreview.update || ''}`.trim()
+              ) : importMode === 'upsert' ? (
+                `Upsert ${activeRows.length || ''}`.trim()
               ) : (
                 `Import ${activeRows.length || ''}`.trim()
               )}

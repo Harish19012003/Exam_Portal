@@ -133,7 +133,8 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
     <>
       <input
         ref={inputRef}
-        type="search"
+        type="text"
+        autoComplete="off"
         value={query}
         placeholder={summary || 'Search people…'}
         onFocus={() => setActive(true)}
@@ -153,16 +154,27 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
         }}
         aria-label={`Assign people for ${column.label}`}
         style={{
+          display: 'block',
           width: '100%',
-          minHeight: 32,
+          height: '100%',
+          minHeight: 0,
+          maxHeight: '100%',
+          flex: '1 1 0%',
+          alignSelf: 'stretch',
           boxSizing: 'border-box',
-          padding: '4px 8px',
+          padding: '0 6px',
+          margin: 0,
           font: 'inherit',
+          fontSize: 13,
+          lineHeight: 1.2,
           color: fg,
           background: bg,
           border: `1px solid ${border}`,
           borderRadius: 6,
-          outline: '2px solid #5c43fa',
+          outline: 'none',
+          boxShadow: 'inset 0 0 0 2px #5c43fa',
+          WebkitAppearance: 'none',
+          appearance: 'none',
         }}
       />
       {active &&

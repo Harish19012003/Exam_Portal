@@ -162,6 +162,17 @@
   animation: none !important;
 }
 
+/*
+ * Live resize is colgroup-driven (O(1) per frame). Cell inline width/min/max would
+ * otherwise fight <col> and force touching every td — drop them for the gesture.
+ */
+.dt-grid.dt-is-resizing > thead > tr > th,
+.dt-grid.dt-is-resizing > tbody > tr > td {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
 /* Feature Builder "Table colors": header, alternate rows and footer. Variables come from utils/tableColors.ts. */
 .dt-themed[data-dt-head] .dt-grid > thead,
 .dt-themed[data-dt-head] .dt-grid > thead th {
@@ -255,4 +266,39 @@
 .dt-themed[data-dt-foot] .dt-grid > tfoot,
 .dt-themed[data-dt-foot] .dt-grid > tfoot * {
   color: var(--dt-foot-text) !important;
+}
+
+/*
+ * Actions last: override the -12px sticky curtain (looks like empty left padding).
+ * Thin edge still masks horizontal scroll bleed.
+ */
+.dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'],
+.dt-themed[data-dt-head] .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'] {
+  box-shadow: -2px 0 0 0 #ede9fe, -1px 0 0 0 #c4b5fd !important;
+}
+.dt-grid > tbody > tr > td.dt-sticky-cell--right.dt-sticky-cell--actions,
+.group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions,
+.dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions,
+.group:hover > .dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions {
+  box-shadow: -2px 0 0 0 #ffffff, -1px 0 0 0 #e5e7eb !important;
+}
+.group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions {
+  box-shadow: -2px 0 0 0 #f3f0ff, -1px 0 0 0 #c4b5fd !important;
+}
+.dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions,
+.group:hover > .dt-sticky-cell--selected.dt-sticky-cell--right.dt-sticky-cell--actions {
+  box-shadow: -2px 0 0 0 #ebe4ff, -1px 0 0 0 #c4b5fd !important;
+}
+[data-theme='dark'] .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'],
+.dark .dt-grid > thead > tr > th.dt-sticky-th--right[data-col-key='__actions'] {
+  box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
+}
+[data-theme='dark'] .dt-grid > tbody > tr > td.dt-sticky-cell--right.dt-sticky-cell--actions,
+[data-theme='dark'] .group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions,
+.dark .dt-grid > tbody > tr > td.dt-sticky-cell--right.dt-sticky-cell--actions,
+.dark .group:hover > td.dt-sticky-cell--right.dt-sticky-cell--actions {
+  box-shadow: -2px 0 0 0 #111827, -1px 0 0 0 #374151 !important;
+}
+.dt-themed[data-dt-stripe] .dt-grid > tbody > tr[data-stripe='1'][aria-selected='false']:not(:hover):not([style*='background']) > td.dt-sticky-cell--right.dt-sticky-cell--actions {
+  box-shadow: -2px 0 0 0 var(--dt-stripe-bg), -1px 0 0 0 #e5e7eb !important;
 }

@@ -39,8 +39,9 @@ export const DEFAULT_EXAM_TABLE_FEATURES = {
     showDelete: true,
     showExplore: true,
     showDuplicate: false,
-    widthPreset: 'default',
-    width: 132,
+    // Edit + Delete only needs compact; default/comfortable look like empty padding.
+    widthPreset: 'compact',
+    width: 72,
   },
 };
 

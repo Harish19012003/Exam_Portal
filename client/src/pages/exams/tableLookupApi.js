@@ -46,7 +46,10 @@ export const isTableSourceField = (field) =>
 export const isUserTagsField = (field) =>
   field?.optionsSource === 'userTags' && Array.isArray(field.userTagIds) && field.userTagIds.length > 0;
 
-export const lookupText = (item) => (item?.detail ? `${item.label} · ${item.detail}` : item?.label || '');
+/** Cell / chip text for a lookup row — only the mapped column (`label`), never `label · detail`. */
+export const lookupText = (item) => item?.label || '';
+/** Secondary line for dropdown options (detail column); empty when unset. */
+export const lookupDetailText = (item) => String(item?.detail || '').trim();
 export const MISSING_LABEL = '(missing)';
 
 /** A read-only field that shows `linkedFrom.column` of the row picked in another (table column) field. */
@@ -112,8 +115,8 @@ export const resolveColumnsForLookupField = (fields, field) => {
 };
 
 /**
- * Exam-table cells to paint when `field` is picked: other group members (label · detail) and
- * linked value fields (single column). Used by the picker for a same-tick local patch.
+ * Exam-table cells to paint when `field` is picked: other group members (their column only)
+ * and linked value fields. Used by the picker for a same-tick local patch.
  */
 export const syncFieldsForLookupField = (fields, field) => {
   if (!isTableSourceField(field)) return [];

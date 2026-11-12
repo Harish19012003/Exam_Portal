@@ -848,9 +848,9 @@ export function ConstructionSidebar({
   const headerTextWrap = resolveHeaderTextWrap(customFeatures.headerTextWrap);
   const actionsWidthPreset = resolveActionsColumnWidthPreset(
     customFeatures.rowActions?.widthPreset ??
-      (Number(customFeatures.rowActions?.width) >= 160
+      (Number(customFeatures.rowActions?.width) >= 130
         ? 'comfortable'
-        : Number(customFeatures.rowActions?.width) <= 110
+        : Number(customFeatures.rowActions?.width) <= 88
           ? 'compact'
           : 'default'),
   );

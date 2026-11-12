@@ -45,7 +45,64 @@ export function readPref<K extends keyof TablePrefs>(
   return (value ?? fallback) as NonNullable<TablePrefs[K]>;
 }
 
-/** Keep saved order for known keys; append any new schema columns at the end */
+/**
+ * Created / Modify by & at — always trail the table (never mid-grid from drag or saved layout).
+ * Matches system audit keys and common builder autofill aliases.
+ */
+export function isAuditColumnKey(key: string): boolean {
+  const k = String(key || '').trim().toLowerCase();
+  if (!k) return false;
+  if (k === '__created_by' || k === '__updated_by') return true;
+  if (k === 'created_at' || k === 'updated_at' || k === 'modified_at') return true;
+  if (k === 'created_by' || k === 'createdby' || k === 'created_by_user') return true;
+  if (
+    k === 'modify_by' ||
+    k === 'modified_by' ||
+    k === 'updated_by' ||
+    k === 'modifyby' ||
+    k === 'modifiedby'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Stable audit trailing order: Created by → Modify by → Created at → Updated at → other audit. */
+const AUDIT_TRAIL_RANK: Record<string, number> = {
+  __created_by: 1,
+  created_by: 1,
+  createdby: 1,
+  created_by_user: 1,
+  __updated_by: 2,
+  modify_by: 2,
+  modified_by: 2,
+  updated_by: 2,
+  modifyby: 2,
+  modifiedby: 2,
+  created_at: 3,
+  updated_at: 4,
+  modified_at: 4,
+};
+
+export function pinAuditColumnsLast(order: string[]): string[] {
+  const list = Array.isArray(order) ? order.filter(Boolean) : [];
+  if (!list.length) return [];
+  const body: string[] = [];
+  const audit: string[] = [];
+  list.forEach((k) => {
+    if (isAuditColumnKey(k)) audit.push(k);
+    else body.push(k);
+  });
+  audit.sort((a, b) => {
+    const ra = AUDIT_TRAIL_RANK[String(a).toLowerCase()] ?? 50;
+    const rb = AUDIT_TRAIL_RANK[String(b).toLowerCase()] ?? 50;
+    if (ra !== rb) return ra - rb;
+    return String(a).localeCompare(String(b));
+  });
+  return [...body, ...audit];
+}
+
+/** Keep saved order for known keys; append any new schema columns at the end; audit always last. */
 export function mergeColumnOrder(schemaKeys: string[], savedOrder?: string[] | null): string[] {
   const keys = Array.isArray(schemaKeys) ? schemaKeys.filter(Boolean) : [];
   if (!keys.length) return [];
@@ -55,7 +112,7 @@ export function mergeColumnOrder(schemaKeys: string[], savedOrder?: string[] | n
   keys.forEach((k) => {
     if (!seen.has(k)) ordered.push(k);
   });
-  return ordered;
+  return pinAuditColumnsLast(ordered);
 }
 
 export function mergeColumnVisibility(

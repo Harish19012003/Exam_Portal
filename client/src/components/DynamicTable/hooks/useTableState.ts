@@ -8,6 +8,7 @@ import {
   loadTablePrefs,
   mergeColumnOrder,
   mergeColumnVisibility,
+  pinAuditColumnsLast,
   pickLayoutSlice,
   type TablePrefs,
 } from '../utils/prefsStorage';
@@ -77,13 +78,11 @@ const resolveLayoutSeed = (
   }
   if (!density) density = defaultDensity;
 
-  // Layout prefs for normal columns; date×shift template `width` always wins.
+  // Prefer saved/user widths; fall back to schema / date×shift template width.
   const preferredWidths = preferred.columnWidths || {};
   const columnWidths: Record<string, number> = {};
   cols.forEach((c) => {
-    if (isDateShiftColumn(c) && c.width) {
-      columnWidths[c.key] = c.width;
-    } else if (preferredWidths[c.key] != null) {
+    if (preferredWidths[c.key] != null) {
       columnWidths[c.key] = preferredWidths[c.key];
     } else if (c.width) {
       columnWidths[c.key] = c.width;
@@ -212,22 +211,43 @@ export function useTableState(
   const skipInitialRowsSync = useRef(true);
   const layoutPrefsRef = useRef(layoutPrefs);
   layoutPrefsRef.current = layoutPrefs;
+  /** Last date×shift template widths from props — only re-apply when the template itself changes. */
+  const lastDateShiftTemplateWidthsRef = useRef<Record<string, number>>({});
 
-  // Columns / table identity — full chrome reset (not on every parent row repaint).
+  // Columns / table identity — reset chrome when schema changes; keep live resize widths.
   useEffect(() => {
     const cleanCols = sanitizeColumns(initialColumns);
     const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId, defaultDensity);
+    const keySet = new Set(cleanCols.map((c) => c.key));
     setColumns(cleanCols);
     setColumnOrder(seed.columnOrder);
     setColumnVisibility(seed.columnVisibility);
+    // Merge: keep in-session (or just-resized) widths; adopt new template when it changes.
     setColumnWidths((prev) => {
-      const next = { ...seed.columnWidths, ...prev };
-      // Date×shift template px always win over stale layout / previous state.
-      cleanCols.forEach((c) => {
-        if (isDateShiftColumn(c) && c.width) next[c.key] = c.width;
+      const next: Record<string, number> = {};
+      keySet.forEach((k) => {
+        const col = cleanCols.find((c) => c.key === k);
+        const templateW = col?.width;
+        if (isDateShiftColumn(col || k) && templateW) {
+          const prevTemplate = lastDateShiftTemplateWidthsRef.current[k];
+          if (prevTemplate !== undefined && prevTemplate !== templateW) {
+            next[k] = templateW;
+            return;
+          }
+        }
+        if (prev[k] != null) next[k] = prev[k];
+        else if (seed.columnWidths[k] != null) next[k] = seed.columnWidths[k];
+        else if (templateW != null) next[k] = templateW;
       });
       return next;
     });
+    {
+      const seen: Record<string, number> = {};
+      cleanCols.forEach((c) => {
+        if (isDateShiftColumn(c) && c.width) seen[c.key] = c.width;
+      });
+      lastDateShiftTemplateWidthsRef.current = seen;
+    }
     if (seed.density) setDensity(seed.density);
     setSort([]);
     setFilters({});
@@ -251,7 +271,7 @@ export function useTableState(
     setRows(sanitizeRows(initialRows));
   }, [initialRows]);
 
-  // Soft-sync accent + date×shift template widths without resetting chrome.
+  // Soft-sync accent + date×shift template metadata without fighting interactive resize.
   useEffect(() => {
     setColumns((prev) => {
       let changed = false;
@@ -264,6 +284,7 @@ export function useTableState(
           col = { ...col, accentColor: accent };
           changed = true;
         }
+        // Keep column def width in sync with template for defaults / auto-fit — display uses columnWidths.
         if (isDateShiftColumn(src || c) && width && c.width !== width) {
           col = col === c ? { ...c, width } : { ...col, width };
           changed = true;
@@ -273,17 +294,28 @@ export function useTableState(
       return changed ? next : prev;
     });
 
-    // Template save wins: always adopt date×shift widths from initialColumns.
     setColumnWidths((prev) => {
       let changed = false;
       const next = { ...prev };
+      const seen: Record<string, number> = {};
       initialColumns.forEach((c) => {
         if (!isDateShiftColumn(c) || !c.width) return;
-        if (next[c.key] !== c.width) {
+        seen[c.key] = c.width;
+        const prevTemplate = lastDateShiftTemplateWidthsRef.current[c.key];
+        if (prevTemplate === undefined) {
+          // First time we see this column: fill only if layout has no width yet.
+          if (next[c.key] == null) {
+            next[c.key] = c.width;
+            changed = true;
+          }
+        } else if (prevTemplate !== c.width) {
+          // Bulk Fields / date-shift template width changed — adopt the new template.
           next[c.key] = c.width;
           changed = true;
         }
+        // else: keep the user's resized width
       });
+      lastDateShiftTemplateWidthsRef.current = seen;
       return changed ? next : prev;
     });
   }, [initialColumns]);
@@ -598,10 +630,15 @@ export function useTableState(
   const handleBulkUpdate = useCallback((
     updates: Record<string, unknown>,
     lookupPicks: BulkLookupPickMeta[] = [],
+    targetRows?: DataRow[],
   ) => {
-    if (selectedRows.size === 0 || Object.keys(updates).length === 0) return;
+    if (Object.keys(updates).length === 0) return;
 
-    const targets = rows.filter((r) => selectedRows.has(r.rowId));
+    const targets =
+      targetRows ??
+      (selectedRows.size > 0 ? rows.filter((r) => selectedRows.has(r.rowId)) : []);
+    if (targets.length === 0) return;
+    const targetIds = new Set(targets.map((r) => r.rowId));
 
     // Mass Edit lookup picks must register source-row ids for every target — otherwise
     // restoreLookupIds keeps the old (often empty) value and cells clear after save.
@@ -630,7 +667,7 @@ export function useTableState(
     }
 
     setRows((prev) => {
-      const originalRows = prev.filter((r) => selectedRows.has(r.rowId));
+      const originalRows = prev.filter((r) => targetIds.has(r.rowId));
 
       setPendingEdit((pe) => {
         const prevRows = pe?.originalRows || [];
@@ -645,7 +682,7 @@ export function useTableState(
       });
 
       return prev.map((r) =>
-        selectedRows.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r,
+        targetIds.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r,
       );
     });
 
@@ -665,15 +702,33 @@ export function useTableState(
     setColumnWidths(prev => ({ ...prev, [key]: Math.max(minW, width) }));
   }, []);
 
+  /** Batch width update (multi-column resize) — one React commit. */
+  const handleColumnWidthsChange = useCallback((updates: Record<string, number>) => {
+    setColumnWidths((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      Object.entries(updates).forEach(([key, width]) => {
+        const minW = key === '__checkbox' ? 32 : key === '__actions' ? 40 : 50;
+        const w = Math.max(minW, width);
+        if (next[key] !== w) {
+          next[key] = w;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
   const handleColumnReorder = useCallback((fromKey: string, toKey: string) => {
-    setColumnOrder(prev => {
+    setColumnOrder((prev) => {
       const arr = [...prev];
       const fi = arr.indexOf(fromKey);
       const ti = arr.indexOf(toKey);
       if (fi === -1 || ti === -1) return prev;
       arr.splice(fi, 1);
       arr.splice(ti, 0, fromKey);
-      return arr;
+      // Created / Modify by & at stay at the far right after any drag.
+      return pinAuditColumnsLast(arr);
     });
   }, []);
 
@@ -735,7 +790,11 @@ export function useTableState(
   }, [initialColumns]);
 
   const handleResetOrder = useCallback(() => {
-    setColumnOrder([...initialColumns].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(c => c.key));
+    setColumnOrder(
+      pinAuditColumnsLast(
+        [...initialColumns].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((c) => c.key),
+      ),
+    );
   }, [initialColumns]);
 
   const handleResetWidths = useCallback(() => {
@@ -770,7 +829,7 @@ export function useTableState(
         return acc;
       }, {}),
     );
-    setColumnOrder(clean.map((c) => c.key));
+    setColumnOrder(pinAuditColumnsLast(clean.map((c) => c.key)));
     localStorage.removeItem(TABLE_PREFS_KEY);
     setActiveViewId(null);
   }, [initialColumns]);
@@ -864,7 +923,7 @@ export function useTableState(
     pendingDelete, setPendingDelete,
     pendingEdit, setPendingEdit, handleUndoEdit,
     columnWidths, columnOrder, columnVisibility, highlightedColKey, transitioningCols,
-    handleColumnWidthChange, handleColumnReorder,
+    handleColumnWidthChange, handleColumnWidthsChange, handleColumnReorder,
     handleToggleColumnVisibility, handlePatchColumnVisibility, handlePinColumn, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
     handleDeleteCompositeColumn, handleUpdateCompositeColumn,
     handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset,
