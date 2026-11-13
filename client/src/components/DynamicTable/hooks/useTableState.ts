@@ -30,10 +30,44 @@ import { seedLookupRow } from '../editors/lookupSeeds';
 import { setLookupDisplayOverrides } from '../editors/lookupDisplayOverrides';
 import type { BulkLookupPickMeta } from '../components/BulkLookupPicker';
 import type { BulkAssigneePickMeta } from '../components/BulkAssigneePicker';
-import { seedAssigneeLabels } from '../editors/assigneeLabels';
+import { getAssigneeLabel, seedAssigneeLabels } from '../editors/assigneeLabels';
 import { useDebouncedRowSave } from './useDebouncedRowSave';
 export type { TableStateHandlers } from './tableState/types';
 import type { TableStateHandlers } from './tableState/types';
+import { isFieldColumn } from '../types';
+
+const looksLikeUserId = (value: unknown) => {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  return (
+    /^[a-f0-9]{24}$/i.test(s) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+  );
+};
+
+/** Paint assignee cells with names in `values`, keep ids in `rawValues` for the next edit. */
+const applyAssigneePaint = (
+  row: DataRow,
+  colKey: string,
+  newValue: unknown,
+  columns: ColumnConfig[],
+): DataRow => {
+  const col = columns.find((c) => c.key === colKey);
+  if (!isFieldColumn(col) || !col.userTags) {
+    return { ...row, values: { ...row.values, [colKey]: newValue } };
+  }
+  const ids = (Array.isArray(newValue) ? newValue : newValue != null && newValue !== '' ? [newValue] : [])
+    .map(String)
+    .filter(Boolean);
+  const labels = ids.map((id) => getAssigneeLabel(id) || (looksLikeUserId(id) ? '…' : id));
+  const display =
+    col.userTags.multiple === true || Array.isArray(newValue) ? labels : labels[0] || '';
+  return {
+    ...row,
+    values: { ...row.values, [colKey]: display },
+    rawValues: { ...(row.rawValues || row.values), [colKey]: newValue },
+  };
+};
 
 const sanitizeColumns = (cols: ColumnConfig[]): ColumnConfig[] => {
   return cols.map((col, idx) => ({
@@ -373,7 +407,7 @@ export function useTableState(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialColumns, tableId, defaultDensity]);
 
-  // Soft-sync row data from parent without wiping sort / filters / selection.
+  // Keep local rows in sync with parent (server / React Query cache). No local overlay.
   useEffect(() => {
     if (skipInitialRowsSync.current) {
       skipInitialRowsSync.current = false;
@@ -621,39 +655,47 @@ export function useTableState(
 
   const handleClearSelection = useCallback(() => setSelectedRows(new Set()), []);
 
-  // Coalesce rapid inline edits into one PATCH per row (optimistic UI still instant).
-  const { queueSave, flushRow, flushAll, cancelRow } = useDebouncedRowSave(onRowUpdate);
+  // Coalesce rapid inline edits into one PATCH per row.
+  const { queueSave, flushRow, flushAll, cancelRow } = useDebouncedRowSave(onRowUpdate, 450);
 
   // ── Inline edit ────────────────────────────────────────────────────────────
-  // Queue saves OUTSIDE the setState updater — React Strict Mode runs updaters
-  // twice in dev, which was double-saving and clearing the lookup pick mid-flight.
+  // Double-click cell edits PATCH immediately — people move cell-to-cell fast;
+  // debounce was dropping clears/picks before the request left the browser.
   const handleCellSave = useCallback((rowId: string, colKey: string, newValue: unknown) => {
     let updated: DataRow | undefined;
-    setRows(prev => {
-      const next = prev.map(r =>
-        r.rowId === rowId ? { ...r, values: { ...r.values, [colKey]: newValue } } : r
+    setRows((prev) => {
+      const next = prev.map((r) =>
+        r.rowId === rowId ? applyAssigneePaint(r, colKey, newValue, columns) : r,
       );
-      updated = next.find(r => r.rowId === rowId);
+      updated = next.find((r) => r.rowId === rowId);
       return next;
     });
     setEditingCell(null);
-    if (updated) queueSave(rowId, { [colKey]: newValue }, updated);
-  }, [queueSave]);
+    if (!updated || !onRowUpdate) return;
+    cancelRow(rowId);
+    void onRowUpdate(rowId, { [colKey]: newValue }, updated);
+  }, [cancelRow, columns, onRowUpdate]);
 
-  /** One local paint + one queued onRowUpdate for multi-cell patches (lookup group fill). */
+  /** One local paint + one immediate onRowUpdate for multi-cell patches (lookup group fill). */
   const handleCellsSave = useCallback((rowId: string, updates: Record<string, unknown>) => {
     if (!updates || Object.keys(updates).length === 0) return;
     let updated: DataRow | undefined;
-    setRows(prev => {
-      const next = prev.map(r =>
-        r.rowId === rowId ? { ...r, values: { ...r.values, ...updates } } : r
-      );
-      updated = next.find(r => r.rowId === rowId);
+    setRows((prev) => {
+      const next = prev.map((r) => {
+        if (r.rowId !== rowId) return r;
+        return Object.entries(updates).reduce(
+          (acc, [key, val]) => applyAssigneePaint(acc, key, val, columns),
+          r,
+        );
+      });
+      updated = next.find((r) => r.rowId === rowId);
       return next;
     });
     setEditingCell(null);
-    if (updated) queueSave(rowId, updates, updated);
-  }, [queueSave]);
+    if (!updated || !onRowUpdate) return;
+    cancelRow(rowId);
+    void onRowUpdate(rowId, updates, updated);
+  }, [cancelRow, columns, onRowUpdate]);
 
   const handleRowDraftChange = useCallback((rowId: string, colKey: string, newValue: unknown) => {
     setRowDrafts(prev => ({

@@ -67,9 +67,12 @@ const MODIFY_BY_KEYS = new Set([
 export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
   (fields || []).map((field, index) => {
     const userTagsField = isUserTagsField(field);
-    // User-tag assignees: Multiselect dropdown (or allowMultiple) → multi; Dropdown → one person.
+    // User-tag assignees follow the field type only: Dropdown/Status = one person;
+    // Multiselect/Tags = many. Ignore stale allowMultiple (older saves forced multi).
+    const userTagsMultiple =
+      userTagsField && (field.dataType === 'multiselect' || field.dataType === 'tags');
     const dataType = userTagsField
-      ? field.dataType === 'multiselect' || field.allowMultiple
+      ? userTagsMultiple
         ? 'multiselect'
         : 'dropdown'
       : toTableDataType(field);
@@ -126,7 +129,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
       userTags: userTagsField
         ? {
             tagIds: (field.userTagIds || []).map(String),
-            multiple: field.dataType === 'multiselect' || Boolean(field.allowMultiple),
+            multiple: Boolean(userTagsMultiple),
           }
         : undefined,
       required: Boolean(field.required) && !isAuto,

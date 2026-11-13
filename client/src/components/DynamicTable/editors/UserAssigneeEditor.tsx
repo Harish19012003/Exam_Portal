@@ -1,17 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CellEditorProps } from '../types';
 import { isFieldColumn } from '../types';
-import { listAssignableUsers } from '../../../pages/exams/assigneeApi';
+import { useAssignablePeople } from '../../../pages/exams/useAssignablePeople';
 import {
   findAssigneeIdByLabel,
-  formatAssigneeDisplay,
   getAssigneeLabel,
   seedAssigneeLabels,
 } from './assigneeLabels';
 import './UserAssigneeEditor.css';
-
-type Person = { id: string; name: string; email: string; user_code?: string; tag_ids?: string[] };
 
 const looksLikeUserId = (value: string) => {
   const s = String(value || '').trim();
@@ -38,96 +35,100 @@ const coerceAssigneeIds = (value: unknown): string[] => {
   return out;
 };
 
+const menuPosFor = (el: HTMLElement | null) => {
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  const width = Math.min(Math.max(r.width, 300), Math.min(380, window.innerWidth - 16));
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+  const below = window.innerHeight - r.bottom - 12;
+  const above = r.top - 12;
+  const up = below < 280 && above > below;
+  return up
+    ? {
+        left,
+        width,
+        bottom: window.innerHeight - r.top + 4,
+        maxHeight: Math.max(220, Math.min(400, above)),
+      }
+    : {
+        left,
+        width,
+        top: r.bottom + 4,
+        maxHeight: Math.max(220, Math.min(400, below)),
+      };
+};
+
 /** People filtered by the field's user tags. Dropdown = one id; Multiselect dropdown = id[]. */
 export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode, autoFocus }: CellEditorProps) {
   const tagIds = isFieldColumn(column) ? column.userTags?.tagIds || [] : [];
-  const multiple = !isFieldColumn(column) || column.userTags?.multiple !== false;
+  // Explicit true only — Dropdown fields must stay single-select.
+  const multiple = isFieldColumn(column) && column.userTags?.multiple === true;
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const committedRef = useRef(false);
 
   const [query, setQuery] = useState('');
-  const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string[]>(() => {
     const ids = coerceAssigneeIds(value);
     return multiple ? ids : ids.slice(0, 1);
   });
-  const [labels, setLabels] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [active, setActive] = useState(false);
+  // Open immediately when the cell editor mounts (autoFocus) — don't wait for a second click.
+  const [active, setActive] = useState(Boolean(autoFocus));
   const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(
     null,
   );
 
-  const load = useCallback(async () => {
-    if (!tagIds.length) {
-      setPeople([]);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const rows = await listAssignableUsers(tagIds);
-      setPeople(rows);
-      seedAssigneeLabels(rows);
-      setLabels((prev) => {
-        const next = { ...prev };
-        rows.forEach((p) => {
-          next[p.id] = formatAssigneeDisplay(p) || p.id;
-        });
-        return next;
-      });
-    } catch (err) {
-      const e = err as { response?: { data?: { message?: string } }; message?: string };
-      setError(e?.response?.data?.message || e?.message || 'Could not load people');
-    } finally {
-      setLoading(false);
-    }
-  }, [tagIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (active) void load();
-  }, [active, load]);
+  // Paginated + server search. Scroll loads more; typing searches after a short debounce.
+  const { people, labels, loading, loadingMore, hasMore, loadMore, error, total } = useAssignablePeople(
+    tagIds,
+    { enabled: true, search: query },
+  );
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
   }, [autoFocus]);
 
   useLayoutEffect(() => {
-    const el = inputRef.current;
-    if (!active || !el) return;
-    const r = el.getBoundingClientRect();
-    const width = Math.min(Math.max(r.width, 300), Math.min(380, window.innerWidth - 16));
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    const below = window.innerHeight - r.bottom - 12;
-    const above = r.top - 12;
-    const up = below < 280 && above > below;
-    setPos(
-      up
-        ? { left, width, bottom: window.innerHeight - r.top + 4, maxHeight: Math.max(220, Math.min(400, above)) }
-        : { left, width, top: r.bottom + 4, maxHeight: Math.max(220, Math.min(400, below)) },
-    );
+    if (!active) {
+      setPos(null);
+      return;
+    }
+    setPos(menuPosFor(inputRef.current));
   }, [active]);
 
   const paintAndSave = useCallback(
-    (ids: string[]) => {
+    (ids: string[], opts?: { force?: boolean }) => {
+      // Clear must always save even if a prior pick in this open already committed.
+      if (committedRef.current && !opts?.force) return;
+      committedRef.current = true;
       const clean = ids.filter(looksLikeUserId);
       seedAssigneeLabels(
-        clean.map((id) => {
-          const person = people.find((p) => p.id === id);
-          return {
-            id,
-            name: person?.name || labels[id] || getAssigneeLabel(id) || id,
-            email: person?.email,
-            user_code: person?.user_code,
-          };
-        }),
+        clean
+          .map((id) => {
+            const person = people.find((p) => p.id === id);
+            const name = person?.name || labels[id] || getAssigneeLabel(id) || '';
+            if (!name || name === id) return null;
+            return {
+              id,
+              name,
+              email: person?.email,
+              user_code: person?.user_code,
+            };
+          })
+          .filter(Boolean) as Array<{
+          id: string;
+          name: string;
+          email?: string;
+          user_code?: string | null;
+        }>,
       );
-      // Single-select fields persist one id string; multi persists id[].
       onSave(multiple ? clean : clean[0] || '');
     },
     [labels, people, onSave, multiple],
   );
+
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
 
   useEffect(() => {
     if (!active) return undefined;
@@ -135,24 +136,17 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
       const t = e.target as Node;
       if (inputRef.current?.contains(t) || menuRef.current?.contains(t)) return;
       setActive(false);
-      paintAndSave(selected);
+      paintAndSave(selectedRef.current);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [active, selected, paintAndSave]);
+  }, [active, paintAndSave]);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.email.toLowerCase().includes(q) ||
-        String(p.user_code || '')
-          .toLowerCase()
-          .includes(q),
-    );
-  }, [people, query]);
+  const onListScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (!hasMore || loadingMore) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) loadMore();
+  };
 
   const toggle = (id: string) => {
     if (!multiple) {
@@ -171,10 +165,11 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
   const border = dark ? '#1f2937' : '#e5e7eb';
   const bg = dark ? '#111827' : '#ffffff';
   const fg = dark ? '#f3f4f6' : '#030712';
-  const muted = dark ? '#9ca3af' : '#6b7280';
 
   const summary =
-    selected.length === 0 ? '' : selected.map((id) => labels[id] || id).join(', ');
+    selected.length === 0
+      ? ''
+      : selected.map((id) => labels[id] || getAssigneeLabel(id) || id).join(', ');
 
   if (!isFieldColumn(column) || !column.userTags) return null;
 
@@ -198,7 +193,15 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
           }
           if (e.key === 'Enter') {
             e.preventDefault();
-            commit();
+            if (multiple) commit();
+            else if (people[0]) {
+              const next = [people[0].id];
+              setSelected(next);
+              setActive(false);
+              paintAndSave(next);
+            } else {
+              commit();
+            }
           }
         }}
         aria-label={
@@ -247,9 +250,9 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
               border: `1px solid ${border}`,
             }}
           >
-            <div className="ua-menu__list">
+            <div className="ua-menu__list" onScroll={onListScroll}>
               {!tagIds.length && <div className="ua-menu__empty">No tags configured on this field.</div>}
-              {shown.map((p) => {
+              {people.map((p) => {
                 const on = selected.includes(p.id);
                 return (
                   <button
@@ -258,18 +261,24 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
                     role="option"
                     aria-selected={on}
                     className={`ua-menu__row${on ? (dark ? ' is-on-dark' : ' is-on') : ''}`}
-                    onClick={() => {
+                    onMouseDown={(e) => {
+                      // mousedown: commit before document outside-handler / blur can cancel.
+                      e.preventDefault();
+                      e.stopPropagation();
                       if (!multiple) {
-                        const next = selected.includes(p.id) ? [] : [p.id];
+                        const next = [p.id];
                         setSelected(next);
                         setActive(false);
-                        paintAndSave(next);
+                        paintAndSave(next, { force: true });
                         return;
                       }
                       toggle(p.id);
                     }}
                   >
-                    <span className={`ua-menu__check${on ? ' is-on' : ''}`} aria-hidden="true" />
+                    <span
+                      className={`ua-menu__check${multiple ? '' : ' is-radio'}${on ? ' is-on' : ''}`}
+                      aria-hidden="true"
+                    />
                     <span className="ua-menu__meta">
                       <span className="ua-menu__name">
                         {p.name}
@@ -285,31 +294,43 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
                   </button>
                 );
               })}
-              {loading && <div className="ua-menu__empty">Loading…</div>}
+              {loading && people.length === 0 && <div className="ua-menu__empty">Loading…</div>}
+              {loadingMore && <div className="ua-menu__empty">Loading more…</div>}
+              {!loading && !loadingMore && hasMore && (
+                <button type="button" className="ua-menu__empty ua-menu__more" onClick={loadMore}>
+                  Show more{total ? ` (${people.length}/${total})` : ''}
+                </button>
+              )}
               {!loading && error && (
                 <div className="ua-menu__empty is-error" role="alert">
                   {error}
                 </div>
               )}
-              {!loading && !error && tagIds.length > 0 && shown.length === 0 && (
-                <div className="ua-menu__empty">No people with those tags</div>
+              {!loading && !error && tagIds.length > 0 && people.length === 0 && (
+                <div className="ua-menu__empty">
+                  {query.trim() ? 'No people match that search' : 'No people with those tags'}
+                </div>
               )}
             </div>
             <div className={`ua-menu__foot${dark ? ' is-dark' : ''}`}>
               <button
                 type="button"
                 className="ua-menu__btn"
-                onClick={() => {
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setSelected([]);
                   setActive(false);
-                  paintAndSave([]);
+                  paintAndSave([], { force: true });
                 }}
               >
                 Clear
               </button>
-              <button type="button" className="ua-menu__btn ua-menu__btn--primary" onClick={commit}>
-                Done{selected.length ? ` (${selected.length})` : ''}
-              </button>
+              {multiple ? (
+                <button type="button" className="ua-menu__btn ua-menu__btn--primary" onClick={commit}>
+                  Done{selected.length ? ` (${selected.length})` : ''}
+                </button>
+              ) : null}
             </div>
           </div>,
           document.body,

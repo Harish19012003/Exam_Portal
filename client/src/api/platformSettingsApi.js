@@ -8,6 +8,7 @@ export const PLATFORM_DEFAULTS = {
   logo_url: '',
   favicon_url: '',
   default_timezone: 'Asia/Kolkata',
+  heading_font: '',
   maintenance: { enabled: false, message: '' },
 };
 
@@ -32,6 +33,7 @@ export const fetchPublicBranding = async () => {
     portal_name: data?.portal_name || PLATFORM_DEFAULTS.portal_name,
     logo_url: data?.logo_url || '',
     favicon_url: data?.favicon_url || '',
+    heading_font: data?.heading_font || '',
   };
 };
 

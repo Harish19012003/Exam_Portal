@@ -32,10 +32,15 @@ const normalizeFieldList = (fields) =>
     order: def.order ?? i + 1,
   }));
 
-export const effectiveType = (def) =>
-  (def?.dataType === 'dropdown' || def?.dataType === 'status') && def?.allowMultiple
+export const effectiveType = (def) => {
+  // User-tag assignees follow the field type only (ignore stale allowMultiple).
+  if (def?.optionsSource === 'userTags') {
+    return def.dataType === 'multiselect' || def.dataType === 'tags' ? 'multiselect' : 'text';
+  }
+  return (def?.dataType === 'dropdown' || def?.dataType === 'status') && def?.allowMultiple
     ? 'multiselect'
     : def?.dataType || 'text';
+};
 
 /** @deprecated no SQL column types */
 export const columnSqlType = () => 'json';
