@@ -2,7 +2,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--page-gap, 12px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -16,6 +16,7 @@
  * overridden here or icons drop onto their own row.
  */
 .exams-page-heading-row {
+  min-height: var(--page-heading-min-h);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-areas: 'title pills actions';
@@ -4226,4 +4227,8 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-date-shifts-select-picker {
     max-width: none;
   }
+}
+
+.exams-title {
+  font-family: var(--font-display);
 }

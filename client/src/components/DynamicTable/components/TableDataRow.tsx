@@ -373,6 +373,18 @@ function TableDataRowComponent({
             ? draftValue
             : row.values[col.key];
 
+        // Assignees / table-lookups show labels in `values` but persist ids in `rawValues`.
+        // Editors must receive ids or a blur/save will write the label and get reverted.
+        const editorValue = (() => {
+          if (isComposite) return undefined;
+          if (isEditingThisRow && draftValue !== undefined) return draftValue;
+          const field = isFieldColumn(targetColConfig) ? targetColConfig : null;
+          if (field && (field.userTags || field.lookup) && row.rawValues && field.key in row.rawValues) {
+            return row.rawValues[field.key];
+          }
+          return row.values[col.key];
+        })();
+
         const isEditingThisCell =
           (isEditingCellRow && editingCellColKey === col.key) ||
           (isEditingThisRow && canEdit && !isComposite);
@@ -490,7 +502,7 @@ function TableDataRowComponent({
                   onFocus={() => onSetFocusedCell({ rowId: row.rowId, colKey: col.key })}
                 >
                   <CellEditor
-                    value={displayValue}
+                    value={editorValue}
                     row={row}
                     column={targetColConfig}
                     // Must be row-scoped: col-only autoFocus opens every lookup menu in multi-edit.

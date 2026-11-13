@@ -288,7 +288,7 @@ export const SettingsPage = () => {
         {/* 2. MESSAGE TEMPLATES */}
         {activeTab === 'templates' && (
           <div className="settings-panel-view">
-            <MessageTemplatesTab />
+            <MessageTemplatesTab actionsSlot={actionsSlot} />
           </div>
         )}
 

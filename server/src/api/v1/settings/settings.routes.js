@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as settingsController from './settings.controller.js';
 import * as platformSettingsController from './platform-settings.controller.js';
+import * as messageTemplatesController from './message-templates.controller.js';
 import * as emailIntegrationController from './integration-email.controller.js';
 import * as storageIntegrationController from './integration-storage.controller.js';
 import * as pushIntegrationController from './integration-push.controller.js';
@@ -9,6 +10,9 @@ import { requireTable, requirePage, requireSuperAdmin } from '../../../core/acce
 import { ROLES } from '@exam-view/shared';
 
 const router = Router();
+
+/** Public branding for login / landing (favicon + portal name) — no auth. */
+router.get('/platform/branding', platformSettingsController.getPublicBranding);
 
 router.use(authenticate);
 
@@ -25,6 +29,13 @@ router.put(
 /** Platform settings: everyone reads (name, banner); the Settings page right can change them */
 router.get('/platform', platformSettingsController.getPlatformSettings);
 router.put('/platform', requirePage('settings'), platformSettingsController.putPlatformSettings);
+router.post('/platform/branding/signature', requireSuperAdmin, platformSettingsController.getBrandingUploadSignature);
+
+// Email templates: super admin only (they decide what every user receives)
+router.get('/message-templates', requireSuperAdmin, messageTemplatesController.list);
+router.put('/message-templates/:id', requireSuperAdmin, messageTemplatesController.save);
+router.delete('/message-templates/:id', requireSuperAdmin, messageTemplatesController.reset);
+router.post('/message-templates/:id/test', requireSuperAdmin, messageTemplatesController.sendTest);
 
 /** Integrations (credentials): Super Admin only */
 router.get('/integrations/email', requireSuperAdmin, emailIntegrationController.getEmail);

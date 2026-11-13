@@ -15,8 +15,15 @@ export const usePlatformSettings = () => {
   return { ...query, settings: query.data || PLATFORM_DEFAULTS };
 };
 
-/** Write a saved value straight into the cache so the sidebar / banner / footer update at once. */
+/** Write a saved value straight into the cache so the sidebar / banner / footer / tab icon update at once. */
 export const useSetPlatformSettingsCache = () => {
   const queryClient = useQueryClient();
-  return (next) => queryClient.setQueryData(queryKeys.platformSettings, next);
+  return (next) => {
+    queryClient.setQueryData(queryKeys.platformSettings, next);
+    queryClient.setQueryData(queryKeys.platformBranding, {
+      portal_name: next?.portal_name || PLATFORM_DEFAULTS.portal_name,
+      logo_url: next?.logo_url || '',
+      favicon_url: next?.favicon_url || '',
+    });
+  };
 };

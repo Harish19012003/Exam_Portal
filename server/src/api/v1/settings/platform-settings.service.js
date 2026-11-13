@@ -6,6 +6,9 @@
 import * as settingsRepository from './settings.repository.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
+import { URL } from 'node:url';
+import { CLOUDINARY_PATHS } from '../../../integrations/cloudinary.js';
+import { getCloudinaryConfig } from '../../../services/cloudinary-config.service.js';
 
 export const PLATFORM_SETTINGS_KEY = 'platform_settings';
 
@@ -21,6 +24,8 @@ export const ALLOWED_TIMEZONES = [
 export const PLATFORM_DEFAULTS = Object.freeze({
   portal_name: 'Exam View',
   support_email: '',
+  logo_url: '',
+  favicon_url: '',
   default_timezone: 'Asia/Kolkata',
   maintenance: Object.freeze({ enabled: false, message: '' }),
 });
@@ -36,6 +41,8 @@ const withDefaults = (raw) => {
   return {
     portal_name: str(input.portal_name) || PLATFORM_DEFAULTS.portal_name,
     support_email: str(input.support_email),
+    logo_url: str(input.logo_url),
+    favicon_url: str(input.favicon_url),
     default_timezone: ALLOWED_TIMEZONES.includes(input.default_timezone)
       ? input.default_timezone
       : PLATFORM_DEFAULTS.default_timezone,
@@ -46,9 +53,34 @@ const withDefaults = (raw) => {
   };
 };
 
+export const BRANDING_KINDS = ['logo', 'favicon'];
+export const brandingPublicId = (kind) => `${CLOUDINARY_PATHS.BRANDING}/${kind}`;
+
+/** A branding image must be one of OUR Cloudinary uploads for that slot — never an arbitrary link. */
+const isOwnBrandingUrl = (rawUrl, kind, cloudName) => {
+  try {
+    const url = new URL(String(rawUrl));
+    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com') {return false;}
+    const path = decodeURIComponent(url.pathname);
+    return path.startsWith(`/${cloudName}/image/upload/`) && path.includes(`/${brandingPublicId(kind)}`);
+  } catch {
+    return false;
+  }
+};
+
 export const getPlatformSettings = async () => {
   const row = await settingsRepository.getSetting(PLATFORM_SETTINGS_KEY);
   return withDefaults(row?.setting_value);
+};
+
+/** Safe subset for login / pre-auth pages (no support email or maintenance internals). */
+export const getPublicBranding = async () => {
+  const s = await getPlatformSettings();
+  return {
+    portal_name: s.portal_name,
+    logo_url: s.logo_url,
+    favicon_url: s.favicon_url,
+  };
 };
 
 const invalid = (message) => new AppError(message, 400, ERROR_CODES.VALIDATION_ERROR);
@@ -71,6 +103,15 @@ export const validatePlatformPatch = (body) => {
     patch.support_email = email;
   }
 
+  for (const kind of BRANDING_KINDS) {
+    const field = `${kind}_url`;
+    if (body[field] !== undefined) {
+      const value = str(body[field]);
+      if (value.length > 500) {throw invalid(`The ${kind} link is too long`);}
+      patch[field] = value;
+    }
+  }
+
   if (body.default_timezone !== undefined) {
     if (!ALLOWED_TIMEZONES.includes(body.default_timezone)) {throw invalid('Unsupported timezone');}
     patch.default_timezone = body.default_timezone;
@@ -90,6 +131,13 @@ export const validatePlatformPatch = (body) => {
 
 export const savePlatformSettings = async (body, updatedBy) => {
   const patch = validatePlatformPatch(body);
+  for (const kind of BRANDING_KINDS) {
+    const value = patch[`${kind}_url`];
+    if (value) {
+      const config = await getCloudinaryConfig();
+      if (!isOwnBrandingUrl(value, kind, config.cloud_name)) {throw invalid(`Invalid ${kind} image`);}
+    }
+  }
   const current = await getPlatformSettings();
   const next = { ...current, ...patch };
   await settingsRepository.upsertSetting(

@@ -1,0 +1,51 @@
+.hero-il {
+  /* Portal theme: deep-blue outlines, brand-blue solids, pale-blue tints */
+  --il-ink: #172554;
+  --il-brand: #2563eb;
+  --il-brand-deep: #1d4ed8;
+  --il-paper: #ffffff;
+  --il-soft: #eaf1ff;
+  --il-mid: #cddcf8;
+  --il-dark: #8fb0ee;
+  --il-grid: #d6e2f5;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  overflow: visible;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+:root[data-theme='dark'] .hero-il {
+  --il-ink: #bfdbfe;
+  --il-brand: #3b82f6;
+  --il-brand-deep: #2563eb;
+  --il-paper: #0b1220;
+  --il-soft: #14203a;
+  --il-mid: #22335a;
+  --il-dark: #3b5a9a;
+  --il-grid: #1e2d4d;
+}
+.hero-il .il-paper { fill: var(--il-paper); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-soft { fill: var(--il-soft); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-mid { fill: var(--il-mid); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-dark { fill: var(--il-dark); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-ink { fill: var(--il-brand); stroke: var(--il-brand-deep); stroke-width: 0.9; }
+.hero-il .il-stroke { fill: none; stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-bold { fill: none; stroke: var(--il-ink); stroke-width: 2.4; }
+.hero-il .il-thin { fill: none; stroke: var(--il-dark); stroke-width: 0.7; stroke-dasharray: 2 3; }
+.hero-il .il-grid { fill: none; stroke: var(--il-grid); stroke-width: 0.6; }
+.hero-il .il-dot { fill: var(--il-paper); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-gear { fill: var(--il-paper); stroke: var(--il-ink); stroke-width: 5; stroke-dasharray: 3 2.4; }
+.hero-il .il-gear--sm { stroke-width: 4; }
+.hero-il .il-floor { fill: var(--il-soft); stroke: none; opacity: 0.45; }
+.hero-il .il-glyph { fill: none; stroke: var(--il-brand); stroke-width: 2.2; }
+.hero-il .il-shadow { fill: rgba(15, 23, 42, 0.1); stroke: none; }
+:root[data-theme='dark'] .hero-il .il-shadow { fill: rgba(0, 0, 0, 0.35); }
+.hero-il .il-rod { stroke: var(--il-dark); stroke-width: 3; stroke-linecap: butt; }
+.hero-il .il-circuit { fill: var(--il-soft); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-ring { fill: var(--il-soft); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-thin-solid { fill: none; stroke: var(--il-dark); stroke-width: 0.6; }
+.hero-il .il-hatch { fill: var(--il-mid); stroke: var(--il-ink); stroke-width: 0.9; }
+.hero-il .il-letter { fill: var(--il-ink); font: 700 26px Georgia, 'Times New Roman', serif; }
+.hero-il .il-cursor { fill: var(--il-ink); stroke: var(--il-paper); stroke-width: 1; }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useToast } from '../components/ui/Toast';
 import { Button, IconButton } from '../components/Button';
-import { PageHeading } from '../components/PageHeading';
+import { PageHeading, PageShell } from '../components/PageHeading';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { ListPlus, Plus, SlidersHorizontal } from 'lucide-react';
 import { apiClient } from '../api/client';
@@ -290,10 +290,7 @@ export const VendorsPage = () => {
   };
 
   return (
-    <div
-      className="tables-page--dynamic"
-      style={{ padding: '0', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, minHeight: 0, height: '100%' }}
-    >
+    <PageShell fill className="tables-page--dynamic">
       {/* Page Header */}
       <PageHeading
         title="Vendor Data"
@@ -424,7 +421,7 @@ export const VendorsPage = () => {
           onAdd={handleAddFields}
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 

@@ -8,6 +8,8 @@ import { getOrm, getEm } from '../../../database/connection.js';
 import { User, UserTag } from '../../../database/entities/index.js';
 import { deleteSetting } from '../settings/settings.repository.js';
 import { getPlatformSettings } from '../settings/platform-settings.service.js';
+import { sendTemplatedEmail } from '../../../services/templated-email.js';
+import { logger } from '../../../core/logger.js';
 
 const MAX_TAGS_PER_USER = 30;
 
@@ -98,6 +100,11 @@ export const createUser = async (userData, creatorUser) => {
     last_active_at: new Date(),
     permissions: JSON.stringify(userPermissions),
   });
+
+  // Welcome email (editable / switchable in Settings > Message Templates). Never blocks or fails account creation.
+  sendTemplatedEmail('welcome', userData.email, { first_name: userData.first_name || 'there', email: userData.email }).catch(
+    (err) => logger.warn(`Could not send welcome email to ${userData.email}: ${err.message}`),
+  );
 
   return await getUserById(userId);
 };

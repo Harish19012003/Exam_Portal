@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { UserGroupTabs, UserGroupModal } from './users/UserGroupTabs';
 import { UserAccessModal } from './users/UserAccessModal';
 import { AssignTagsDialog, ManageTagsDialog } from './users/UserTagDialogs';
-import { PageHeading } from '../components/PageHeading';
+import { PageHeading, PageShell } from '../components/PageHeading';
 import { apiClient } from '../api/client';
 import { useConfirm, useFeedback } from '../feedback';
 import { useToast } from '../components/ui/Toast';
@@ -32,7 +32,6 @@ import {
   X,
   AlertTriangle,
   Mail,
-  UploadCloud,
   Eye,
   EyeOff,
   Zap,
@@ -1341,15 +1340,6 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           </button>
           <button
             type="button"
-            className="bulk-upload-trigger-btn"
-            onClick={() => setIsBulkUploadModalOpen(true)}
-            title="Bulk Import"
-            aria-label="Bulk Import"
-          >
-            <UploadCloud size={18} />
-          </button>
-          <button
-            type="button"
             className="add-user-btn"
             onClick={() => setIsCreateModalOpen(true)}
             title="Add New User"
@@ -1373,7 +1363,7 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
   );
 
   return (
-    <div className={`users-page ${embedded ? 'embedded' : 'tables-page--dynamic'}`}>
+    <PageShell className={`users-page ${embedded ? 'embedded' : 'tables-page--dynamic'}`}>
       {/* Top Header (Non-embedded only) */}
       {!embedded && (
         <PageHeading
@@ -2207,6 +2197,6 @@ export const UsersPage = ({ embedded = false, actionsSlot = null }) => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };

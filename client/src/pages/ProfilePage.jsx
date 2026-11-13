@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useUrlState } from '../hooks/useUrlState';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { PageHeading } from '../components/PageHeading';
+import { PageHeading, PageShell } from '../components/PageHeading';
 import { DynamicDropdown } from '../components/DynamicData';
 import {
   requestAvatarSignature,
@@ -11,6 +11,7 @@ import {
   removeAvatar,
 } from '../api/avatarApi';
 import { optimizedAvatarUrl, validateAvatarFile } from '../utils/avatarImage';
+import { ImageCropDialog } from '../components/ImageCropDialog';
 import {
   User,
   Mail,
@@ -127,6 +128,7 @@ export const ProfilePage = () => {
   const [permQuery, setPermQuery] = useState('');
   const [permAction, setPermAction] = useState('all');
   const avatarInputRef = useRef(null);
+  const [avatarPicked, setAvatarPicked] = useState(null);
   const avatarMenuRef = useRef(null);
   const avatarTriggerRef = useRef(null);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
@@ -275,16 +277,27 @@ export const ProfilePage = () => {
     if (!file) return;
     setSuccessMsg('');
     setError('');
-    setAvatarBusy(true);
     try {
       validateAvatarFile(file);
+      setAvatarPicked(file);
+    } catch (err) {
+      setError(err.message || 'Could not open that image');
+    }
+  };
+
+  // Called by the crop dialog: only the adjusted square is uploaded.
+  const uploadCroppedAvatar = async (cropped) => {
+    setAvatarBusy(true);
+    try {
       const signature = await requestAvatarSignature();
-      const uploaded = await uploadAvatarToCloudinary(file, signature);
+      const uploaded = await uploadAvatarToCloudinary(cropped, signature);
       const saved = await saveAvatar({ secure_url: uploaded.secure_url, public_id: uploaded.public_id });
       applyAvatar(saved?.avatar_url || uploaded.secure_url);
       setSuccessMsg('Profile photo updated');
       setTimeout(() => setSuccessMsg(''), 4000);
+      setAvatarPicked(null);
     } catch (err) {
+      setAvatarPicked(null);
       setError(err.response?.data?.message || err.message || 'Could not upload your photo');
     } finally {
       setAvatarBusy(false);
@@ -497,7 +510,7 @@ export const ProfilePage = () => {
   };
 
   return (
-    <div className="profile-page">
+    <PageShell className="profile-page">
       <PageHeading
         title="Profile & Security"
         subtitle="Manage your personal details, password and access rights"
@@ -1370,6 +1383,18 @@ export const ProfilePage = () => {
           </div>
         </div>
       )}
-    </div>
+      {avatarPicked && (
+        <ImageCropDialog
+          file={avatarPicked}
+          title="Adjust your photo"
+          outputSize={512}
+          shapes={['square']}
+          defaultShape="square"
+          previewSizes={[96, 40]}
+          onCancel={() => setAvatarPicked(null)}
+          onConfirm={uploadCroppedAvatar}
+        />
+      )}
+    </PageShell>
   );
 };

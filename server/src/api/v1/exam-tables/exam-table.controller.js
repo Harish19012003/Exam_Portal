@@ -133,7 +133,7 @@ export const updateRow = handle(async (req) => {
   );
 });
 
-/** Mass Edit: patch many rows (by ids) or every row in the exam table. */
+/** Mass Edit: patch many rows (by ids), by search/filters, or every row in the exam table. */
 export const bulkUpdateRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'edit');
@@ -142,14 +142,18 @@ export const bulkUpdateRows = handle(async (req) => {
   const values = writableValues(req, TABLE, req.body?.values, autoFillKeys(fields));
   assertWritable(req, TABLE, values, {});
   const all = Boolean(req.body?.all);
-  if (!all) {
+  const filters = req.body?.filters && typeof req.body.filters === 'object' ? req.body.filters : undefined;
+  const search = typeof req.body?.search === 'string' ? req.body.search : undefined;
+  const searchKeys = Array.isArray(req.body?.searchKeys) ? req.body.searchKeys.map(String) : undefined;
+  const useFilter = !all && (Boolean(String(search || '').trim()) || (filters && Object.keys(filters).length > 0));
+  if (!all && !useFilter) {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
     const found = await service.getRowsByIds(req.params.examId, ids);
     found.forEach((row) => assertRowVisible(req, TABLE, ruleValues(req, row), fields));
   }
   return service.bulkUpdateRows(
     req.params.examId,
-    { values, ids: req.body?.ids, all, view },
+    { values, ids: req.body?.ids, all, filters, search, searchKeys, view },
     req.user?.id,
   );
 });

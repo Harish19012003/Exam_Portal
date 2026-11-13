@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
+  ImagePlus,
+  Trash2,
+  Loader2,
   Mail,
   Globe,
   Megaphone,
@@ -19,7 +22,10 @@ import { useAccess } from '../../hooks/useAccess';
 import { EmailSettingsPanel } from './EmailSettingsPanel';
 import { StorageSettingsPanel } from './StorageSettingsPanel';
 import { PushSettingsPanel } from './PushSettingsPanel';
-import { savePlatformSettings, TIMEZONE_OPTIONS } from '../../api/platformSettingsApi';
+import { savePlatformSettings, requestBrandingSignature, TIMEZONE_OPTIONS } from '../../api/platformSettingsApi';
+import { ImageCropDialog } from '../../components/ImageCropDialog';
+import { uploadAvatarToCloudinary } from '../../api/avatarApi';
+import { optimizedLogoUrl, optimizedFaviconUrl, validateBrandingFile } from '../../utils/brandingImage';
 import './PlatformSettingsTab.css';
 
 const TIMEZONE_LABELS = TIMEZONE_OPTIONS.map((o) => o.label);
@@ -40,8 +46,82 @@ const useIsDark = () => {
   return dark;
 };
 
+/** One upload slot (logo or favicon): preview, Upload/Replace, Remove. The change is saved with the form. */
+const BrandingImage = ({ kind, label, hint, value, previewUrl, canEdit, onChange, onError }) => {
+  const inputRef = React.useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState(null);
+
+  // Picking a file opens the crop dialog; only the adjusted square is uploaded.
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) {return;}
+    onError('');
+    try {
+      validateBrandingFile(file);
+      setPicked(file);
+    } catch (err) {
+      onError(err.message);
+    }
+  };
+
+  const uploadCropped = async (cropped) => {
+    setBusy(true);
+    try {
+      const signature = await requestBrandingSignature(kind);
+      const uploaded = await uploadAvatarToCloudinary(cropped, signature);
+      onChange(uploaded.secure_url);
+      setPicked(null);
+    } catch (err) {
+      setPicked(null);
+      onError(err?.response?.data?.message || err?.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="ps-brand-slot">
+      <div className={`ps-brand-preview ps-brand-preview--${kind}`} aria-hidden="true">
+        {value ? <img src={previewUrl} alt="" /> : <Building2 size={kind === 'logo' ? 22 : 16} />}
+      </div>
+      <div className="ps-brand-body">
+        <span className="ps-brand-label">{label}</span>
+        <span className="ps-brand-hint">{hint}</span>
+        {canEdit ? (
+          <div className="ps-brand-actions">
+            <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden onChange={handleFile} />
+            <button type="button" className="ps-link-btn" onClick={() => inputRef.current?.click()} disabled={busy}>
+              {busy ? <Loader2 size={14} className="ps-spin" aria-hidden="true" /> : <ImagePlus size={14} aria-hidden="true" />}
+              {busy ? 'Uploading…' : value ? 'Replace' : 'Upload'}
+            </button>
+            {value && !busy && (
+              <button type="button" className="ps-link-btn ps-link-btn--danger" onClick={() => onChange('')}>
+                <Trash2 size={14} aria-hidden="true" /> Remove
+              </button>
+            )}
+          </div>
+        ) : null}
+      </div>
+      {picked && (
+        <ImageCropDialog
+          file={picked}
+          title={kind === 'logo' ? 'Adjust logo' : 'Adjust favicon'}
+          outputSize={kind === 'logo' ? 512 : 256}
+          defaultShape="rounded"
+          previewSizes={kind === 'logo' ? [36] : [32, 16]}
+          onCancel={() => setPicked(null)}
+          onConfirm={uploadCropped}
+        />
+      )}
+    </div>
+  );
+};
+
 const GeneralSettings = ({ isDarkMode }) => {
   const { settings, isLoading, isError } = usePlatformSettings();
+  const { isSuperAdmin } = useAccess();
   const setCache = useSetPlatformSettingsCache();
 
   const [form, setForm] = useState(settings);
@@ -97,6 +177,7 @@ const GeneralSettings = ({ isDarkMode }) => {
       )}
 
       <div className="ps-grid">
+        <div className="ps-col">
         <section className="ps-card">
           <header className="ps-card-head">
             <span className="ps-card-icon"><Building2 size={18} aria-hidden="true" /></span>
@@ -115,8 +196,33 @@ const GeneralSettings = ({ isDarkMode }) => {
             onChange={(e) => set({ portal_name: e.target.value })}
             placeholder="Exam View"
           />
+          <div className="ps-brand-grid">
+            <BrandingImage
+              kind="logo"
+              label="Logo"
+              hint="Shown in the sidebar. Max 2 MB."
+              value={form.logo_url}
+              previewUrl={optimizedLogoUrl(form.logo_url)}
+              canEdit={isSuperAdmin}
+              onChange={(url) => set({ logo_url: url })}
+              onError={(text) => setNotice(text ? { type: 'error', text } : null)}
+            />
+            <BrandingImage
+              kind="favicon"
+              label="Favicon"
+              hint="Browser tab icon. Max 2 MB."
+              value={form.favicon_url}
+              previewUrl={optimizedFaviconUrl(form.favicon_url)}
+              canEdit={isSuperAdmin}
+              onChange={(url) => set({ favicon_url: url })}
+              onError={(text) => setNotice(text ? { type: 'error', text } : null)}
+            />
+          </div>
+          {!isSuperAdmin && <p className="ps-card-desc">Only a super admin can change the logo and favicon.</p>}
         </section>
 
+        </div>
+        <div className="ps-col">
         <section className="ps-card">
           <header className="ps-card-head">
             <span className="ps-card-icon"><Mail size={18} aria-hidden="true" /></span>
@@ -161,6 +267,7 @@ const GeneralSettings = ({ isDarkMode }) => {
           />
         </section>
 
+        </div>
         <section className="ps-card ps-card--wide">
           <header className="ps-card-head">
             <span className="ps-card-icon"><Megaphone size={18} aria-hidden="true" /></span>
@@ -244,8 +351,8 @@ export const PlatformSettingsTab = () => {
     <div className="ps-layout">
       <aside className="ps-aside">
         <div className="ps-identity">
-          <div className="ps-identity-mark" aria-hidden="true">
-            <Building2 size={28} />
+          <div className={`ps-identity-mark ${settings.logo_url ? 'has-logo' : ''}`} aria-hidden="true">
+            {settings.logo_url ? <img src={optimizedLogoUrl(settings.logo_url)} alt="" /> : <Building2 size={28} />}
           </div>
           <h2 className="ps-identity-name" title={settings.portal_name}>{settings.portal_name}</h2>
           <span className="ps-identity-sub">Platform settings</span>

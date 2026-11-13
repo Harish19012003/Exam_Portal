@@ -1,2 +1,2 @@
-export { PageHeading, PageTitle } from './PageHeading';
+export { PageHeading, PageTitle, PageShell } from './PageHeading';
 export { InfoTip } from './InfoTip';

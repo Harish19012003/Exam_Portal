@@ -1,5 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+
+/*
+ * Fonts. Three roles:
+ *   --font-body     Inter (everything by default: forms, tables, popups, dropdowns)
+ *   --font-display  Manrope (page headings, branding and standalone screens — opted in per class)
+ *   --font-code     JetBrains Mono (ids, references, codes)
+ * Never set the display font on `body`: tables and popups must keep inheriting the body font. The names
+ * deliberately avoid Tailwind's own `--font-sans` / `--font-mono`, which the tables rely on.
+ */
+:root {
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: 'Manrope', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 
 /* Ensure Dynamic* / pages utilities are always generated */
 @source "./**/*.{js,jsx,ts,tsx}";
@@ -72,8 +85,7 @@
   }
 
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-      sans-serif;
+    font-family: var(--font-body);
     background-color: var(--bg-app);
     color: var(--text-primary);
     line-height: 1.5;

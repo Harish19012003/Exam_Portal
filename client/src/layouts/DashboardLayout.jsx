@@ -3,6 +3,7 @@ import { AppFooter } from '../components/AppFooter/AppFooter';
 import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
 import { useExamsList } from '../hooks/useExamsQuery';
 import { usePlatformSettings } from '../hooks/usePlatformSettings';
+import { SectionErrorBoundary } from '../components/ErrorPage/ErrorPage';
 import { Megaphone } from 'lucide-react';
 import { optimizedAvatarUrl } from '../utils/avatarImage';
 import { Outlet, NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
@@ -44,6 +45,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { ExamSwitcher } from './ExamSwitcher';
+import { optimizedLogoUrl } from '../utils/brandingImage';
 import './DashboardLayout.css';
 import './ExamSidebar.css';
 
@@ -261,9 +263,7 @@ export const DashboardLayout = () => {
   // sections are still clickable. Shares the exams-list query key, so no extra request.
   // Platform-wide settings (portal name, maintenance banner). Cached, so no refetch per page.
   const { settings: platform } = usePlatformSettings();
-  useEffect(() => {
-    document.title = `${platform.portal_name} Portal`;
-  }, [platform.portal_name]);
+  // Tab title + favicon come from DocumentBranding (works on login too).
   const { data: examsForSidebar } = useExamsList();
   const fallbackExamId = examsForSidebar?.[0]?.id ? String(examsForSidebar[0].id) : '';
 
@@ -275,8 +275,12 @@ export const DashboardLayout = () => {
       <aside className={`xs-sidebar ${isExpanded ? 'expanded' : ''} ${mobileOpen ? 'open' : ''}`}>
 
         <div className="xs-logo">
-          <div className="xs-logo-icon">
-            <LayoutGrid size={20} strokeWidth={2.5} />
+          <div className={`xs-logo-icon ${platform.logo_url ? 'has-image' : ''}`}>
+            {platform.logo_url ? (
+              <img src={optimizedLogoUrl(platform.logo_url)} alt="" />
+            ) : (
+              <LayoutGrid size={20} strokeWidth={2.5} />
+            )}
           </div>
           <span className="xs-logo-text" title={platform.portal_name}>{platform.portal_name}</span>
         </div>
@@ -477,7 +481,10 @@ export const DashboardLayout = () => {
         )}
 
         <main className="main-content">
-          <Outlet context={{ setBreadcrumbTail, topbarSlot }} />
+          {/* A crash inside one page shows an error card here; the sidebar and top bar keep working. */}
+          <SectionErrorBoundary resetKey={location.pathname}>
+            <Outlet context={{ setBreadcrumbTail, topbarSlot }} />
+          </SectionErrorBoundary>
         </main>
         <AppFooter />
       </div>
