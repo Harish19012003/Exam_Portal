@@ -20,7 +20,7 @@ import {
   GraduationCap,
   Database,
   DatabaseZap,
-  ListOrdered,
+  ShieldCheck,
   TableProperties,
   Table2,
   Users,
@@ -86,8 +86,8 @@ const NAV_ITEMS = [
     to: '/seq-view',
     page: 'seq_view',
     label: 'SeqView',
-    icon: ListOrdered,
-    activeIcon: ListOrdered,
+    icon: ShieldCheck,
+    activeIcon: ShieldCheck,
   },
   {
     to: '/tables',
@@ -215,7 +215,7 @@ export const DashboardLayout = () => {
       return { label: 'Vendor Data', icon: DatabaseZap };
     }
     if (path === '/seq-view') {
-      return { label: 'SeqView', icon: ListOrdered };
+      return { label: 'SeqView', icon: ShieldCheck };
     }
     if (path === '/dashboard/users' || path === '/users') {
       return { label: 'Settings / Users & Roles', icon: Users };

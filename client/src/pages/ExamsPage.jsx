@@ -31,6 +31,11 @@ import {
 } from './exams/examApi';
 import { useExamsList, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { buildExamTableColumns, buildExamTableRows } from './exams/examTableAdapter';
+import {
+  importMatchKeysFromFields,
+  pickDefaultMatchKey,
+  runModeAwareImport,
+} from './exams/runModeAwareImport';
 import { clearLookupDisplayOverrides } from '../components/DynamicTable/editors/lookupDisplayOverrides';
 import { clearLookupPicksForRow } from '../components/DynamicTable/editors/lookupPicks';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
@@ -657,9 +662,28 @@ export const ExamsPage = () => {
     [layoutPrefs?.columnVisibility],
   );
 
+  const importMatchKeys = useMemo(
+    () => importMatchKeysFromFields(createFields),
+    [createFields],
+  );
+  const importDefaultMatchKey = useMemo(
+    () => pickDefaultMatchKey(importMatchKeys, ['exam_code', 'code', 'name']),
+    [importMatchKeys],
+  );
+  const importExistingRows = useMemo(
+    () =>
+      (exams || []).map((e) => ({
+        id: String(e.id),
+        values: e.values && typeof e.values === 'object' ? e.values : {},
+      })),
+    [exams],
+  );
+
   /** Map CSV row objects (keyed by column label or field key) → exam values */
   const handleImportRows = useCallback(
     async (csvRows, handlers) => {
+      const mode = handlers?.mode || 'add';
+      const matchKey = String(handlers?.matchKey || '').trim();
       const fields = formFieldsRef.current || [];
       const byLabel = new Map(
         fields.map((f) => [String(f.label || f.key).trim().toLowerCase(), f.key]),
@@ -677,7 +701,7 @@ export const ExamsPage = () => {
         '__updated_by',
       ]);
 
-      const exams = (Array.isArray(csvRows) ? csvRows : [])
+      const prepared = (Array.isArray(csvRows) ? csvRows : [])
         .map((row) => {
           const values = {};
           Object.entries(row || {}).forEach(([header, raw]) => {
@@ -704,26 +728,53 @@ export const ExamsPage = () => {
             }
             values[key] = value;
           });
-          return Object.keys(values).length ? { values } : null;
+          return Object.keys(values).length ? values : null;
         })
         .filter(Boolean);
 
-      if (!exams.length) {
+      if (!prepared.length) {
         throw new Error('CSV columns did not match any exam fields');
       }
 
-      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
-      await importRowsInChunks(
-        exams,
-        async (batch) => {
-          await importExams(batch);
+      const existing = (examsListQuery.data || []).map((e) => ({
+        id: String(e.id),
+        values: e.values && typeof e.values === 'object' ? e.values : {},
+      }));
+
+      const result = await runModeAwareImport({
+        mode,
+        matchKey: matchKey || pickDefaultMatchKey(importMatchKeysFromFields(fields)),
+        rows: prepared,
+        existingRows: existing,
+        chunkSize: 400,
+        onProgress: handlers?.onProgress,
+        createBatch: async (batch) => {
+          await importExams(batch.map((values) => ({ values })));
         },
-        { chunkSize: 400, onProgress: handlers?.onProgress },
-      );
+        updateOne: async (id, values) => {
+          await updateExam(id, { values });
+        },
+        deleteMany: async (ids) => {
+          const results = await Promise.allSettled(ids.map((id) => deleteExam(id)));
+          const failed = results.find((r) => r.status === 'rejected');
+          if (failed) throw failed.reason;
+        },
+      });
+
       await invalidateExamsList();
-      setPageMessage(`Imported ${exams.length} exam${exams.length === 1 ? '' : 's'}`);
+      const { created, updated, deleted, failures } = result;
+      const failHint = failures.length ? ` (${failures.length} failed)` : '';
+      if (mode === 'replace') {
+        setPageMessage(`Replace all — removed ${deleted}, created ${created} exam${created === 1 ? '' : 's'}${failHint}`);
+      } else if (mode === 'update') {
+        setPageMessage(`Updated ${updated} matching exam${updated === 1 ? '' : 's'}${failHint}`);
+      } else if (mode === 'upsert') {
+        setPageMessage(`Upserted exams — updated ${updated}, created ${created}${failHint}`);
+      } else {
+        setPageMessage(`Imported ${created} exam${created === 1 ? '' : 's'}${failHint}`);
+      }
     },
-    [],
+    [examsListQuery.data, invalidateExamsList],
   );
 
   const fieldRows = groupFieldsForLayout(createFields);
@@ -822,6 +873,10 @@ export const ExamsPage = () => {
               onDuplicateRow={handleDuplicateRow}
               onExploreRow={can('exam_rows', 'view') ? handleExploreRow : undefined}
               onImportRows={handleImportRows}
+              importMatchKeys={importMatchKeys}
+              importDefaultMatchKey={importDefaultMatchKey}
+              importExistingRows={importExistingRows}
+              importAllowReplaceAll
               showAddRow={false}
               permissions={tablePerms}
               enableFeatureBuilder={canConfigure}

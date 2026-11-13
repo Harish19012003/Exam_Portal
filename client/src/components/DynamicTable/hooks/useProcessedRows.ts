@@ -20,15 +20,25 @@ export function useProcessedRows(
   columnVisibility: Record<string, boolean>,
   /** When set, rows are already one server page — do not slice again. */
   serverTotalCount?: number | null,
+  /**
+   * When true (server-driven search), skip local applySearch — the parent already
+   * filtered the full dataset / current page from the API.
+   */
+  serverSearchActive?: boolean,
 ) {
   const serverSide = typeof serverTotalCount === 'number' && serverTotalCount >= 0;
 
   const filteredRows = useMemo(() => {
-    let result = applySearch(rows, search, columns, columnVisibility);
+    let result = rows;
+    // Client-paginated tables: search all loaded rows, then page.
+    // Server-paginated: parent searches the full DB — do not re-filter the page slice.
+    if (!serverSearchActive) {
+      result = applySearch(result, search, columns, columnVisibility);
+    }
     result = applyFilters(result, filters, columns);
     result = applySort(result, sort, columns);
     return result;
-  }, [rows, columns, filters, sort, search, columnVisibility]);
+  }, [rows, columns, filters, sort, search, columnVisibility, serverSearchActive]);
 
   const paginatedRows = useMemo(() => {
     if (serverSide) return filteredRows;
@@ -37,7 +47,6 @@ export function useProcessedRows(
   }, [filteredRows, page, pageSize, serverSide]);
 
   const totalCount = serverSide ? serverTotalCount : rows.length;
-  // Server mode: footer counts are exam-wide; in-page search only filters the loaded page visually.
   const filteredCount = serverSide ? serverTotalCount : filteredRows.length;
   const totalPages = Math.max(
     1,

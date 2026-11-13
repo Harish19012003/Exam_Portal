@@ -22,6 +22,7 @@ import {
 import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
+import { applySearch } from '../components/DynamicData/dataProcessing';
 import { useExamRows, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { useAccess, applyColumnAccess, creatableFields, tablePermissions } from '../hooks/useAccess';
@@ -171,7 +172,8 @@ const PresetActions = ({ presets, matched, busy, onLoad, onStartBlank }) => {
         </div>
       )}
 
-      {otherPresets.length > 0 && (
+      {/* With a recommended preset the picker is hidden; it stays when nothing matches so a preset can still be chosen. */}
+      {!matched && otherPresets.length > 0 && (
         <div className="exam-explore-preset-other">
           <div className="exam-explore-preset-other-row">
             <SearchableSelect
@@ -235,6 +237,9 @@ export const ExamExplorePage = () => {
   const { invalidateRows, setRows: setRowsCache } = useInvalidateExams();
   const [rowsPage, setRowsPage] = useState(1);
   const [rowsPageSize, setRowsPageSize] = useState(15);
+  /** Toolbar search (immediate). Debounced value drives API / unique-row filtering. */
+  const [rowsSearchInput, setRowsSearchInput] = useState('');
+  const [rowsSearch, setRowsSearch] = useState('');
 
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -333,10 +338,30 @@ export const ExamExplorePage = () => {
     setRowsPageSize(next);
     setRowsPage(1);
   }, [features?.defaultPageSize]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = String(rowsSearchInput || '').trim();
+      setRowsSearch((prev) => {
+        if (prev === next) return prev;
+        setRowsPage(1);
+        return next;
+      });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [rowsSearchInput]);
+
+  const rowSearchKeys = useMemo(
+    () => (fields || []).map((f) => String(f.key || '').trim()).filter(Boolean),
+    [fields],
+  );
+
   // Unique import needs the full center set to dedupe; page after collapsing duplicates.
+  // Non-unique: server search scans every center, then returns the requested page.
   const rowsQuery = useExamRows(examId, {
     page: uniqueImportActive ? 1 : rowsPage,
     limit: uniqueImportActive ? 500 : rowsPageSize,
+    search: uniqueImportActive ? '' : rowsSearch,
+    searchKeys: uniqueImportActive ? undefined : rowSearchKeys,
     enabled: Boolean(examId) && Boolean(tableInfo),
   });
   const rows = rowsQuery.data?.rows || [];
@@ -403,12 +428,18 @@ export const ExamExplorePage = () => {
         : tableRows,
     [tableRows, uniqueImportActive, uniqueRowKeys, uniqueRowAggregates, effectiveDateShifts, fields],
   );
+  // Unique mode: search the full rolled-up set, then page — not only the visible slice.
+  const uniqueFilteredRows = useMemo(() => {
+    if (!uniqueImportActive) return uniqueAllRows;
+    if (!rowsSearch) return uniqueAllRows;
+    return applySearch(uniqueAllRows, rowsSearch, tableColumns, {});
+  }, [uniqueImportActive, uniqueAllRows, rowsSearch, tableColumns]);
   const displayTableRows = useMemo(() => {
     if (!uniqueImportActive) return tableRows;
     const start = (rowsPage - 1) * rowsPageSize;
-    return uniqueAllRows.slice(start, start + rowsPageSize);
-  }, [uniqueImportActive, tableRows, uniqueAllRows, rowsPage, rowsPageSize]);
-  const displayTotal = uniqueImportActive ? uniqueAllRows.length : rowsTotal;
+    return uniqueFilteredRows.slice(start, start + rowsPageSize);
+  }, [uniqueImportActive, tableRows, uniqueFilteredRows, rowsPage, rowsPageSize]);
+  const displayTotal = uniqueImportActive ? uniqueFilteredRows.length : rowsTotal;
 
   const applySnapshot = useCallback((snap) => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
@@ -1699,6 +1730,8 @@ export const ExamExplorePage = () => {
                   setRowsPageSize(size);
                   setRowsPage(1);
                 },
+                search: rowsSearchInput,
+                onSearchChange: setRowsSearchInput,
               }}
             />
           </div>

@@ -47,8 +47,13 @@ import { BulkUpdateModal } from './components/BulkUpdateModal';
 import { RecordModal } from './components/RecordModal';
 import { SubRowNestedPanel } from './components/SubRowNestedPanel';
 import { RecordDetail as RecordEditSidebar } from '../DynamicData';
-import { useSummaryChipsStore } from '../DynamicData/summaryChipsStore';
-import { useQuickFiltersStore } from '../DynamicData/quickFiltersStore';
+import { useSummaryChipsStore, pruneSummaryChipsToColumnKeys } from '../DynamicData/summaryChipsStore';
+import { useQuickFiltersStore, pruneQuickFilterFieldsToColumnKeys } from '../DynamicData/quickFiltersStore';
+import {
+  SummaryChipsChromeProvider,
+} from '../DynamicData/SummaryChipsChrome';
+import { QuickFiltersBar } from '../DynamicData/QuickFiltersBar';
+import { SummaryChipsBar } from './components/SummaryChipsBar';
 import {
   isSharedViewFeatureKey,
   toggleSharedViewFeature,
@@ -173,6 +178,7 @@ interface DynamicTableProps {
   /**
    * Server-driven pagination. When set, `initialRows` is one page from the API —
    * the footer pages against `totalRowCount` and calls these handlers (no client slice).
+   * Pass `onSearchChange` so toolbar search queries the full dataset (not only this page).
    */
   serverPagination?: {
     totalRowCount: number;
@@ -180,6 +186,10 @@ interface DynamicTableProps {
     pageSize: number;
     onPageChange: (page: number) => void;
     onPageSizeChange: (pageSize: number) => void;
+    /** Controlled search string when the page owns fetching. */
+    search?: string;
+    /** Parent applies search across all records (API or full in-memory set). */
+    onSearchChange?: (search: string) => void;
   };
   /**
    * Optional handle for pages that bulk-toggle column visibility
@@ -504,6 +514,13 @@ export function DynamicTable({
     quickFiltersStore.fieldKeys,
   ]);
 
+  // Drop chip / quick-filter fields that no longer exist on this table.
+  useEffect(() => {
+    const keys = state.columns.map((c) => c.key);
+    pruneSummaryChipsToColumnKeys(keys);
+    pruneQuickFilterFieldsToColumnKeys(keys);
+  }, [state.columns]);
+
   const theme = getTableTheme(isDarkMode);
   const gridLines = resolveGridLines(activeFeatures.gridLines);
   const tableColors = resolveTableColors(activeFeatures.tableColors, isDarkMode);
@@ -573,13 +590,28 @@ export function DynamicTable({
 
   const handleClearAllSynced = useCallback(() => {
     state.handleClearAll();
+    if (serverPagination?.onSearchChange) serverPagination.onSearchChange('');
     if (quickFiltersStore.enabled) quickFiltersStore.clearValues();
-  }, [state.handleClearAll, quickFiltersStore]);
+  }, [state.handleClearAll, quickFiltersStore, serverPagination]);
 
   const page = serverPagination?.page ?? state.page;
   const pageSize = serverPagination?.pageSize ?? state.pageSize;
   const handlePageChange = serverPagination?.onPageChange ?? state.setPage;
   const handlePageSizeChange = serverPagination?.onPageSizeChange ?? state.setPageSize;
+  const serverSearchActive = Boolean(serverPagination?.onSearchChange);
+  const toolbarSearch = serverSearchActive
+    ? String(serverPagination?.search ?? '')
+    : state.search;
+  const handleToolbarSearch = useCallback(
+    (s: string) => {
+      if (serverPagination?.onSearchChange) {
+        serverPagination.onSearchChange(s);
+        return;
+      }
+      state.handleSearch(s);
+    },
+    [serverPagination, state.handleSearch],
+  );
 
   const { filteredRows, paginatedRows, filteredCount, totalCount, totalPages, aggregations } =
     useProcessedRows(
@@ -587,11 +619,12 @@ export function DynamicTable({
       state.columns,
       mergedFilters,
       state.sort,
-      state.search,
+      toolbarSearch,
       page,
       pageSize,
       state.columnVisibility,
       serverPagination ? serverPagination.totalRowCount : null,
+      serverSearchActive,
     );
 
   const customRowHeight = Number(activeFeatures.rowHeight) || 0;
@@ -805,7 +838,7 @@ export function DynamicTable({
   const allSelected = allRowIds.length > 0 && allRowIds.every(id => state.selectedRows.has(id));
   const someSelected = allRowIds.some(id => state.selectedRows.has(id));
   const activeFilterCount =
-    Object.keys(displayFilters).length + (state.search ? 1 : 0) + state.sort.length;
+    Object.keys(displayFilters).length + (toolbarSearch ? 1 : 0) + state.sort.length;
   const hasActiveFilters = activeFilterCount > 0;
 
   const currentFilterCol = state.openFilterKey
@@ -859,9 +892,10 @@ export function DynamicTable({
         data-dt-stripe={tableColors.stripe ? '' : undefined}
         style={tableColorStyle(tableColors.set)}
       >
+        <SummaryChipsChromeProvider>
         <TableToolbar
-          search={state.search}
-          onSearch={state.handleSearch}
+          search={toolbarSearch}
+          onSearch={handleToolbarSearch}
           hasActiveFilters={hasActiveFilters}
           activeFilterCount={activeFilterCount}
           onClearAll={handleClearAllSynced}
@@ -919,6 +953,51 @@ export function DynamicTable({
           isTransposed={featureConfig.isTransposed}
           onToggleTranspose={featureConfig.toggleTranspose}
         />
+
+        {(summaryChipsStore.enabled || quickFiltersStore.enabled) && (
+            <div className="flex flex-col gap-2 px-3 sm:px-4 pt-1 pb-2 flex-shrink-0 min-w-0">
+              {summaryChipsStore.enabled &&
+                summaryChipsStore.visible &&
+                summaryChipsStore.chips.length > 0 && (
+                  <SummaryChipsBar
+                    chips={summaryChipsStore.chips}
+                    columns={state.columns}
+                    rows={filteredRows}
+                    isDarkMode={isDarkMode}
+                    visible
+                    hideToggle
+                  />
+                )}
+              {summaryChipsStore.enabled &&
+                summaryChipsStore.visible &&
+                summaryChipsStore.chips.length === 0 && (
+                  <p
+                    className={`text-[12px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}
+                  >
+                    Summary Chips is on — open Feature Builder → Summary Chips (gear) to add chips.
+                  </p>
+                )}
+              {quickFiltersStore.enabled &&
+                quickFiltersStore.visible &&
+                quickFiltersStore.fieldKeys.length > 0 && (
+                  <QuickFiltersBar
+                    columns={state.columns}
+                    rows={state.rows}
+                    isDarkMode={isDarkMode}
+                  />
+                )}
+              {quickFiltersStore.enabled &&
+                quickFiltersStore.visible &&
+                quickFiltersStore.fieldKeys.length === 0 && (
+                  <p
+                    className={`text-[12px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}
+                  >
+                    Quick Filters is on — open Feature Builder → Quick Filters (gear) to pick fields.
+                  </p>
+                )}
+            </div>
+        )}
+        </SummaryChipsChromeProvider>
 
         {featureConfig.isTransposed && (
           <div className={`mx-4 mt-3 px-4 py-2 rounded-lg border flex items-center justify-between gap-3 ${
@@ -1619,7 +1698,7 @@ export function DynamicTable({
           filteredCount={
             serverPagination
               ? // No client filter → Filtered = whole table; else unknown until scan (show page matches as hint).
-                Object.keys(state.filters || {}).length || state.search
+                Object.keys(state.filters || {}).length || toolbarSearch
                   ? filteredRows.length
                   : serverPagination.totalRowCount
               : filteredRows.length
@@ -1662,7 +1741,7 @@ export function DynamicTable({
                   scope,
                   selectedRowIds,
                   filters: state.filters || {},
-                  search: state.search || '',
+                  search: toolbarSearch || '',
                   columns: state.columns,
                   columnVisibility: state.columnVisibility || {},
                   lookupPicks: picks,

@@ -17,6 +17,11 @@ import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
 import { buildFieldColumns } from './exams/examTableAdapter';
+import {
+  importMatchKeysFromFields,
+  pickDefaultMatchKey,
+  runModeAwareImport,
+} from './exams/runModeAwareImport';
 import { useConfigLists } from './settings/useConfigLists';
 import { SeqViewApiModal } from './SeqViewApiModal';
 import './ExamsPage.css';
@@ -247,7 +252,23 @@ export const SeqViewPage = () => {
     }
   };
 
+  const importMatchKeys = useMemo(() => importMatchKeysFromFields(customFields), [customFields]);
+  const importDefaultMatchKey = useMemo(
+    () => pickDefaultMatchKey(importMatchKeys, ['code', 'seq_code']),
+    [importMatchKeys],
+  );
+  const importExistingRows = useMemo(
+    () =>
+      (rows || []).map((r) => ({
+        id: String(r.rowId || r.id),
+        values: r.values && typeof r.values === 'object' ? r.values : {},
+      })),
+    [rows],
+  );
+
   const handleImportRows = async (csvRows, handlers) => {
+    const mode = handlers?.mode || 'add';
+    const matchKey = String(handlers?.matchKey || '').trim();
     const byHeader = new Map();
     customFields.forEach((f) => {
       byHeader.set(String(f.key).toLowerCase(), f.key);
@@ -272,16 +293,35 @@ export const SeqViewPage = () => {
     }
 
     try {
-      const { importRowsInChunks } = await import('../components/DynamicTable/export/parseImportInWorker');
-      await importRowsInChunks(
-        importRows,
-        async (batch) => {
+      const result = await runModeAwareImport({
+        mode,
+        matchKey: matchKey || importDefaultMatchKey,
+        rows: importRows,
+        existingRows: importExistingRows,
+        chunkSize: 400,
+        onProgress: handlers?.onProgress,
+        createBatch: async (batch) => {
           await apiClient.post('/seq-views/import', { rows: batch });
         },
-        { chunkSize: 400, onProgress: handlers?.onProgress },
-      );
+        updateOne: async (id, values) => {
+          await apiClient.patch(`/seq-views/${encodeURIComponent(id)}`, { values });
+        },
+        deleteMany: async (ids) => {
+          await apiClient.post('/seq-views/delete', { ids });
+        },
+      });
       setErrorMsg('');
-      setSuccessMsg(`Successfully imported ${importRows.length} SeqView${importRows.length === 1 ? '' : 's'}.`);
+      const { created, updated, deleted, failures } = result;
+      const failHint = failures.length ? ` (${failures.length} failed)` : '';
+      if (mode === 'replace') {
+        setSuccessMsg(`Replace all — removed ${deleted}, created ${created} SeqView${created === 1 ? '' : 's'}${failHint}.`);
+      } else if (mode === 'update') {
+        setSuccessMsg(`Updated ${updated} matching SeqView${updated === 1 ? '' : 's'}${failHint}.`);
+      } else if (mode === 'upsert') {
+        setSuccessMsg(`Upserted SeqViews — updated ${updated}, created ${created}${failHint}.`);
+      } else {
+        setSuccessMsg(`Imported ${created} SeqView${created === 1 ? '' : 's'}${failHint}.`);
+      }
       await invalidateList();
     } catch (err) {
       setErrorMsg(err.response?.data?.message || err.message || 'Failed to import SeqViews.');
@@ -377,6 +417,10 @@ export const SeqViewPage = () => {
             onRowDelete={handleRowDelete}
             onRefresh={refreshRows}
             onImportRows={handleImportRows}
+            importMatchKeys={importMatchKeys}
+            importDefaultMatchKey={importDefaultMatchKey}
+            importExistingRows={importExistingRows}
+            importAllowReplaceAll
             showAddRow={false}
             permissions={tablePerms}
             isDarkMode={isDarkMode}
