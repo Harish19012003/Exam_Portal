@@ -56,6 +56,7 @@ import {
   normalizeUniqueRowAggregates,
   normalizeUniqueRowKeys,
   rollupRowsByUniqueKeys,
+  siblingIdsForUniqueRow,
   uniqueAggregateTargetKeys,
 } from './exams/examUniqueRows';
 import {
@@ -73,7 +74,8 @@ import { restoreAssigneeIds, useAssigneeDisplayRows } from './exams/useAssigneeL
 import { resolveAssigneeFieldsForImport } from './exams/resolveAssigneeImport';
 import { restoreFromExamValues, useExamValueDisplayRows } from './exams/useExamValueDisplayRows';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
-import { groupSyncPatch, isFromExamField, isLinkedField, isTableSourceField } from './exams/tableLookupApi';
+import { groupSyncPatch, isFromExamField, isLinkedField, isTableSourceField, isUserTagsField } from './exams/tableLookupApi';
+import { usePrefetchAssignablePeople } from './exams/useAssignablePeople';
 import { useConfigLists } from './settings/useConfigLists';
 import {
   defaultValueForType,
@@ -264,6 +266,12 @@ export const ExamExplorePage = () => {
   const fieldsRef = useRef([]);
   const featuresRef = useRef(features);
   const lastSavedFeaturesRef = useRef(null);
+  const prefetchAssignable = usePrefetchAssignablePeople();
+
+  // Warm assignee picker cache while the table loads so the first cell open is fast.
+  useEffect(() => {
+    (fields || []).filter(isUserTagsField).forEach((f) => prefetchAssignable(f.userTagIds));
+  }, [fields, prefetchAssignable]);
   const featuresSyncReadyRef = useRef(false);
   const saveTimerRef = useRef(null);
   fieldsRef.current = fields;
@@ -714,27 +722,68 @@ export const ExamExplorePage = () => {
       localPatch[key] = val;
     });
 
-    // Optimistic paint (includes shared labels) before API round-trips finish.
+    // Unique-key rollup shows one row per group — write the patch to every sibling
+    // so refresh still shows the value no matter which member becomes the representative.
+    const targetIds = uniqueImportActive
+      ? siblingIdsForUniqueRow(rows, rowId, uniqueRowKeys)
+      : [String(rowId)];
+    const idSet = new Set(targetIds.map(String));
+
+    // Optimistic paint on every sibling (and every cached page size) before API returns.
+    const touchedAt = new Date().toISOString();
     setRowsCache(
       examId,
       (prev) =>
         prev.map((r) =>
-          r.id === rowId ? { ...r, values: { ...(r.values || {}), ...restored } } : r,
+          idSet.has(String(r.id))
+            ? {
+                ...r,
+                updatedAt: touchedAt,
+                values: {
+                  ...(r.values || {}),
+                  ...restored,
+                  updated_at: touchedAt,
+                },
+              }
+            : r,
         ),
       rowsPageKey,
     );
 
     let next = original;
+    // One round-trip: single row PATCH, or one bulk for the whole unique group.
     if (Object.keys(localPatch).length) {
-      next = await updateExamRow(examId, rowId, localPatch, view);
+      if (targetIds.length > 1) {
+        await bulkUpdateExamRows(examId, { ids: targetIds, values: localPatch, view });
+        next = { ...original, values: { ...(original?.values || {}), ...localPatch } };
+      } else {
+        next = await updateExamRow(examId, rowId, localPatch, view);
+      }
     }
     for (const [homeView, patch] of sharedByView) {
-      next = await updateExamRow(examId, rowId, patch, homeView);
+      if (targetIds.length > 1) {
+        await bulkUpdateExamRows(examId, { ids: targetIds, values: patch, view: homeView });
+        next = { ...(next || original), values: { ...((next || original)?.values || {}), ...patch } };
+      } else {
+        next = await updateExamRow(examId, rowId, patch, homeView);
+      }
     }
     clearLookupPicksForRow(String(rowId));
     clearLookupDisplayOverrides(String(rowId));
-    if (next) {
-      setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? next : r)), rowsPageKey);
+    if (Object.keys(localPatch).length || sharedByView.size) {
+      // Merge the patch onto every sibling in cache (not only the edited id).
+      setRowsCache(
+        examId,
+        (prev) =>
+          prev.map((r) => {
+            if (!idSet.has(String(r.id))) return r;
+            if (String(r.id) === String(rowId) && next) {
+              return { ...next, values: { ...(next.values || {}), ...localPatch } };
+            }
+            return { ...r, values: { ...(r.values || {}), ...localPatch } };
+          }),
+        rowsPageKey,
+      );
     }
     return next;
   };
@@ -1164,7 +1213,10 @@ export const ExamExplorePage = () => {
           const h = String(header || '').trim().toLowerCase();
           const field = byKey.get(h) || byLabel.get(h);
           if (!field || raw === '' || raw == null) return;
-          const multi = field.dataType === 'tags' || field.dataType === 'multiselect' || field.allowMultiple;
+          const multi =
+            field.dataType === 'tags' ||
+            field.dataType === 'multiselect' ||
+            (field.optionsSource !== 'userTags' && field.allowMultiple);
           values[field.key] =
             multi && typeof raw === 'string'
               ? raw.split(',').map((x) => x.trim()).filter(Boolean)

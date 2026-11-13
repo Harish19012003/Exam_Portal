@@ -418,13 +418,33 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
     case 'status':
       return str ? <StatusBadge value={str} isDarkMode={isDarkMode} /> : null;
 
-    case 'dropdown':
+    case 'dropdown': {
+      // User-tag Dropdown: same chip + id→name resolve as Multiselect (one person).
+      if (isFieldColumn(column) && column.userTags) {
+        const raw = str;
+        const looksLikeUserId =
+          /^[a-f0-9]{24}$/i.test(raw) ||
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw);
+        const label = !raw ? '' : looksLikeUserId ? getAssigneeLabel(raw) || '…' : raw;
+        return label ? (
+          <div className="flex flex-wrap gap-1 items-center min-w-0">
+            <span
+              className={`max-w-full truncate px-1.5 py-0.5 rounded text-[11px] font-medium
+              ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}
+              title={label}
+            >
+              {label}
+            </span>
+          </div>
+        ) : null;
+      }
       return str ? (
         <span className={`inline-flex px-2 py-0.5 rounded-md text-[12px] font-medium
           ${isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
           {str}
         </span>
       ) : null;
+    }
 
     case 'multiselect': {
       const tags = Array.isArray(value) ? (value as string[]) : str ? [str] : [];

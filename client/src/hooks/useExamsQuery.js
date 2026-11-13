@@ -88,31 +88,40 @@ export const useInvalidateExams = () => {
     },
     [queryClient],
   );
-  /** Patch the current page cache: updater receives/returns the rows array. */
+  /**
+   * Patch every cached rows page for this exam (15 / 200 / 500 keys).
+   * Cell edits used to update only the active page key — a page-size flip or
+   * unique-import query then put the old values back on screen / after refresh.
+   */
   const setRows = useCallback(
-    (examId, updater, { page = 1, limit = 100 } = {}) => {
-      queryClient.setQueryData(queryKeys.exams.rows(examId, page, limit), (prev) => {
-        const base =
-          prev && !Array.isArray(prev)
-            ? prev
-            : {
-                rows: Array.isArray(prev) ? prev : [],
-                total: Array.isArray(prev) ? prev.length : 0,
-                page,
-                limit,
-                totalPages: 1,
-              };
-        const nextRows =
-          typeof updater === 'function' ? updater(base.rows || []) : updater;
-        const totalDelta = (nextRows?.length || 0) - (base.rows?.length || 0);
-        const total = Math.max(0, (Number(base.total) || 0) + totalDelta);
-        return {
-          ...base,
-          rows: nextRows,
-          total,
-          totalPages: Math.max(1, Math.ceil(total / (base.limit || limit)) || 1),
-        };
-      });
+    (examId, updater, _pageKey = {}) => {
+      const id = String(examId || '');
+      queryClient.setQueriesData(
+        { queryKey: [...queryKeys.exams.all, 'rows', id] },
+        (prev) => {
+          if (prev == null) return prev;
+          const base =
+            prev && !Array.isArray(prev)
+              ? prev
+              : {
+                  rows: Array.isArray(prev) ? prev : [],
+                  total: Array.isArray(prev) ? prev.length : 0,
+                  page: 1,
+                  limit: 100,
+                  totalPages: 1,
+                };
+          const nextRows =
+            typeof updater === 'function' ? updater(base.rows || []) : updater;
+          const totalDelta = (nextRows?.length || 0) - (base.rows?.length || 0);
+          const total = Math.max(0, (Number(base.total) || 0) + totalDelta);
+          return {
+            ...base,
+            rows: nextRows,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / (base.limit || 100)) || 1),
+          };
+        },
+      );
     },
     [queryClient],
   );

@@ -31,8 +31,14 @@ export const subscribeAssigneeLabels = (fn: () => void) => {
   };
 };
 
+const looksLikeUserId = (value: string) =>
+  /^[a-f0-9]{24}$/i.test(value) ||
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 export const seedAssigneeLabel = (id: string, name: string) => {
   if (!id || !name) return;
+  // Never store the raw id as its own "label".
+  if (String(name) === String(id) || looksLikeUserId(String(name))) return;
   const prev = labels.get(id);
   if (prev === name) return;
   labels.set(String(id), String(name));
@@ -50,7 +56,7 @@ export const seedAssigneeLabels = (
     entries.forEach((u) => {
       const id = String(u?.id || '');
       const name = formatAssigneeDisplay(u);
-      if (!id || !name) return;
+      if (!id || !name || name === id || looksLikeUserId(name)) return;
       if (labels.get(id) === name) return;
       labels.set(id, name);
       any = true;
@@ -62,7 +68,7 @@ export const seedAssigneeLabels = (
         typeof raw === 'string'
           ? String(raw)
           : formatAssigneeDisplay(raw as { name?: string; email?: string; user_code?: string | null });
-      if (!name) return;
+      if (!name || name === String(id) || looksLikeUserId(name)) return;
       if (labels.get(String(id)) === name) return;
       labels.set(String(id), name);
       any = true;

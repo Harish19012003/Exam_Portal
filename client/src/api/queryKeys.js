@@ -50,4 +50,12 @@ export const queryKeys = {
     tags: () => [...queryKeys.users.all, 'tags'],
     groups: () => [...queryKeys.users.all, 'groups'],
   },
+  /** Assignee picker people for a set of user-tag ids (sig = sorted join). */
+  assignableUsers: (tagSig = '') => ['assignable-users', String(tagSig || '')],
+  /** Paginated assignee pages — include search so each query stays distinct. */
+  assignableUsersPage: (tagSig = '', search = '') => [
+    'assignable-users-page',
+    String(tagSig || ''),
+    String(search || ''),
+  ],
 };

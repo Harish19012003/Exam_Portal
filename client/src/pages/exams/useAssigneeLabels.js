@@ -126,7 +126,9 @@ export const useAssigneeDisplayRows = (rows, fields) => {
           return;
         }
         const text = ids.map((id) => getAssigneeLabel(id) || labels[id] || '…');
-        values[f.key] = ids.length > 1 || Array.isArray(raw) ? text : text[0];
+        // Dropdown / Status user-tags = one person even if older saves stored [id].
+        const multi = f.dataType === 'multiselect' || f.dataType === 'tags';
+        values[f.key] = multi ? text : text[0];
       });
       return { ...row, values, rawValues: rawBase };
     });
@@ -152,8 +154,8 @@ export const restoreAssigneeIds = (updatedValues, originalValues, fields, rowId)
       .map((token) => (looksLikeUserId(token) ? token : findAssigneeIdByLabel(token)))
       .filter(Boolean);
     if (resolved.length) {
-      const multi = f.dataType === 'multiselect' || Boolean(f.allowMultiple);
-      next[f.key] = multi || resolved.length > 1 ? resolved : resolved[0];
+      const multi = f.dataType === 'multiselect' || f.dataType === 'tags';
+      next[f.key] = multi ? resolved : resolved[0] || '';
       return;
     }
     // Unknown labels: keep original saved ids (do not wipe on a bad paint).

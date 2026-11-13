@@ -119,6 +119,23 @@ const resolveSumSourceNumber = (row, sourceKey, ctx = {}) => {
  * (count of matching centers, sum of a source column across the group).
  * @param {{ dateShifts?: object, fields?: object[] }} [ctx]
  */
+const rowUpdatedAt = (row) => {
+  const t =
+    row?.updatedAt ||
+    row?.values?.updated_at ||
+    row?.createdAt ||
+    row?.values?.created_at ||
+    0;
+  const n = new Date(t).getTime();
+  return Number.isFinite(n) ? n : 0;
+};
+
+/** Prefer the most recently updated member so an edit stays visible after refresh. */
+const pickRepresentative = (members = []) => {
+  if (!members.length) return null;
+  return [...members].sort((a, b) => rowUpdatedAt(b) - rowUpdatedAt(a))[0];
+};
+
 export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ctx = {}) => {
   const keyList = normalizeUniqueRowKeys(keys);
   const rules = normalizeUniqueRowAggregates(aggregates);
@@ -129,13 +146,14 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
     const composite = uniqueRowComposite(rowValues(row), keyList);
     let group = groups.get(composite);
     if (!group) {
-      group = { first: row, members: [] };
+      group = { members: [] };
       groups.set(composite, group);
     }
     group.members.push(row);
   }
 
-  return Array.from(groups.values()).map(({ first, members }) => {
+  return Array.from(groups.values()).map(({ members }) => {
+    const first = pickRepresentative(members);
     if (!rules.length) return first;
     const patch = {};
     for (const rule of rules) {
@@ -164,6 +182,21 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
       values: { ...rowValues(first), ...patch },
     };
   });
+};
+
+/** All physical row ids that share the same unique-key composite as `rowId`. */
+export const siblingIdsForUniqueRow = (rows = [], rowId, keys = []) => {
+  const keyList = normalizeUniqueRowKeys(keys);
+  if (!keyList.length || !rowId) return [String(rowId)].filter(Boolean);
+  const edited = (rows || []).find((r) => String(r.id || r.rowId) === String(rowId));
+  if (!edited) return [String(rowId)];
+  const composite = uniqueRowComposite(rowValues(edited), keyList);
+  if (!composite) return [String(rowId)];
+  const ids = (rows || [])
+    .filter((r) => uniqueRowComposite(rowValues(r), keyList) === composite)
+    .map((r) => String(r.id || r.rowId))
+    .filter(Boolean);
+  return ids.length ? ids : [String(rowId)];
 };
 
 export const uniqueRowKeysLabel = (fields = [], keys = []) => {
