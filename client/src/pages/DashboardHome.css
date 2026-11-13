@@ -87,3 +87,8 @@
   background-color: rgba(239, 68, 68, 0.1);
   color: #ef4444;
 }
+
+/* Dashboard numbers in the display font (cards and their labels keep the body font) */
+.kpi-value {
+  font-family: var(--font-display);
+}

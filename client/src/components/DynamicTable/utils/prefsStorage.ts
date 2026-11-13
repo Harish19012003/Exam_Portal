@@ -1,4 +1,4 @@
-import type { ColumnConfig, SavedView, Density, ConditionalFormatRule } from '../types';
+import type { AggregationType, ColumnConfig, SavedView, Density, ConditionalFormatRule } from '../types';
 
 export const TABLE_PREFS_KEY = 'dynamic_table_prefs_v7';
 
@@ -11,6 +11,13 @@ export interface TablePrefs {
   columnVisibility?: Record<string, boolean>;
   conditionalFormats?: ConditionalFormatRule[];
   recentFormatColors?: string[];
+  /** Footer totals that differ from the page schema (`null` = removed). Part of the saved layout. */
+  columnAggregations?: Record<string, AggregationType | null>;
+  /**
+   * Browser draft only: signature of the SAVED layout this draft was made from. If the saved layout
+   * has changed since (e.g. saved from another device), the draft is stale and ignored.
+   */
+  baseSig?: string;
 }
 
 export function getStorageKey(tableId?: string): string {
@@ -142,5 +149,9 @@ export function pickLayoutSlice(prefs: Partial<TablePrefs> | null | undefined): 
     slice.columnWidths = prefs.columnWidths;
   }
   if (typeof prefs.density === 'string') slice.density = prefs.density;
+  if (prefs.columnAggregations && typeof prefs.columnAggregations === 'object') {
+    slice.columnAggregations = prefs.columnAggregations;
+  }
+  if (Array.isArray(prefs.conditionalFormats)) slice.conditionalFormats = prefs.conditionalFormats;
   return slice;
 }

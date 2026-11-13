@@ -14,24 +14,31 @@ export const ROLE_TABS = [
 
 const userName = (u) => `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
 
-/** All / role tabs / custom group tabs. `value` is 'all' | 'role:<role>' | 'group:<id>'. */
-export const UserGroupTabs = ({ users, groups, value, onChange, onCreate, onEdit }) => {
+/** All / role / tag / custom group tabs. `value` is 'all' | 'role:<role>' | 'tag:<id>' | 'group:<id>'. */
+export const UserGroupTabs = ({ users, groups, tags = [], value, onChange, onCreate, onEdit }) => {
   const counts = useMemo(() => {
     const byRole = {};
+    const byTag = {};
     users.forEach((u) => {
       byRole[u.role] = (byRole[u.role] || 0) + 1;
+      (u.tag_ids || []).forEach((id) => {
+        const key = String(id);
+        byTag[key] = (byTag[key] || 0) + 1;
+      });
     });
     const ids = new Set(users.map((u) => String(u.id)));
     return {
       all: users.length,
       role: (r) => byRole[r] || 0,
+      tag: (t) => byTag[String(t.id)] || 0,
       group: (g) => g.userIds.filter((id) => ids.has(String(id))).length,
     };
-  }, [users, groups]);
+  }, [users, groups, tags]);
 
   const options = [
     { value: 'all', label: `All (${counts.all})` },
     ...ROLE_TABS.map((t) => ({ value: t.id, label: `${t.label} (${counts.role(t.id.slice(5))})` })),
+    ...tags.map((t) => ({ value: `tag:${t.id}`, label: `${t.name} (${counts.tag(t)})` })),
     ...groups.map((g) => ({ value: `group:${g.id}`, label: `${g.name} (${counts.group(g)})` })),
   ];
   const activeGroup = value.startsWith('group:') ? groups.find((g) => `group:${g.id}` === value) : null;

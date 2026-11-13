@@ -30,8 +30,7 @@ class UserRepository extends BaseRepository {
     return row ? this.toPlain(row) : null;
   }
 
-  async create(data) {
-    const em = this.em();
+  _normalizeCreatePayload(data) {
     const payload = { ...data };
     if (payload.id && !payload._id) {
       payload._id = payload.id;
@@ -46,9 +45,29 @@ class UserRepository extends BaseRepository {
     }
     payload.is_primary = Boolean(payload.is_primary);
     payload.two_factor_enabled = Boolean(payload.two_factor_enabled);
-    const entity = em.create(User, payload);
+    return payload;
+  }
+
+  async create(data) {
+    const em = this.em();
+    const entity = em.create(User, this._normalizeCreatePayload(data));
     await em.persist(entity).flush();
     return this.toPlain(entity);
+  }
+
+  /** Insert many users with one flush (used by bulk import). */
+  async createMany(items = []) {
+    if (!Array.isArray(items) || !items.length) return [];
+    const em = this.em();
+    const entities = items.map((data) => em.create(User, this._normalizeCreatePayload(data)));
+    await em.persist(entities).flush();
+    return entities.map((entity) => this.toPlain(entity));
+  }
+
+  /** Emails only — used to skip per-row uniqueness lookups during bulk import. */
+  async listEmails() {
+    const rows = await this.repo().findAll({ fields: ['email'] });
+    return rows.map((r) => String(r.email || '').trim().toLowerCase()).filter(Boolean);
   }
 
   async update(id, data) {
@@ -83,6 +102,7 @@ class UserRepository extends BaseRepository {
       first_name: entity.first_name,
       last_name: entity.last_name,
       phone_number: entity.phone_number || null,
+      user_code: entity.user_code || null,
       role: entity.role,
       status: entity.status,
       is_primary: Boolean(entity.is_primary),
@@ -91,6 +111,8 @@ class UserRepository extends BaseRepository {
       tag_ids: Array.isArray(entity.tag_ids) ? entity.tag_ids.map(String) : [],
       two_factor_enabled: Boolean(entity.two_factor_enabled),
       timezone: entity.timezone || 'UTC',
+      avatar_url: entity.avatar_url || null,
+      avatar_public_id: entity.avatar_public_id || null,
       last_active_at: entity.last_active_at || null,
       created_at: entity.created_at,
       updated_at: entity.updated_at,

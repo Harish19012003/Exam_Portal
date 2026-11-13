@@ -2,7 +2,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--page-gap, 12px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -16,6 +16,7 @@
  * overridden here or icons drop onto their own row.
  */
 .exams-page-heading-row {
+  min-height: var(--page-heading-min-h);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-areas: 'title pills actions';
@@ -1359,11 +1360,11 @@ html.dark .exams-dynamic-table-wrap,
 }
 
 .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #f3f0ff, 1px 0 0 0 #f3f0ff !important;
+  box-shadow: 2px 0 0 0 #f3f0ff, 1px 0 0 0 #c4b5fd !important;
 }
 
 .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #f3f0ff, -1px 0 0 0 #f3f0ff !important;
+  box-shadow: -2px 0 0 0 #f3f0ff, -1px 0 0 0 #c4b5fd !important;
 }
 
 /* Keep action buttons visible + brand-tinted */
@@ -1405,12 +1406,12 @@ html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell {
 
 [data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left,
 html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--left {
-  box-shadow: 12px 0 0 0 #1f2937, 1px 0 0 0 #1f2937 !important;
+  box-shadow: 2px 0 0 0 #1f2937, 1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right,
 html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
-  box-shadow: -12px 0 0 0 #1f2937, -1px 0 0 0 #1f2937 !important;
+  box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
 }
 
 [data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-full'],
@@ -4226,4 +4227,8 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-date-shifts-select-picker {
     max-width: none;
   }
+}
+
+.exams-title {
+  font-family: var(--font-display);
 }

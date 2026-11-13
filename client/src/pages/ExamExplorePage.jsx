@@ -2,10 +2,23 @@ import { useConfirm } from '../feedback';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queryKeys';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { IconButton } from '../components/Button';
-import { PageHeading } from '../components/PageHeading';
+import { PageHeading, PageShell } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { ArrowLeft, CalendarDays, Eye, FilePlus2, Plus, SlidersHorizontal, Sparkles, Table2, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarDays,
+  Check,
+  Eye,
+  FilePlus2,
+  Loader2,
+  Plus,
+  SlidersHorizontal,
+  Sparkles,
+  Table2,
+  X,
+} from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
@@ -15,6 +28,7 @@ import { useAccess, applyColumnAccess, creatableFields, tablePermissions } from 
 import { getExam } from './exams/examApi';
 import {
   apiErrorMessage,
+  bulkUpdateExamRows,
   createExamRow,
   createExamRowsBulk,
   createExamTable,
@@ -26,6 +40,7 @@ import {
 } from './exams/examTableApi';
 import {
   listExamPresets,
+  updateExamPreset,
   findPresetForService,
   presetsForView,
   diffPresetAgainstFields,
@@ -55,6 +70,7 @@ import {
 import { clearLookupDisplayOverrides } from '../components/DynamicTable/editors/lookupDisplayOverrides';
 import { clearLookupPicksForRow } from '../components/DynamicTable/editors/lookupPicks';
 import { restoreAssigneeIds, useAssigneeDisplayRows } from './exams/useAssigneeLabels';
+import { resolveAssigneeFieldsForImport } from './exams/resolveAssigneeImport';
 import { restoreFromExamValues, useExamValueDisplayRows } from './exams/useExamValueDisplayRows';
 import { restoreLookupIds, useLookupDisplayRows } from './exams/useLookupLabels';
 import { groupSyncPatch, isFromExamField, isLinkedField, isTableSourceField } from './exams/tableLookupApi';
@@ -222,6 +238,9 @@ export const ExamExplorePage = () => {
   const [creating, setCreating] = useState(false);
   const [presets, setPresets] = useState([]);
   const [message, setMessage] = useState('');
+  /** Floating Mass Edit job chip (top-right) while DB update runs after the modal closes. */
+  const [massEditJob, setMassEditJob] = useState(null);
+  // { status: 'running'|'success'|'error', label, detail?, progress? 0–100 }
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [isDateShiftsOpen, setIsDateShiftsOpen] = useState(false);
   const [isSavingDateShifts, setIsSavingDateShifts] = useState(false);
@@ -253,7 +272,8 @@ export const ExamExplorePage = () => {
   const layoutTableId = tableInfo ? `exam_table_${tableInfo.id}_${view}_v1` : null;
   const {
     layoutReady,
-    layoutPrefs,
+    layoutPrefs: savedLayoutPrefs,
+    layoutSource,
     hasUserLayoutOverride,
     layoutEpoch,
     canSaveLayoutAsDefault,
@@ -268,6 +288,10 @@ export const ExamExplorePage = () => {
     () => findPresetForService(presets, exam?.values?.service, view),
     [presets, exam?.values?.service, view],
   );
+  // A table nobody has laid out yet starts with the layout saved on its service's preset.
+  const presetLayout = matchedPreset?.layout || null;
+  const layoutPrefs = savedLayoutPrefs || (layoutSource === 'none' ? presetLayout : null);
+
   const uniqueRowKeys = useMemo(() => {
     const fromExam = normalizeUniqueRowKeys(features?.uniqueRowKeys);
     if (fromExam.length) return fromExam;
@@ -621,8 +645,33 @@ export const ExamExplorePage = () => {
     async (prefs) => {
       const result = await onSaveLayoutAsDefault?.(prefs);
       if (result?.message) setMessage(result.message);
+      if (!result?.ok || !matchedPreset) return;
+      const ok = await confirm({
+        title: 'Also save to the preset?',
+        message: `Use this table layout for every new exam list that loads the “${matchedPreset.name}” preset?`,
+        tertiary: 'Lists that already have their own saved layout are not changed.',
+        confirmLabel: 'Save to preset',
+      });
+      if (!ok) return;
+      try {
+        const saved = await updateExamPreset(matchedPreset.id, {
+          name: matchedPreset.name,
+          serviceValue: matchedPreset.serviceValue,
+          view: matchedPreset.view,
+          fields: matchedPreset.fields,
+          features: matchedPreset.features ?? undefined,
+          layout: prefs,
+        });
+        setPresets((list) => list.map((p) => (p.id === matchedPreset.id ? { ...p, ...saved } : p)));
+        queryClient.setQueryData(queryKeys.exams.presets(), (list) =>
+          Array.isArray(list) ? list.map((p) => (p.id === matchedPreset.id ? { ...p, ...saved } : p)) : list,
+        );
+        setMessage(`Layout saved to the “${matchedPreset.name}” preset`);
+      } catch {
+        setMessage('Could not save the layout to the preset');
+      }
     },
-    [onSaveLayoutAsDefault],
+    [onSaveLayoutAsDefault, matchedPreset, confirm, queryClient],
   );
 
   const handleResetLayoutToDefault = useCallback(async () => {
@@ -702,7 +751,7 @@ export const ExamExplorePage = () => {
     }
   };
 
-  /** Mass Edit: one pass per selected row (shared columns saved on their home tab). */
+  /** Mass Edit (legacy path): one pass per selected/loaded row. */
   const handleBulkUpdate = async (items) => {
     if (!Array.isArray(items) || !items.length) return;
     const results = await Promise.allSettled(
@@ -717,6 +766,179 @@ export const ExamExplorePage = () => {
       );
     }
   };
+
+  /**
+   * Mass Edit against the database (modal already closed — progress chip top-right):
+   * - Selected → checked row ids
+   * - Filtered → server matches search/filters, then updates
+   * - All rows → every record in this exam table
+   */
+  const handleBulkUpdateByScope = useCallback(
+    async ({
+      updates,
+      scope,
+      selectedRowIds,
+      filters,
+      search,
+      columns,
+      columnVisibility,
+      lookupPicks,
+      assigneePicks,
+    }) => {
+      const scopeLabel =
+        scope === 'selected' ? 'selected rows' : scope === 'filtered' ? 'filtered rows' : 'all rows';
+      setMassEditJob({
+        status: 'running',
+        label: 'Mass edit',
+        detail: `Preparing ${scopeLabel}…`,
+        progress: 8,
+      });
+
+      try {
+        // Persist lookup source ids + assignee id[] (not display labels).
+        let values = { ...(updates || {}) };
+        (lookupPicks || []).forEach((pick) => {
+          if (!pick?.columnKey) return;
+          values[pick.columnKey] = pick.id ?? '';
+          Object.assign(values, groupSyncPatch(fieldsRef.current, pick.columnKey, pick.id ?? ''));
+        });
+        (assigneePicks || []).forEach((pick) => {
+          if (!pick?.columnKey) return;
+          values[pick.columnKey] =
+            Array.isArray(pick.ids) && pick.ids.length > 1
+              ? pick.ids
+              : pick.ids?.[0] || (Array.isArray(values[pick.columnKey]) ? [] : '');
+        });
+        values = restoreAssigneeIds(values, {}, fieldsRef.current);
+
+        const fieldByKey = new Map((fieldsRef.current || []).map((f) => [f.key, f]));
+        const localPatch = {};
+        Object.entries(values).forEach(([key, val]) => {
+          const f = fieldByKey.get(key);
+          if (!f || isCombinedField(f) || isFromExamField(f) || isLinkedField(f)) return;
+          if (isSharedImportedField(f)) return; // home-tab only — skip in bulk for now
+          localPatch[key] = val;
+        });
+        if (!Object.keys(localPatch).length) {
+          setMassEditJob({
+            status: 'error',
+            label: 'Mass edit',
+            detail: 'Nothing to update on this tab',
+            progress: 100,
+          });
+          return;
+        }
+
+        let result;
+        if (scope === 'all') {
+          setMassEditJob({
+            status: 'running',
+            label: 'Mass edit',
+            detail: 'Updating all rows in the database…',
+            progress: 45,
+          });
+          result = await bulkUpdateExamRows(examId, { values: localPatch, all: true, view });
+        } else if (scope === 'selected') {
+          const ids = (selectedRowIds || []).map(String).filter(Boolean);
+          if (!ids.length) {
+            setMassEditJob({
+              status: 'error',
+              label: 'Mass edit',
+              detail: 'No rows selected',
+              progress: 100,
+            });
+            return;
+          }
+          setMassEditJob({
+            status: 'running',
+            label: 'Mass edit',
+            detail: `Updating ${ids.length.toLocaleString()} selected row${ids.length === 1 ? '' : 's'}…`,
+            progress: 45,
+          });
+          result = await bulkUpdateExamRows(examId, { values: localPatch, ids, view });
+        } else {
+          // Filtered: server applies the same search/filters (no full-table download).
+          const hasFilter =
+            Boolean(String(search || '').trim()) ||
+            Object.values(filters || {}).some((f) => f != null && f !== '');
+          if (!hasFilter) {
+            setMassEditJob({
+              status: 'running',
+              label: 'Mass edit',
+              detail: 'Updating all rows in the database…',
+              progress: 45,
+            });
+            result = await bulkUpdateExamRows(examId, { values: localPatch, all: true, view });
+          } else {
+            const searchKeys = [];
+            (columns || []).forEach((col) => {
+              if (!col?.key || columnVisibility?.[col.key] === false) return;
+              if (Array.isArray(col.composedOf) && col.composedOf.length) {
+                col.composedOf.forEach((part) => {
+                  if (part?.field) searchKeys.push(String(part.field));
+                });
+              } else {
+                searchKeys.push(String(col.key));
+              }
+            });
+            setMassEditJob({
+              status: 'running',
+              label: 'Mass edit',
+              detail: 'Matching filters on the server…',
+              progress: 40,
+            });
+            result = await bulkUpdateExamRows(examId, {
+              values: localPatch,
+              filters: filters || {},
+              search: search || '',
+              searchKeys,
+              view,
+            });
+            if (!Number(result?.updated)) {
+              setMassEditJob({
+                status: 'error',
+                label: 'Mass edit',
+                detail: 'No rows match the current filters',
+                progress: 100,
+              });
+              return;
+            }
+          }
+        }
+
+        setMassEditJob({
+          status: 'running',
+          label: 'Mass edit',
+          detail: 'Refreshing table…',
+          progress: 90,
+        });
+        await invalidateRows(examId);
+        const n = Number(result?.updated) || 0;
+        setMassEditJob({
+          status: 'success',
+          label: 'Mass edit complete',
+          detail: n === 1 ? 'Updated 1 row' : `Updated ${n.toLocaleString()} rows`,
+          progress: 100,
+        });
+      } catch (err) {
+        setMassEditJob({
+          status: 'error',
+          label: 'Mass edit failed',
+          detail: apiErrorMessage(err, 'Could not update rows'),
+          progress: 100,
+        });
+        await invalidateRows(examId);
+      }
+    },
+    [examId, view, invalidateRows],
+  );
+
+  // Auto-dismiss success / error chip after a few seconds.
+  useEffect(() => {
+    if (!massEditJob || massEditJob.status === 'running') return undefined;
+    const t = window.setTimeout(() => setMassEditJob(null), massEditJob.status === 'success' ? 4200 : 6500);
+    return () => window.clearTimeout(t);
+  }, [massEditJob]);
 
   const handleRowDelete = async (rowIds) => {
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
@@ -917,7 +1139,7 @@ export const ExamExplorePage = () => {
     [rows],
   );
 
-  /** CSV / paste import: add new rows, or update / upsert by a match column. */
+  /** CSV / paste import: add, update / upsert by key, or replace all with incoming. */
   const handleImportRows = async (csvRows, handlers) => {
     const mode = handlers?.mode || 'add';
     const matchKey = String(handlers?.matchKey || '').trim();
@@ -954,10 +1176,20 @@ export const ExamExplorePage = () => {
 
     if (!prepared.length) throw new Error('CSV columns did not match any field of this center list');
 
+    // People columns (user tags): resolve pasted user codes / emails / names → user ids.
+    // Codes alone are enough (e.g. AAD5005), including chip text like "Aadarsh · AAD5005".
+    const resolvedImport = await resolveAssigneeFieldsForImport(prepared, importable);
+    const workRows = resolvedImport.rows;
     const norm = (v) => String(v ?? '').trim().toLowerCase();
-    const failures = [];
+    // Unmatched codes are skips (field left as-is); unknown names stay as soft failures in the toast.
+    const failures = [
+      ...(resolvedImport.failures || []),
+      ...(resolvedImport.skipped || []),
+    ];
     let created = 0;
     let updated = 0;
+    let deleted = 0;
+    const totalIncoming = workRows.length;
 
     const createBatches = async (rowsToCreate) => {
       if (!rowsToCreate.length) return;
@@ -976,27 +1208,19 @@ export const ExamExplorePage = () => {
               `rows ${offset + 1}-${offset + batch.length}: ${apiErrorMessage(err, 'could not be saved')}`,
             );
           }
-          handlers?.onProgress?.(created + updated, prepared.length);
         },
-        { chunkSize: 200, onProgress: (done) => handlers?.onProgress?.(created + updated + done, prepared.length) },
+        {
+          chunkSize: 200,
+          // `done` is already cumulative rows sent — don't also add created/updated.
+          onProgress: (done) =>
+            handlers?.onProgress?.(Math.min(done + updated, totalIncoming), totalIncoming),
+        },
       );
     };
 
-    if (mode === 'add' || !matchKey) {
-      await createBatches(prepared);
-      await loadRows();
-      if (created === 0) throw new Error(`Nothing was imported. ${failures[0] || ''}`.trim());
-      setMessage(
-        failures.length
-          ? `Imported ${created} of ${prepared.length} centers. ${failures.length} failed (${failures[0]})`
-          : `Imported ${created} center${created === 1 ? '' : 's'}`,
-      );
-      return;
-    }
-
-    // Load every existing row so Update / Upsert can match beyond the current page.
-    const allExisting = [];
-    {
+    /** Load every existing row (paginated) for match or replace. */
+    const loadAllExisting = async () => {
+      const allExisting = [];
       let page = 1;
       const limit = 500;
       for (;;) {
@@ -1008,7 +1232,53 @@ export const ExamExplorePage = () => {
         page += 1;
         if (page > 200) break;
       }
+      return allExisting;
+    };
+
+    if (mode === 'replace') {
+      const allExisting = await loadAllExisting();
+      const ids = allExisting.map((r) => String(r.id)).filter(Boolean);
+      const DELETE_CHUNK = 200;
+      // Keep progress total = incoming rows only (not deletes + imports).
+      handlers?.onProgress?.(0, totalIncoming);
+      for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+        const chunk = ids.slice(i, i + DELETE_CHUNK);
+        try {
+          await deleteExamRows(examId, chunk);
+          deleted += chunk.length;
+        } catch (err) {
+          throw new Error(
+            `Could not clear existing rows (${deleted} removed before failure): ${apiErrorMessage(err, 'delete failed')}`,
+          );
+        }
+      }
+      await createBatches(workRows);
+      await loadRows();
+      if (created === 0 && totalIncoming > 0) {
+        throw new Error(`Existing rows were cleared (${deleted}), but nothing was imported. ${failures[0] || ''}`.trim());
+      }
+      setMessage(
+        failures.length
+          ? `Replaced all — removed ${deleted}, imported ${created} of ${totalIncoming}. ${failures.length} failed (${failures[0]})`
+          : `Replaced all — removed ${deleted}, imported ${created} center${created === 1 ? '' : 's'}`,
+      );
+      return;
     }
+
+    if (mode === 'add' || !matchKey) {
+      await createBatches(workRows);
+      await loadRows();
+      if (created === 0) throw new Error(`Nothing was imported. ${failures[0] || ''}`.trim());
+      setMessage(
+        failures.length
+          ? `Imported ${created} of ${totalIncoming} centers. ${failures.length} failed (${failures[0]})`
+          : `Imported ${created} center${created === 1 ? '' : 's'}`,
+      );
+      return;
+    }
+
+    // Load every existing row so Update / Upsert can match beyond the current page.
+    const allExisting = await loadAllExisting();
 
     const lookup = new Map();
     allExisting.forEach((r) => {
@@ -1019,7 +1289,7 @@ export const ExamExplorePage = () => {
 
     const toUpdate = [];
     const toCreate = [];
-    prepared.forEach((values) => {
+    workRows.forEach((values) => {
       const v = norm(values[matchKey]);
       // Skip rows with an empty match key — nothing reliable to join on.
       if (!v) return;
@@ -1133,7 +1403,7 @@ export const ExamExplorePage = () => {
   const presetDiff = matchedPreset && fields.length ? diffPresetAgainstFields(matchedPreset.fields, fields) : null;
   const presetOutdated = Boolean(presetDiff && (presetDiff.changed.length || presetDiff.added.length || presetDiff.reordered));
   return (
-    <div className="exams-page exams-page--table exam-explore-page">
+    <PageShell className="exams-page exams-page--table exam-explore-page">
       {/* Title/subtitle omitted — ExamSubNav (next to back) names the current tab. */}
       <PageHeading
         leading={
@@ -1188,6 +1458,52 @@ export const ExamExplorePage = () => {
           {message}
         </div>
       )}
+
+      {massEditJob &&
+        createPortal(
+          <div
+            className={`fixed top-4 right-4 z-[10001] flex max-w-[min(360px,92vw)] items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl
+              ${isDarkMode ? 'border-gray-600 bg-[#0f1c18] text-gray-100' : 'border-gray-200 bg-white text-gray-900'}`}
+            role="status"
+            aria-live="polite"
+          >
+            {massEditJob.status === 'running' ? (
+              <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#13C296]" />
+            ) : massEditJob.status === 'success' ? (
+              <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#13C296]" strokeWidth={2.5} />
+            ) : (
+              <X className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" strokeWidth={2.5} />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{massEditJob.label}</p>
+              {massEditJob.detail ? (
+                <p className={`mt-0.5 text-[12px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {massEditJob.detail}
+                </p>
+              ) : null}
+              {massEditJob.status === 'running' ? (
+                <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>
+                  <div
+                    className="h-full rounded-full bg-[#13C296] transition-[width] duration-300"
+                    style={{ width: `${Math.min(100, Math.max(0, massEditJob.progress || 0))}%` }}
+                  />
+                </div>
+              ) : null}
+            </div>
+            {massEditJob.status !== 'running' ? (
+              <button
+                type="button"
+                onClick={() => setMassEditJob(null)}
+                className={`-mr-1 -mt-1 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg
+                  ${isDarkMode ? 'text-gray-400 hover:bg-white/10' : 'text-gray-500 hover:bg-gray-100'}`}
+                aria-label="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>,
+          document.body,
+        )}
 
       {isAdmin && hasTable && presetOutdated && matchedPreset && (
         <div className="exam-explore-preset-banner" role="status">
@@ -1284,7 +1600,7 @@ export const ExamExplorePage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              key={`exam_table_${layoutEpoch}_${savedLayoutPrefs || !presetLayout ? 0 : 1}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={layoutTableId}
               shareState={false}
               usePortalFeatures
@@ -1306,12 +1622,14 @@ export const ExamExplorePage = () => {
               onResetLayoutToDefault={hasUserLayoutOverride ? handleResetLayoutToDefault : undefined}
               onRowUpdate={handleRowUpdate}
               onBulkUpdate={handleBulkUpdate}
+              onBulkUpdateByScope={handleBulkUpdateByScope}
               onRowDelete={handleRowDelete}
               onDuplicateRow={handleDuplicateRow}
               onImportRows={handleImportRows}
               importMatchKeys={importMatchKeys}
               importDefaultMatchKey={importDefaultMatchKey}
               importExistingRows={importExistingRows}
+              importAllowReplaceAll
               showAddRow={false}
               permissions={tablePerms}
               enableFeatureBuilder={isAdmin}
@@ -1451,6 +1769,6 @@ export const ExamExplorePage = () => {
           onSave={handleApplyDateShifts}
         />
       )}
-    </div>
+    </PageShell>
   );
 };

@@ -215,12 +215,7 @@ const loadUsers = async (em, ids) => {
   return new Map(users.map((u) => [String(u._id), u]));
 };
 
-const mapRow = (raw, fields, userMap) => {
-  const created = userMap.get(String(raw.sys_created_by || ''));
-  const updated = userMap.get(String(raw.sys_updated_by || ''));
-  const createdLabel = created
-    ? userLabel(created.first_name, created.last_name, created.email)
-    : '';
+const decodeRowValues = (raw, fields) => {
   const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
   const values = {};
   // Decode every known field; also keep any extra stored keys so other tabs' data stays available.
@@ -230,9 +225,18 @@ const mapRow = (raw, fields, userMap) => {
     if (field) values[key] = decodeCellValue(raw.values?.[key], effectiveType(field));
     else if (Object.prototype.hasOwnProperty.call(raw.values || {}, key)) values[key] = raw.values[key];
   });
+  return values;
+};
+
+const mapRow = (raw, fields, userMap) => {
+  const created = userMap.get(String(raw.sys_created_by || ''));
+  const updated = userMap.get(String(raw.sys_updated_by || ''));
+  const createdLabel = created
+    ? userLabel(created.first_name, created.last_name, created.email)
+    : '';
   return {
     id: String(raw.id ?? raw._id),
-    values,
+    values: decodeRowValues(raw, fields),
     createdAt: raw.sys_created_at,
     updatedAt: raw.sys_updated_at,
     createdByLabel: createdLabel,
@@ -240,6 +244,20 @@ const mapRow = (raw, fields, userMap) => {
       ? userLabel(updated.first_name, updated.last_name, updated.email) || createdLabel
       : createdLabel,
   };
+};
+
+/**
+ * Lightweight id + decoded values for server-side filter matching (no user joins).
+ */
+export const listRowValues = async (tableId, fields) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const rows = await em.find(ExamRow, { exam_id: examId }, { orderBy: { sys_created_at: 'DESC' } });
+  return rows.map((r) => ({
+    id: String(r.id ?? r._id),
+    values: decodeRowValues(r, fields),
+  }));
 };
 
 const resolveExamId = async (tableId) => {
@@ -385,6 +403,38 @@ export const updateRow = async (tableId, fields, rowId, values, userId) => {
   });
   await em.flush();
   return true;
+};
+
+/**
+ * Apply the same values patch to many rows (Mass Edit).
+ * `rowIds: null` → every row for this exam; otherwise only those ids.
+ */
+export const updateRowsBulk = async (tableId, fields, values, userId, rowIds = null) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return 0;
+  const where =
+    Array.isArray(rowIds) && rowIds.length
+      ? { exam_id: examId, id: { $in: rowIds.map(String) } }
+      : { exam_id: examId };
+  if (Array.isArray(rowIds) && rowIds.length === 0) return 0;
+  const rows = await em.find(ExamRow, where);
+  if (!rows.length) return 0;
+  const now = new Date();
+  rows.forEach((row) => {
+    const next = { ...(row.values || {}) };
+    fields.forEach((f) => {
+      if (!(f.key in values)) return;
+      next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
+    });
+    em.assign(row, {
+      values: next,
+      sys_updated_by: userId || null,
+      sys_updated_at: now,
+    });
+  });
+  await em.flush();
+  return rows.length;
 };
 
 export const deleteRows = async (tableId, rowIds) => {

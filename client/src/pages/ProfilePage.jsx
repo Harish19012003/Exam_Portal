@@ -1,8 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useUrlState } from '../hooks/useUrlState';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { PageHeading } from '../components/PageHeading';
+import { PageHeading, PageShell } from '../components/PageHeading';
+import { DynamicDropdown } from '../components/DynamicData';
+import {
+  requestAvatarSignature,
+  uploadAvatarToCloudinary,
+  saveAvatar,
+  removeAvatar,
+} from '../api/avatarApi';
+import { optimizedAvatarUrl, validateAvatarFile } from '../utils/avatarImage';
+import { ImageCropDialog } from '../components/ImageCropDialog';
 import {
   User,
   Mail,
@@ -24,8 +33,84 @@ import {
   Copy,
   X,
   Key,
+  CalendarDays,
+  Camera,
+  Trash2,
+  Loader2,
+  Users,
+  FileText,
+  Building2,
+  Settings,
+  ScrollText,
+  Search,
+  ShieldCheck,
 } from 'lucide-react';
 import './ProfilePage.css';
+
+/** Timezone choices: `value` is stored on the profile, `label` is what the dropdown shows. */
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST - UTC+05:30)' },
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+  { value: 'America/New_York', label: 'America/New_York (EST - UTC-05:00)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT/BST - UTC+00:00)' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST - UTC+04:00)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT - UTC+08:00)' },
+];
+const TIMEZONE_LABELS = TIMEZONE_OPTIONS.map((o) => o.label);
+
+/** Panel title row: icon tile, title + subtitle, optional status on the right. */
+const PanelHeader = ({ icon: Icon, title, subtitle, aside }) => (
+  <div className="profile-panel-header">
+    <span className="profile-panel-icon"><Icon size={20} aria-hidden="true" /></span>
+    <div className="profile-panel-heading">
+      <h2 className="profile-panel-title">{title}</h2>
+      <p className="profile-panel-subtitle">{subtitle}</p>
+    </div>
+    {aside}
+  </div>
+);
+
+/** 0-4 score + label for the new-password meter (length, variety). Purely advisory. */
+const passwordStrength = (pw) => {
+  if (!pw) {
+    return { score: 0, label: '' };
+  }
+  let score = 0;
+  if (pw.length >= 8) { score += 1; }
+  if (pw.length >= 12) { score += 1; }
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw) && /\d/.test(pw)) { score += 1; }
+  if (/[^A-Za-z0-9]/.test(pw)) { score += 1; }
+  if (pw.length < 8) { score = Math.min(score, 1); }
+  return { score, label: ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][score] };
+};
+
+/** `users:view` -> { area: 'users', action: 'view' }; grouped for display. */
+const ACTION_LABELS = { view: 'View', create: 'Create', update: 'Edit', delete: 'Delete', manage: 'Manage' };
+/** Visual weight of an action: read-only is calm, destructive is red. */
+const ACTION_TONES = { view: 'info', create: 'ok', update: 'warn', delete: 'danger', manage: 'primary' };
+const ACTION_ORDER = ['view', 'create', 'update', 'delete', 'manage'];
+const AREA_ICONS = {
+  users: Users,
+  roles: ShieldCheck,
+  exams: FileText,
+  vendors: Building2,
+  settings: Settings,
+  audit_logs: ScrollText,
+};
+const titleCase = (text) => String(text).replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+const groupPermissions = (list) => {
+  const groups = new Map();
+  list.forEach((code) => {
+    const [areaRaw, actionRaw] = String(code).split(':');
+    const area = actionRaw ? areaRaw : 'other';
+    const action = actionRaw || areaRaw;
+    if (!groups.has(area)) {
+      groups.set(area, []);
+    }
+    groups.get(area).push({ code: String(code), action, label: ACTION_LABELS[action] || titleCase(action) });
+  });
+  return [...groups.entries()].map(([area, items]) => ({ area, title: titleCase(area), items }));
+};
 
 export const ProfilePage = () => {
   const navigate = useNavigate();
@@ -39,6 +124,53 @@ export const ProfilePage = () => {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [timezone, setTimezone] = useState('Asia/Kolkata');
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [permQuery, setPermQuery] = useState('');
+  const [permAction, setPermAction] = useState('all');
+  const avatarInputRef = useRef(null);
+  const [avatarPicked, setAvatarPicked] = useState(null);
+  const avatarMenuRef = useRef(null);
+  const avatarTriggerRef = useRef(null);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+
+  // Close the photo menu on outside click or Escape (focus returns to the camera button).
+  useEffect(() => {
+    if (!avatarMenuOpen) {
+      return undefined;
+    }
+    const onPointerDown = (e) => {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target)) {
+        setAvatarMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setAvatarMenuOpen(false);
+        avatarTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [avatarMenuOpen]);
+  const [isDarkMode, setIsDarkMode] = useState(
+    () => document.documentElement.getAttribute('data-theme') === 'dark',
+  );
+  useEffect(() => {
+    const syncTheme = () => {
+      const root = document.documentElement;
+      setIsDarkMode(root.getAttribute('data-theme') === 'dark' || root.classList.contains('dark'));
+    };
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+    return () => observer.disconnect();
+  }, []);
   const [saving, setSaving] = useState(false);
 
   // Password change state
@@ -116,6 +248,7 @@ export const ProfilePage = () => {
       const stored = JSON.parse(localStorage.getItem('user') || '{}');
       const newStored = { ...stored, ...updated };
       localStorage.setItem('user', JSON.stringify(newStored));
+      window.dispatchEvent(new Event('user-profile-updated'));
 
       setSuccessMsg('Profile updated successfully!');
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -123,6 +256,68 @@ export const ProfilePage = () => {
       setError(err.response?.data?.message || 'Failed to update profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Keep the cached user (used by the sidebar) and local profile in sync with the new picture. */
+  const applyAvatar = (url) => {
+    setProfile((prev) => ({ ...prev, avatar_url: url || null }));
+    try {
+      const stored = JSON.parse(localStorage.getItem('user') || '{}');
+      localStorage.setItem('user', JSON.stringify({ ...stored, avatar_url: url || null }));
+    } catch {
+      // ignore storage errors
+    }
+    window.dispatchEvent(new Event('user-profile-updated'));
+  };
+
+  const handleAvatarSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setSuccessMsg('');
+    setError('');
+    try {
+      validateAvatarFile(file);
+      setAvatarPicked(file);
+    } catch (err) {
+      setError(err.message || 'Could not open that image');
+    }
+  };
+
+  // Called by the crop dialog: only the adjusted square is uploaded.
+  const uploadCroppedAvatar = async (cropped) => {
+    setAvatarBusy(true);
+    try {
+      const signature = await requestAvatarSignature();
+      const uploaded = await uploadAvatarToCloudinary(cropped, signature);
+      const saved = await saveAvatar({ secure_url: uploaded.secure_url, public_id: uploaded.public_id });
+      applyAvatar(saved?.avatar_url || uploaded.secure_url);
+      setSuccessMsg('Profile photo updated');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      setAvatarPicked(null);
+    } catch (err) {
+      setAvatarPicked(null);
+      setError(err.response?.data?.message || err.message || 'Could not upload your photo');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleAvatarRemove = async () => {
+    if (!window.confirm('Remove your profile photo?')) return;
+    setSuccessMsg('');
+    setError('');
+    setAvatarBusy(true);
+    try {
+      await removeAvatar();
+      applyAvatar(null);
+      setSuccessMsg('Profile photo removed');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Could not remove your photo');
+    } finally {
+      setAvatarBusy(false);
     }
   };
 
@@ -268,17 +463,145 @@ export const ProfilePage = () => {
   const displayName = [firstName, lastName].filter(Boolean).join(' ') || profile?.email || 'User';
   const roleName = profile?.role ? profile.role.replace(/_/g, ' ').toUpperCase() : 'USER';
   const permissionsList = Array.isArray(profile?.permissions) ? profile.permissions : [];
+  // Save stays disabled until something actually differs from what is stored.
+  const dirty =
+    !!profile &&
+    (firstName !== (profile.first_name || '') ||
+      lastName !== (profile.last_name || '') ||
+      phone !== (profile.phone_number || '') ||
+      timezone !== (profile.timezone || 'Asia/Kolkata'));
+  const completenessChecks = [
+    { label: 'name', done: Boolean(profile?.first_name && profile?.last_name) },
+    { label: 'phone number', done: Boolean(profile?.phone_number) },
+    { label: 'timezone', done: Boolean(profile?.timezone) },
+    { label: 'profile photo', done: Boolean(profile?.avatar_url) },
+  ];
+  const completenessPct = Math.round((completenessChecks.filter((c) => c.done).length / completenessChecks.length) * 100);
+  const missingBits = completenessChecks.filter((c) => !c.done).map((c) => c.label);
+  const strength = passwordStrength(newPassword);
+  const passwordsMatch = confirmPassword !== '' && newPassword === confirmPassword;
+  const passwordReady = newPassword.length >= 8 && passwordsMatch;
+  const permQueryNorm = permQuery.trim().toLowerCase();
+  const allPermissionGroups = groupPermissions(permissionsList);
+  const permActionCounts = permissionsList.reduce((acc, code) => {
+    const action = String(code).includes(':') ? String(code).split(':')[1] : String(code);
+    acc[action] = (acc[action] || 0) + 1;
+    return acc;
+  }, {});
+  const availableActions = ACTION_ORDER.filter((a) => permActionCounts[a]);
+  const permissionGroups = allPermissionGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          (permAction === 'all' || item.action === permAction) &&
+          (!permQueryNorm ||
+            item.code.toLowerCase().includes(permQueryNorm) ||
+            item.label.toLowerCase().includes(permQueryNorm) ||
+            group.title.toLowerCase().includes(permQueryNorm)),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+  const handleDiscard = () => {
+    setFirstName(profile?.first_name || '');
+    setLastName(profile?.last_name || '');
+    setPhone(profile?.phone_number || '');
+    setTimezone(profile?.timezone || 'Asia/Kolkata');
+  };
 
   return (
-    <div className="profile-page">
-      <PageHeading title="Profile & Security" />
+    <PageShell className="profile-page">
+      <PageHeading
+        title="Profile & Security"
+        subtitle="Manage your personal details, password and access rights"
+      />
 
+      <div className="profile-layout">
+      <aside className="profile-aside">
       <div className="profile-header-card">
         <div className="profile-avatar-container">
-          <div className="profile-avatar-circle" aria-hidden="true">
-            {avatarLetter}
+          <div className={`profile-avatar-circle ${avatarBusy ? 'busy' : ''}`}>
+            {profile?.avatar_url ? (
+              <a
+                href={profile.avatar_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="profile-avatar-link"
+                title="View full photo"
+              >
+                <img
+                  className="profile-avatar-img"
+                  src={optimizedAvatarUrl(profile.avatar_url)}
+                  alt={`${displayName} profile photo`}
+                  width={96}
+                  height={96}
+                  decoding="async"
+                />
+              </a>
+            ) : (
+              <span aria-hidden="true">{avatarLetter}</span>
+            )}
+            {avatarBusy && (
+              <span className="profile-avatar-spinner" role="status" aria-label="Uploading photo">
+                <Loader2 size={22} className="profile-spin" />
+              </span>
+            )}
           </div>
           <span className="profile-status-indicator" title="Active" />
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="profile-avatar-file"
+            onChange={handleAvatarSelected}
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+          <div className="profile-avatar-menu-wrap" ref={avatarMenuRef}>
+            <button
+              ref={avatarTriggerRef}
+              type="button"
+              className="profile-avatar-btn"
+              onClick={() => setAvatarMenuOpen((open) => !open)}
+              disabled={avatarBusy}
+              aria-haspopup="menu"
+              aria-expanded={avatarMenuOpen}
+              aria-label="Profile photo options"
+              title="Profile photo"
+            >
+              <Camera size={14} aria-hidden="true" />
+            </button>
+            {avatarMenuOpen && (
+              <div className="profile-avatar-menu" role="menu" aria-label="Profile photo">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="profile-avatar-menu-item"
+                  onClick={() => {
+                    setAvatarMenuOpen(false);
+                    avatarInputRef.current?.click();
+                  }}
+                >
+                  <Camera size={15} aria-hidden="true" />
+                  <span>{profile?.avatar_url ? 'Upload new photo' : 'Upload photo'}</span>
+                </button>
+                {profile?.avatar_url && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="profile-avatar-menu-item danger"
+                    onClick={() => {
+                      setAvatarMenuOpen(false);
+                      handleAvatarRemove();
+                    }}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                    <span>Remove photo</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="profile-header-info">
@@ -303,20 +626,77 @@ export const ProfilePage = () => {
           </div>
           <div className="profile-meta-row">
             <span className="profile-meta-item">
-              <Mail size={14} aria-hidden="true" />
-              <span className="profile-meta-text">{profile?.email}</span>
+              <span className="profile-meta-icon"><Mail size={15} aria-hidden="true" /></span>
+              <span className="profile-meta-body">
+                <span className="profile-meta-label">Email</span>
+                <span className="profile-meta-text">{profile?.email}</span>
+              </span>
             </span>
             {profile?.phone_number && (
               <span className="profile-meta-item">
-                <Phone size={14} aria-hidden="true" />
-                <span className="profile-meta-text">{profile.phone_number}</span>
+                <span className="profile-meta-icon"><Phone size={15} aria-hidden="true" /></span>
+                <span className="profile-meta-body">
+                  <span className="profile-meta-label">Phone</span>
+                  <span className="profile-meta-text">{profile.phone_number}</span>
+                </span>
               </span>
             )}
             <span className="profile-meta-item">
-              <Globe size={14} aria-hidden="true" />
-              <span className="profile-meta-text">{profile?.timezone || 'Asia/Kolkata'}</span>
+              <span className="profile-meta-icon"><Globe size={15} aria-hidden="true" /></span>
+              <span className="profile-meta-body">
+                <span className="profile-meta-label">Timezone</span>
+                <span className="profile-meta-text">{profile?.timezone || 'Asia/Kolkata'}</span>
+              </span>
+            </span>
+            <span className="profile-meta-item">
+              <span className="profile-meta-icon"><Clock size={15} aria-hidden="true" /></span>
+              <span className="profile-meta-body">
+                <span className="profile-meta-label">Last active</span>
+                <span className="profile-meta-text">
+                  {profile?.last_active_at && !Number.isNaN(new Date(profile.last_active_at).getTime())
+                    ? new Date(profile.last_active_at).toLocaleString(undefined, {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })
+                    : 'Active now'}
+                </span>
+              </span>
             </span>
           </div>
+        </div>
+
+        <div className="profile-stats" aria-label="Account summary">
+          <button
+            type="button"
+            className="profile-stat profile-stat--link tone-primary"
+            title="View your rights and permissions"
+            onClick={() => setActiveTab('permissions')}
+          >
+            <span className="profile-stat-icon"><Shield size={15} aria-hidden="true" /></span>
+            <span className="profile-stat-value">{permissionsList.length}</span>
+            <span className="profile-stat-label">Permissions</span>
+          </button>
+          <button
+            type="button"
+            className={`profile-stat profile-stat--link ${profile?.two_factor_enabled ? 'tone-ok' : 'tone-warn'}`}
+            title="Manage two-factor sign-in"
+            onClick={() => setActiveTab('security')}
+          >
+            <span className="profile-stat-icon"><Lock size={15} aria-hidden="true" /></span>
+            <span className="profile-stat-value">{profile?.two_factor_enabled ? 'On' : 'Off'}</span>
+            <span className="profile-stat-label">Two-factor</span>
+          </button>
+          {profile?.created_at && !Number.isNaN(new Date(profile.created_at).getTime()) && (
+            <div className="profile-stat tone-info">
+              <span className="profile-stat-icon"><CalendarDays size={15} aria-hidden="true" /></span>
+              <span className="profile-stat-value">
+                {new Date(profile.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+              </span>
+              <span className="profile-stat-label">Joined</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -329,7 +709,10 @@ export const ProfilePage = () => {
           onClick={() => setActiveTab('details')}
         >
           <User size={16} aria-hidden="true" />
-          <span>Personal Details</span>
+          <span className="profile-tab-text">
+            <span className="profile-tab-title">Personal Details</span>
+            <span className="profile-tab-desc">Name, phone and timezone</span>
+          </span>
         </button>
         <button
           type="button"
@@ -339,7 +722,10 @@ export const ProfilePage = () => {
           onClick={() => setActiveTab('security')}
         >
           <KeyRound size={16} aria-hidden="true" />
-          <span>Security & Password</span>
+          <span className="profile-tab-text">
+            <span className="profile-tab-title">Security & Password</span>
+            <span className="profile-tab-desc">Password and two-factor sign-in</span>
+          </span>
         </button>
         <button
           type="button"
@@ -349,11 +735,18 @@ export const ProfilePage = () => {
           onClick={() => setActiveTab('permissions')}
         >
           <Shield size={16} aria-hidden="true" />
-          <span className="profile-tab-label-full">Rights & Permissions ({permissionsList.length})</span>
-          <span className="profile-tab-label-short">Rights ({permissionsList.length})</span>
+          <span className="profile-tab-text">
+            <span className="profile-tab-title">
+              <span className="profile-tab-label-full">Rights & Permissions ({permissionsList.length})</span>
+              <span className="profile-tab-label-short">Rights ({permissionsList.length})</span>
+            </span>
+            <span className="profile-tab-desc">What you can access</span>
+          </span>
         </button>
       </div>
+      </aside>
 
+      <div className="profile-main">
         {/* ALERTS */}
       {successMsg && (
         <div className="profile-alert success">
@@ -371,40 +764,67 @@ export const ProfilePage = () => {
       {/* TAB CONTENT 1: PERSONAL DETAILS */}
       {activeTab === 'details' && (
         <div className="profile-panel">
-          <div className="profile-panel-header">
-            <div>
-              <h2 className="profile-panel-title">Personal Information</h2>
-              <p className="profile-panel-subtitle">Manage your personal details and account preferences</p>
-            </div>
-          </div>
+          <PanelHeader
+            icon={User}
+            title="Personal Information"
+            subtitle="Manage your personal details and account preferences"
+            aside={(
+              <div className="profile-completeness" title={missingBits.length ? `Still missing: ${missingBits.join(', ')}` : 'Everything is filled in'}>
+                <div className="profile-completeness-top">
+                  <span>Profile {completenessPct}% complete</span>
+                </div>
+                <div className="profile-completeness-bar" role="progressbar" aria-valuenow={completenessPct} aria-valuemin={0} aria-valuemax={100} aria-label="Profile completeness">
+                  <span style={{ width: `${completenessPct}%` }} />
+                </div>
+                {missingBits.length > 0 && <span className="profile-completeness-hint">Add your {missingBits[0]} to finish</span>}
+              </div>
+            )}
+          />
 
           <form className="profile-form" onSubmit={handleUpdateProfile}>
             <div className="profile-form-grid">
+              <div className="profile-section-head full-width">
+                <h3 className="profile-section-title">Basic information</h3>
+                <p className="profile-section-desc">Your name as it appears across the portal.</p>
+              </div>
+
               <div className="profile-form-group">
                 <label className="profile-label">First Name</label>
-                <input
-                  type="text"
-                  className="profile-input"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="First name"
-                />
+                <div className="profile-field">
+                  <User size={16} className="profile-field-icon" aria-hidden="true" />
+                  <input
+                    type="text"
+                    className="profile-input"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="First name"
+                  />
+                </div>
               </div>
 
               <div className="profile-form-group">
                 <label className="profile-label">Last Name</label>
-                <input
-                  type="text"
-                  className="profile-input"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Last name"
-                />
+                <div className="profile-field">
+                  <User size={16} className="profile-field-icon" aria-hidden="true" />
+                  <input
+                    type="text"
+                    className="profile-input"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Last name"
+                  />
+                </div>
+              </div>
+
+              <div className="profile-section-head full-width">
+                <h3 className="profile-section-title">Contact</h3>
+                <p className="profile-section-desc">Your email is verified and can't be changed here.</p>
               </div>
 
               <div className="profile-form-group">
                 <label className="profile-label">Email Address</label>
-                <div className="profile-input-readonly">
+                <div className="profile-input-readonly profile-field">
+                  <Mail size={16} className="profile-field-icon" aria-hidden="true" />
                   <input
                     type="email"
                     className="profile-input disabled"
@@ -417,37 +837,59 @@ export const ProfilePage = () => {
 
               <div className="profile-form-group">
                 <label className="profile-label">Phone Number</label>
-                <input
-                  type="text"
-                  className="profile-input"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+91 9876543210"
-                />
+                <div className="profile-field">
+                  <Phone size={16} className="profile-field-icon" aria-hidden="true" />
+                  <input
+                    type="text"
+                    className="profile-input"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 9876543210"
+                  />
+                </div>
+              </div>
+
+              <div className="profile-section-head full-width">
+                <h3 className="profile-section-title">Preferences</h3>
+                <p className="profile-section-desc">Choose the timezone that suits you.</p>
               </div>
 
               <div className="profile-form-group full-width">
                 <label className="profile-label">Timezone</label>
-                <select
-                  className="profile-select"
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                >
-                  <option value="Asia/Kolkata">Asia/Kolkata (IST - UTC+05:30)</option>
-                  <option value="UTC">UTC (Coordinated Universal Time)</option>
-                  <option value="America/New_York">America/New_York (EST - UTC-05:00)</option>
-                  <option value="Europe/London">Europe/London (GMT/BST - UTC+00:00)</option>
-                  <option value="Asia/Dubai">Asia/Dubai (GST - UTC+04:00)</option>
-                  <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+08:00)</option>
-                </select>
+                <div className="profile-field">
+                <Globe size={16} className="profile-field-icon" aria-hidden="true" />
+                <DynamicDropdown
+                  variant="form"
+                  required
+                  className="profile-dd"
+                  isDarkMode={isDarkMode}
+                  options={TIMEZONE_LABELS}
+                  value={TIMEZONE_OPTIONS.find((o) => o.value === timezone)?.label || timezone}
+                  onChange={(label) => {
+                    const next = TIMEZONE_OPTIONS.find((o) => o.label === label);
+                    if (next) setTimezone(next.value);
+                  }}
+                  minMenuWidth={260}
+                />
+                </div>
               </div>
             </div>
 
-            <div className="profile-form-actions">
-              <button type="submit" className="profile-save-btn" disabled={saving}>
+            <div className={`profile-form-actions ${dirty ? 'is-dirty' : ''}`}>
+              <span className={`profile-dirty-hint ${dirty ? 'show' : ''}`} role="status">
+                {dirty ? 'You have unsaved changes' : 'All changes saved'}
+              </span>
+              <div className="profile-form-buttons">
+                {dirty && (
+                  <button type="button" className="profile-discard-btn" onClick={handleDiscard} disabled={saving}>
+                    Discard
+                  </button>
+                )}
+              <button type="submit" className="profile-save-btn" disabled={saving || !dirty}>
                 <Save size={16} />
                 <span>{saving ? 'Saving changes...' : 'Save Changes'}</span>
               </button>
+              </div>
             </div>
           </form>
         </div>
@@ -456,12 +898,17 @@ export const ProfilePage = () => {
       {/* TAB CONTENT 2: SECURITY */}
       {activeTab === 'security' && (
         <div className="profile-panel">
-          <div className="profile-panel-header">
-            <div>
-              <h2 className="profile-panel-title">Security & Password</h2>
-              <p className="profile-panel-subtitle">Update your password and review your account security status</p>
-            </div>
-          </div>
+          <PanelHeader
+            icon={KeyRound}
+            title="Security & Password"
+            subtitle="Update your password and review your account security status"
+            aside={(
+              <span className={`profile-chip ${profile?.two_factor_enabled ? 'ok' : 'warn'}`}>
+                <ShieldCheck size={14} aria-hidden="true" />
+                {profile?.two_factor_enabled ? 'Two-factor on' : 'Two-factor off'}
+              </span>
+            )}
+          />
 
           {passwordSuccess && (
             <div className="profile-alert success">
@@ -478,36 +925,65 @@ export const ProfilePage = () => {
 
           <form className="profile-form" onSubmit={handleUpdatePassword}>
             <div className="profile-form-grid">
+              <div className="profile-section-head full-width">
+                <h3 className="profile-section-title">Change password</h3>
+                <p className="profile-section-desc">Use at least 8 characters. A longer, unique password is safer.</p>
+              </div>
+
               <div className="profile-form-group">
-                <label className="profile-label">New Password</label>
-                <div className="profile-password-wrap">
+                <label className="profile-label" htmlFor="pf-new-password">New Password</label>
+                <div className="profile-password-wrap profile-field">
+                  <KeyRound size={16} className="profile-field-icon" aria-hidden="true" />
                   <input
+                    id="pf-new-password"
                     type={showPassword ? 'text' : 'password'}
                     className="profile-input password-input"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="At least 8 characters"
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
                     className="profile-eye-btn"
                     onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide passwords' : 'Show passwords'}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+                {newPassword && (
+                  <div className="profile-strength" role="status" aria-live="polite">
+                    <div className="profile-strength-bars" aria-hidden="true">
+                      {[1, 2, 3, 4].map((n) => (
+                        <span key={n} className={`profile-strength-bar ${strength.score >= n ? `on s${strength.score}` : ''}`} />
+                      ))}
+                    </div>
+                    <span className={`profile-strength-label s${strength.score}`}>{strength.label}</span>
+                  </div>
+                )}
               </div>
 
               <div className="profile-form-group">
-                <label className="profile-label">Confirm New Password</label>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  className="profile-input"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat new password"
-                />
+                <label className="profile-label" htmlFor="pf-confirm-password">Confirm New Password</label>
+                <div className="profile-field">
+                  <Lock size={16} className="profile-field-icon" aria-hidden="true" />
+                  <input
+                    id="pf-confirm-password"
+                    type={showPassword ? 'text' : 'password'}
+                    className="profile-input"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat new password"
+                    autoComplete="new-password"
+                  />
+                </div>
+                {confirmPassword && (
+                  <span className={`profile-match ${passwordsMatch ? 'ok' : 'bad'}`} role="status">
+                    {passwordsMatch ? <Check size={13} aria-hidden="true" /> : <AlertCircle size={13} aria-hidden="true" />}
+                    {passwordsMatch ? 'Passwords match' : 'Passwords do not match yet'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -515,13 +991,18 @@ export const ProfilePage = () => {
               <button
                 type="submit"
                 className="profile-save-btn"
-                disabled={passwordSaving || !newPassword || !confirmPassword}
+                disabled={passwordSaving || !passwordReady}
               >
                 <Lock size={16} />
                 <span>{passwordSaving ? 'Updating password...' : 'Update Password'}</span>
               </button>
             </div>
           </form>
+
+          <div className="profile-section-head profile-section-head--standalone">
+            <h3 className="profile-section-title">Two-factor authentication</h3>
+            <p className="profile-section-desc">Protect sign-in with a code from an authenticator app.</p>
+          </div>
 
           <div className="profile-security-card">
             <div className="profile-2fa-banner">
@@ -590,29 +1071,100 @@ export const ProfilePage = () => {
       {/* TAB CONTENT 3: RIGHTS & PERMISSIONS */}
       {activeTab === 'permissions' && (
         <div className="profile-panel">
-          <div className="profile-panel-header">
-            <div>
-              <h2 className="profile-panel-title">Assigned Permissions & Rights</h2>
-              <p className="profile-panel-subtitle">Access privileges granted to your account role</p>
-            </div>
-          </div>
-
-          <div className="profile-permissions-grid">
-            {permissionsList.length > 0 ? (
-              permissionsList.map((perm, idx) => (
-                <div key={idx} className="profile-permission-card">
-                  <div className="profile-perm-check">
-                    <Check size={14} />
-                  </div>
-                  <span className="profile-perm-name">{perm}</span>
-                </div>
-              ))
-            ) : (
-              <p className="profile-empty-text">No explicit rights assigned</p>
+          <PanelHeader
+            icon={Shield}
+            title="Assigned Permissions & Rights"
+            subtitle="Access privileges granted to your account role"
+            aside={(
+              <span className="profile-chip">
+                <Shield size={14} aria-hidden="true" />
+                {permissionsList.length} {permissionsList.length === 1 ? 'permission' : 'permissions'} · {allPermissionGroups.length} {allPermissionGroups.length === 1 ? 'area' : 'areas'}
+              </span>
             )}
-          </div>
+          />
+
+          {permissionsList.length > 0 && (
+            <div className="profile-perm-toolbar">
+              {availableActions.length > 1 ? (
+                <div className="profile-perm-filters" role="group" aria-label="Filter by action">
+                  <button
+                    type="button"
+                    className={`profile-perm-filter ${permAction === 'all' ? 'active' : ''}`}
+                    aria-pressed={permAction === 'all'}
+                    title={`${permissionsList.length} permissions across ${allPermissionGroups.length} areas`}
+                    onClick={() => setPermAction('all')}
+                  >
+                    All <span>{permissionsList.length}</span>
+                  </button>
+                  {availableActions.map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className={`profile-perm-filter tone-${ACTION_TONES[action]} ${permAction === action ? 'active' : ''}`}
+                      aria-pressed={permAction === action}
+                      onClick={() => setPermAction(permAction === action ? 'all' : action)}
+                    >
+                      {ACTION_LABELS[action]} <span>{permActionCounts[action]}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="profile-perm-summary">
+                  <strong>{permissionsList.length}</strong> {permissionsList.length === 1 ? 'permission' : 'permissions'}
+                </span>
+              )}
+              {permissionsList.length > 8 && (
+                <div className="profile-field profile-perm-search">
+                  <Search size={16} className="profile-field-icon" aria-hidden="true" />
+                  <input
+                    type="search"
+                    className="profile-input"
+                    value={permQuery}
+                    onChange={(e) => setPermQuery(e.target.value)}
+                    placeholder="Search permissions"
+                    aria-label="Search permissions"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {permissionsList.length === 0 ? (
+            <p className="profile-empty-text">No explicit rights assigned</p>
+          ) : permissionGroups.length === 0 ? (
+            <p className="profile-empty-text">
+              No permissions match{permQuery ? ` "${permQuery}"` : ' this filter'}.
+            </p>
+          ) : (
+            <div className="profile-perm-groups">
+              {permissionGroups.map((group) => {
+                const AreaIcon = AREA_ICONS[group.area] || Shield;
+                return (
+                  <section key={group.area} className={`profile-perm-group ${group.items.length === 1 ? 'is-single' : ''}`}>
+                    <header className="profile-perm-group-head">
+                      <span className="profile-perm-group-icon"><AreaIcon size={16} aria-hidden="true" /></span>
+                      <h3 className="profile-perm-group-title">{group.title}</h3>
+                      <span className="profile-perm-count">{group.items.length}</span>
+                    </header>
+                    <ul className="profile-perm-list">
+                      {group.items.map((item) => (
+                        <li key={item.code} className={`profile-perm-row tone-${ACTION_TONES[item.action] || 'primary'}`} title={item.code}>
+                          <span className="profile-perm-check"><Check size={13} aria-hidden="true" /></span>
+                          <span className="profile-perm-label">{item.label}</span>
+                          <code className="profile-perm-code">{item.code}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
+
+      </div>
+      </div>
 
       {/* 2FA SETUP MODAL */}
       {showTwoFactorSetupModal && twoFactorSetupData && (
@@ -831,6 +1383,18 @@ export const ProfilePage = () => {
           </div>
         </div>
       )}
-    </div>
+      {avatarPicked && (
+        <ImageCropDialog
+          file={avatarPicked}
+          title="Adjust your photo"
+          outputSize={512}
+          shapes={['square']}
+          defaultShape="square"
+          previewSizes={[96, 40]}
+          onCancel={() => setAvatarPicked(null)}
+          onConfirm={uploadCroppedAvatar}
+        />
+      )}
+    </PageShell>
   );
 };

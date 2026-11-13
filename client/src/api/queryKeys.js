@@ -33,6 +33,15 @@ export const queryKeys = {
     links: (examId) => [...queryKeys.exams.all, 'links', String(examId || '')],
   },
   configLists: ['config-lists'],
+  platformSettings: ['platform-settings'],
+  /** Public portal name / logo / favicon (works on login). */
+  platformBranding: ['platform-branding'],
+  messageTemplates: ['message-templates'],
+  integrations: {
+    email: ['integrations', 'email'],
+    storage: ['integrations', 'storage'],
+    push: ['integrations', 'push'],
+  },
   tableLayout: (tableId) => ['table-layout', String(tableId || '')],
   lookupResolve: (sig) => ['lookup-resolve', sig],
   users: {

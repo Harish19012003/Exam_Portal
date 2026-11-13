@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link2 } from 'lucide-react';
+import { uploadAttachment } from '../../api/uploadApi';
 import {
   BOOLEAN_FIELD_TYPES,
   DATE_LINK_TYPES,
@@ -19,6 +20,43 @@ import {
   isUserTagsField,
   resolveLookupRows,
 } from './tableLookupApi';
+
+/** File field: the file is uploaded to Cloudinary and only its URL is saved in the form. */
+const AttachmentUploadField = ({ id, value, onChange, required }) => {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const current = typeof value === 'string' ? value : '';
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) {return;}
+    setBusy(true);
+    setError('');
+    try {
+      const uploaded = await uploadAttachment(file);
+      onChange(uploaded.url);
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <input id={id} type="file" onChange={handleFile} disabled={busy} required={required && !current} />
+      {busy && <p className="exams-field-key-hint">Uploading…</p>}
+      {!busy && current && (
+        <p className="exams-field-key-hint">
+          <a href={current} target="_blank" rel="noreferrer">{current.split('/').pop()}</a>{' · '}
+          <button type="button" onClick={() => onChange('')} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>Remove</button>
+        </p>
+      )}
+      {error && <p className="exams-field-key-hint" role="alert" style={{ color: '#dc2626' }}>{error}</p>}
+    </>
+  );
+};
 
 /** Multi-assign people filtered by the field's user tags (create / edit form). */
 const UserAssigneeField = ({ field, value, onChange }) => {
@@ -380,12 +418,7 @@ export const ExamCustomFieldInput = ({
     return (
       <div className="exams-form-group">
         {label}
-        <input
-          id={id}
-          type="file"
-          onChange={(e) => onChange(e.target.files?.[0]?.name || '')}
-          required={field.required}
-        />
+        <AttachmentUploadField id={id} value={value} onChange={onChange} required={field.required} />
       </div>
     );
   }

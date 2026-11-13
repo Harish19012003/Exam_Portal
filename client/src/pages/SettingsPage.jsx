@@ -5,11 +5,13 @@ import { useSearchParams, useOutletContext } from 'react-router-dom';
 import { UsersPage } from './UsersPage';
 import { MessageTemplatesTab } from './settings/MessageTemplatesTab';
 import { ConfigTab } from './settings/ConfigTab';
+import { PlatformSettingsTab } from './settings/PlatformSettingsTab';
 import { useAccess } from '../hooks/useAccess';
 import {
   Users,
   Mail,
   SlidersHorizontal,
+  Building2,
   Search,
   Check,
   ChevronDown,
@@ -43,6 +45,15 @@ const TABS_CONFIG = [
     badgeType: 'slate',
     page: 'settings',
     description: 'Create dropdown lists and other generic settings values used across the portal.',
+  },
+  {
+    id: 'platform',
+    title: 'Platform Settings',
+    icon: Building2,
+    badge: null,
+    badgeType: 'slate',
+    page: 'settings',
+    description: 'Portal name, support contact, default timezone for new users, and a maintenance banner shown to everyone.',
   },
 ];
 
@@ -245,7 +256,7 @@ export const SettingsPage = () => {
   const dropdownInTopbar = Boolean(topbarSlot) && isWide;
 
   return (
-    <div className={`settings-page ${activeTab === 'users' ? 'settings-page--fill' : ''}`}>
+    <div className={`settings-page ${activeTab === 'users' ? 'settings-page--fill tables-page--dynamic' : ''}`}>
       {dropdownInTopbar && createPortal(tabDropdown, topbarSlot)}
       {/* TOP TOOLBAR: Left Title & Right-Aligned Tab Selector Dropdown */}
       <div className="settings-top-toolbar">
@@ -277,7 +288,7 @@ export const SettingsPage = () => {
         {/* 2. MESSAGE TEMPLATES */}
         {activeTab === 'templates' && (
           <div className="settings-panel-view">
-            <MessageTemplatesTab />
+            <MessageTemplatesTab actionsSlot={actionsSlot} />
           </div>
         )}
 
@@ -285,6 +296,13 @@ export const SettingsPage = () => {
         {activeTab === 'config' && showTab('config') && (
           <div className="settings-panel-view">
             <ConfigTab tabsSlot={tabsSlot} actionsSlot={actionsSlot} />
+          </div>
+        )}
+
+        {/* 4. PLATFORM SETTINGS */}
+        {activeTab === 'platform' && showTab('platform') && (
+          <div className="settings-panel-view">
+            <PlatformSettingsTab />
           </div>
         )}
       </div>

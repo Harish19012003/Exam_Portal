@@ -523,8 +523,15 @@ export const ExamFieldBuilder = ({
       return;
     }
 
+    // Dropdown = one value; Multiselect dropdown / Tags = many. User tags do not force multi.
     const allowMultiple =
-      optionsSource === 'userTags' ? true : isChoiceField ? Boolean(form.allowMultiple) : false;
+      form.dataType === 'multiselect' || form.dataType === 'tags'
+        ? true
+        : form.dataType === 'dropdown' || form.dataType === 'status'
+          ? false
+          : isChoiceField
+            ? Boolean(form.allowMultiple)
+            : false;
     const canLinkDate = DATE_LINK_TYPES.has(form.dataType);
 
     const phoneValidation =
@@ -968,7 +975,12 @@ export const ExamFieldBuilder = ({
                     setForm((p) => ({
                       ...p,
                       dataType: next,
-                      allowMultiple: next === 'multiselect' ? true : p.allowMultiple,
+                      allowMultiple:
+                        next === 'multiselect' || next === 'tags'
+                          ? true
+                          : next === 'dropdown' || next === 'status'
+                            ? false
+                            : p.allowMultiple,
                       sameAsFieldKey: DATE_LINK_TYPES.has(next) ? p.sameAsFieldKey : '',
                       phoneValidation:
                         next === 'phone'
@@ -1205,7 +1217,7 @@ export const ExamFieldBuilder = ({
                                 setForm((p) => ({
                                   ...p,
                                   optionsSource: 'userTags',
-                                  allowMultiple: true,
+                                  // Keep current multi flag — Dropdown stays single; Multiselect dropdown stays multi.
                                 }));
                                 if (error) setError('');
                               }}
@@ -1217,7 +1229,7 @@ export const ExamFieldBuilder = ({
                       </div>
                     )}
 
-                    {isChoiceField && form.optionsSource !== 'userTags' && (
+                    {isChoiceField && form.dataType !== 'multiselect' && form.dataType !== 'dropdown' && (
                       <label className="exams-check-row">
                         <input
                           type="checkbox"
@@ -1229,9 +1241,14 @@ export const ExamFieldBuilder = ({
                         <span>Allow multiple selection</span>
                       </label>
                     )}
-                    {isChoiceField && form.optionsSource === 'userTags' && (
+                    {form.dataType === 'dropdown' && (
                       <p className="exams-config-empty-hint">
-                        Multi-assign is always on: one center row can be given to several people (e.g. 2 VMs + 1 ZM).
+                        Dropdown allows one option only. Use Multiselect dropdown to pick several.
+                      </p>
+                    )}
+                    {form.dataType === 'multiselect' && form.optionsSource === 'userTags' && (
+                      <p className="exams-config-empty-hint">
+                        Multiselect: one center row can be assigned to several people (e.g. 2 VMs + 1 ZM).
                         Assigned people see that row; empty means no extra restriction.
                       </p>
                     )}

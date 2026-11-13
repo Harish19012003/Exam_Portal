@@ -935,32 +935,9 @@ export function ConstructionSidebar({
       subtitle={
         onSaveFeatures
           ? featuresDirty
-            ? 'Unsaved changes · Save to publish for everyone'
+            ? 'Unsaved changes · Publish from the bar at the bottom'
             : 'Saved for all portal members'
           : 'Grouped by intent · Shared = every supporting view'
-      }
-      footer={
-        onSaveFeatures ? (
-          <>
-            <button
-              type="button"
-              disabled={isSavingFeatures || !featuresDirty}
-              onClick={() => onSaveFeatures()}
-              className={`w-full min-h-[44px] rounded-xl px-4 py-2.5 text-sm font-bold transition-colors
-                ${featuresDirty && !isSavingFeatures
-                  ? 'bg-[#13C296] text-white hover:bg-[#10a87f]'
-                  : isDarkMode
-                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-            >
-              {isSavingFeatures ? 'Saving…' : featuresDirty ? 'Save for everyone' : 'All changes saved'}
-            </button>
-            <p className={`mt-2 text-[11px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-              Toggles preview live. Click Save to store them for all users.
-            </p>
-          </>
-        ) : undefined
       }
     >
           {/* Find & Filter */}

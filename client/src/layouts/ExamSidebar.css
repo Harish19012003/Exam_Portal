@@ -22,7 +22,7 @@
   padding: 20px 0 6px;
   overflow: hidden;
   box-sizing: border-box;
-  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   transition: width 0.3s ease-in-out;
 }
 
@@ -369,3 +369,15 @@
 [data-theme="dark"] .xs-user-role { color: #60a5fa; }
 [data-theme="dark"] .xs-user-name,
 [data-theme="dark"] .xs-logo-text { color: #f9fafb; }
+
+.xs-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Uploaded logo replaces the default gradient tile */
+.xs-logo-icon.has-image { background: transparent; box-shadow: none; overflow: hidden; }
+.xs-logo-icon.has-image img { width: 100%; height: 100%; object-fit: contain; display: block; }

@@ -1,22 +1,31 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Layers, Search, Type, Hash, ToggleLeft, List, Check } from 'lucide-react';
+import { X, Layers, Search, Type, Hash, ToggleLeft, List, Check, CheckSquare, Filter, Table2, Tags, LayoutGrid } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ColumnConfig, FieldColumn } from '../types';
 import { DYNAMIC_DROPDOWN_PORTAL_CLASS, DynamicDropdown } from '../../DynamicData/fields';
 import { BulkLookupPicker, type BulkLookupPickMeta } from './BulkLookupPicker';
+import { BulkAssigneePicker, type BulkAssigneePickMeta } from './BulkAssigneePicker';
 
 export type BulkUpdateScope = 'selected' | 'filtered' | 'all';
+/** Which editable fields to show in the Mass Edit list. */
+export type BulkFieldKind = 'all' | 'normal' | 'tag';
+
+const isTagField = (col: FieldColumn) => Boolean(col.userTags);
 
 interface BulkUpdateModalProps {
   columns: ColumnConfig[];
   selectedCount: number;
   filteredCount: number;
   totalCount: number;
-  /** When true, Filtered/All only cover currently loaded rows. */
+  /** When true, Filtered/All only cover currently loaded rows (legacy). */
   serverPaginated?: boolean;
+  /** When true, Filtered/All hit the database (not just the loaded page). */
+  dbScoped?: boolean;
   onApply: (
     updates: Record<string, unknown>,
     lookupPicks?: BulkLookupPickMeta[],
     scope?: BulkUpdateScope,
+    assigneePicks?: BulkAssigneePickMeta[],
   ) => void;
   onClose: () => void;
   isDarkMode: boolean;
@@ -28,6 +37,7 @@ export function BulkUpdateModal({
   filteredCount,
   totalCount,
   serverPaginated = false,
+  dbScoped = false,
   onApply,
   onClose,
   isDarkMode,
@@ -38,18 +48,67 @@ export function BulkUpdateModal({
 
   const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set());
   const [updates, setUpdates] = useState<Record<string, unknown>>({});
-  const [searchQuery, setSearchQuery] = useState('');
   const [lookupPicks, setLookupPicks] = useState<Record<string, BulkLookupPickMeta>>({});
+  const [assigneePicks, setAssigneePicks] = useState<Record<string, BulkAssigneePickMeta>>({});
   const [scope, setScope] = useState<BulkUpdateScope>(() => (selectedCount > 0 ? 'selected' : 'filtered'));
+  const fieldKindCounts = useMemo(() => {
+    let tag = 0;
+    let normal = 0;
+    editableColumns.forEach((c) => {
+      if (isTagField(c)) tag += 1;
+      else normal += 1;
+    });
+    return { all: editableColumns.length, normal, tag };
+  }, [editableColumns]);
+
+  // Prefer Tag fields when the table has any; otherwise All.
+  const [fieldKind, setFieldKind] = useState<BulkFieldKind>(() =>
+    editableColumns.some(isTagField) ? 'tag' : 'all',
+  );
+
+  useEffect(() => {
+    if (fieldKind === 'tag' && fieldKindCounts.tag === 0) setFieldKind('all');
+  }, [fieldKind, fieldKindCounts.tag]);
 
   const scopeCount =
     scope === 'selected' ? selectedCount : scope === 'filtered' ? filteredCount : totalCount;
 
   const filteredColumns = useMemo(() => {
-    if (!searchQuery.trim()) return editableColumns;
-    const q = searchQuery.toLowerCase();
-    return editableColumns.filter(c => c.label.toLowerCase().includes(q));
-  }, [editableColumns, searchQuery]);
+    let list = editableColumns;
+    if (fieldKind === 'tag') list = list.filter(isTagField);
+    else if (fieldKind === 'normal') list = list.filter((c) => !isTagField(c));
+    return list;
+  }, [editableColumns, fieldKind]);
+
+  const fieldKindOptions: {
+    id: BulkFieldKind;
+    label: string;
+    icon: LucideIcon;
+    count: number;
+    description: string;
+  }[] = [
+    {
+      id: 'all',
+      label: 'All',
+      icon: LayoutGrid,
+      count: fieldKindCounts.all,
+      description: 'Every editable field in this table.',
+    },
+    {
+      id: 'normal',
+      label: 'Normal',
+      icon: Type,
+      count: fieldKindCounts.normal,
+      description: 'Text, numbers, lookups, and other non–tag fields.',
+    },
+    {
+      id: 'tag',
+      label: 'Tag fields',
+      icon: Tags,
+      count: fieldKindCounts.tag,
+      description: 'People fields filtered by user tags (ZM, VC, …).',
+    },
+  ];
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -81,6 +140,8 @@ export function BulkUpdateModal({
           if (col) {
             if (col.dataType === 'boolean') defaultVal = false;
             else if (col.lookup) defaultVal = '';
+            else if (col.userTags) defaultVal = col.userTags.multiple === false ? '' : [];
+            else if (col.dataType === 'multiselect') defaultVal = [];
             else if (col.dataType === 'status' || col.dataType === 'dropdown') defaultVal = col.options?.[0] || '';
           }
           return { ...u, [colKey]: defaultVal };
@@ -117,11 +178,12 @@ export function BulkUpdateModal({
       finalUpdates[key] = updates[key];
     });
     const picks = Object.values(lookupPicks).filter((p) => enabledFields.has(p.columnKey));
-    onApply(finalUpdates, picks, scope);
+    const people = Object.values(assigneePicks).filter((p) => enabledFields.has(p.columnKey));
+    onApply(finalUpdates, picks, scope, people);
   };
 
   const getDataTypeIcon = (col: FieldColumn) => {
-    if (col.lookup) return <List className="w-3.5 h-3.5" />;
+    if (col.lookup || col.userTags) return <List className="w-3.5 h-3.5" />;
     switch (col.dataType) {
       case 'number':
       case 'currency': return <Hash className="w-3.5 h-3.5" />;
@@ -147,6 +209,20 @@ export function BulkUpdateModal({
           value={String(value ?? '')}
           isDarkMode={isDarkMode}
           onPick={(patch, meta) => handleLookupPatch(patch, meta)}
+        />
+      );
+    }
+
+    if (col.userTags) {
+      return (
+        <BulkAssigneePicker
+          column={col}
+          value={value}
+          isDarkMode={isDarkMode}
+          onPick={(ids, meta) => {
+            handleValueChange(col.key, col.userTags?.multiple === false ? ids[0] || '' : ids);
+            setAssigneePicks((prev) => ({ ...prev, [meta.columnKey]: meta }));
+          }}
         />
       );
     }
@@ -185,6 +261,43 @@ export function BulkUpdateModal({
           />
         );
 
+      case 'multiselect': {
+        const selected = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+        const options = col.options ?? [];
+        return (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {options.length === 0 ? (
+              <p className={`text-[12px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                No options configured for this field.
+              </p>
+            ) : (
+              options.map((opt) => {
+                const on = selected.includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => {
+                      const next = on ? selected.filter((x) => x !== opt) : [...selected, opt];
+                      handleValueChange(col.key, next);
+                    }}
+                    className={`min-h-[36px] px-2.5 rounded-lg text-[12px] font-semibold border transition-colors
+                      ${on
+                        ? 'bg-[#13C296] border-[#13C296] text-white'
+                        : isDarkMode
+                          ? 'border-gray-600 text-gray-300 hover:bg-white/5'
+                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                  >
+                    {opt}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        );
+      }
+
       case 'number':
       case 'currency':
         return (
@@ -210,36 +323,68 @@ export function BulkUpdateModal({
     }
   };
 
-  const scopeOptions: { id: BulkUpdateScope; label: string; count: number; disabled: boolean; hint?: string }[] = [
+  const scopeOptions: {
+    id: BulkUpdateScope;
+    label: string;
+    icon: LucideIcon;
+    count: number;
+    disabled: boolean;
+    description: string;
+    hint?: string;
+  }[] = [
     {
       id: 'selected',
       label: 'Selected',
+      icon: CheckSquare,
       count: selectedCount,
       disabled: selectedCount === 0,
+      description:
+        selectedCount === 0
+          ? 'Tick rows in the table to use this option.'
+          : 'Only rows with a checked checkbox.',
     },
     {
       id: 'filtered',
       label: 'Filtered',
+      icon: Filter,
       count: filteredCount,
       disabled: filteredCount === 0,
-      hint: serverPaginated ? 'Loaded rows matching filters' : undefined,
+      description: dbScoped
+        ? 'Every database row that matches the current search and column filters.'
+        : 'Every loaded row that matches your current search and filters.',
+      hint:
+        dbScoped
+          ? 'Applies across the full table in the database'
+          : serverPaginated
+            ? 'Loaded rows matching filters'
+            : undefined,
     },
     {
       id: 'all',
       label: 'All rows',
+      icon: Table2,
       count: totalCount,
       disabled: totalCount === 0,
-      hint: serverPaginated ? 'Loaded rows only' : undefined,
+      description: dbScoped
+        ? 'Every record in this table in the database (ignores filters).'
+        : 'Every loaded row in this table, ignoring filters.',
+      hint:
+        dbScoped
+          ? 'Full table in the database'
+          : serverPaginated
+            ? 'Loaded rows only'
+            : undefined,
     },
   ];
 
-  const activeHint = scopeOptions.find((o) => o.id === scope)?.hint;
+  const activeOption = scopeOptions.find((o) => o.id === scope);
+  const activeHint = activeOption?.hint;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
       <div
         ref={modalRef}
-        className={`w-full max-w-[540px] max-h-[90vh] max-h-[85dvh] flex flex-col rounded-2xl shadow-2xl border animate-[slideUp_0.2s_ease-out] overflow-hidden
+        className={`w-full max-w-[540px] sm:max-w-[680px] max-h-[90vh] max-h-[85dvh] flex flex-col rounded-2xl shadow-2xl border animate-[slideUp_0.2s_ease-out] overflow-hidden
           ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'}`}
       >
         <div className={`flex flex-col px-4 sm:px-5 py-4 border-b flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-100'}`}>
@@ -265,58 +410,84 @@ export function BulkUpdateModal({
             </button>
           </div>
 
-          {/* Apply scope — Selected / Filtered / All */}
-          <div
-            role="radiogroup"
-            aria-label="Rows to update"
-            className={`grid grid-cols-3 gap-1 p-1 rounded-xl border mb-3 ${isDarkMode ? 'bg-gray-800/80 border-gray-700' : 'bg-gray-100 border-gray-200'}`}
-          >
-            {scopeOptions.map((opt) => {
-              const active = scope === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  disabled={opt.disabled}
-                  onClick={() => setScope(opt.id)}
-                  className={`min-h-[44px] sm:min-h-[40px] px-1.5 sm:px-2 py-1.5 rounded-lg text-center transition-all disabled:opacity-40 disabled:cursor-not-allowed
-                    ${active
-                      ? (isDarkMode ? 'bg-gray-900 text-[#13C296] shadow-sm ring-1 ring-[#13C296]/40' : 'bg-white text-[#0a8066] shadow-sm ring-1 ring-[#13C296]/25')
-                      : (isDarkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-600 hover:text-gray-900')
-                    }`}
-                >
-                  <span className="block text-[11px] sm:text-[12px] font-bold leading-tight">{opt.label}</span>
-                  <span className={`block text-[11px] font-semibold mt-0.5 tabular-nums ${active ? '' : isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {opt.count.toLocaleString()}
-                  </span>
-                </button>
-              );
-            })}
+          {/* One toolbar, edges apart: FIELDS to list on the left (only filters the list below), ROWS to update on the right. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="flex w-full sm:w-auto items-center gap-2 min-w-0">
+              <div
+                role="radiogroup"
+                aria-label="Field type"
+                className={`grid flex-1 sm:flex-none grid-cols-3 sm:inline-flex sm:items-center gap-0.5 p-0.5 rounded-xl border ${isDarkMode ? 'bg-gray-800/80 border-gray-700' : 'bg-gray-100 border-gray-200'}`}
+              >
+                {fieldKindOptions.map((opt) => {
+                  const active = fieldKind === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      aria-label={`${opt.label}: ${opt.count} fields. ${opt.description}`}
+                      title={opt.description}
+                      onClick={() => setFieldKind(opt.id)}
+                      className={`flex flex-row items-center justify-center gap-1.5 min-h-[44px] sm:min-h-[32px] px-1.5 sm:px-2.5 rounded-[10px] text-center transition-all
+                        ${active
+                          ? (isDarkMode ? 'bg-gray-900 text-gray-100 shadow-sm ring-1 ring-gray-600' : 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200')
+                          : (isDarkMode ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800' : 'text-gray-600 hover:text-gray-900 hover:bg-white/60')
+                        }`}
+                    >
+                      <span className="text-[12px] font-bold leading-tight whitespace-nowrap">{opt.id === 'tag' ? 'Tags' : opt.label}</span>
+                      <span className={`text-[11px] font-semibold leading-none tabular-nums ${active ? 'opacity-70' : isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {opt.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex w-full sm:w-auto items-center gap-2 min-w-0">
+              <div
+                role="radiogroup"
+                aria-label="Rows to update"
+                className={`grid flex-1 sm:flex-none grid-cols-3 sm:inline-flex sm:items-center gap-0.5 p-0.5 rounded-xl border ${isDarkMode ? 'bg-gray-800/80 border-gray-700' : 'bg-gray-100 border-gray-200'}`}
+              >
+                {scopeOptions.map((opt) => {
+                  const active = scope === opt.id;
+                  const OptionIcon = opt.icon;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      aria-label={`${opt.label}: ${opt.count.toLocaleString()} ${opt.count === 1 ? 'row' : 'rows'}. ${opt.description}`}
+                      disabled={opt.disabled}
+                      onClick={() => setScope(opt.id)}
+                      title={`${opt.label} — ${opt.description}`}
+                      className={`flex flex-row items-center justify-center gap-1.5 min-h-[44px] sm:min-h-[32px] px-1.5 sm:px-2.5 rounded-[10px] text-center transition-all disabled:opacity-40 disabled:cursor-not-allowed
+                        ${active
+                          ? (isDarkMode ? 'bg-gray-900 text-[#13C296] shadow-sm ring-1 ring-[#13C296]/40' : 'bg-white text-[#0a8066] shadow-sm ring-1 ring-[#13C296]/25')
+                          : (isDarkMode ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800' : 'text-gray-600 hover:text-gray-900 hover:bg-white/60')
+                        }`}
+                    >
+                      <span className="flex items-center justify-center gap-1.5 min-w-0">
+                        <OptionIcon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                        <span className="sr-only">{opt.label}</span>
+                      </span>
+                      <span className={`text-[11px] font-semibold leading-none tabular-nums ${active ? 'opacity-90' : isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {opt.count.toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
           {activeHint && (
-            <p className={`text-[11px] font-medium mb-3 -mt-1 ${isDarkMode ? 'text-amber-400/90' : 'text-amber-700'}`}>
+            <p className={`text-[11px] font-medium mt-2 px-1 ${isDarkMode ? 'text-amber-400/90' : 'text-amber-700'}`} aria-live="polite">
               {activeHint}
             </p>
           )}
-
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors focus-within:ring-2 focus-within:ring-[#13C296]/20 focus-within:border-[#13C296]
-            ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-            <Search className={`w-4 h-4 flex-shrink-0 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search fields to update..."
-              className={`flex-1 min-w-0 text-[13px] font-medium bg-transparent outline-none ${isDarkMode ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'}`}
-            />
-            {searchQuery && (
-              <button type="button" onClick={() => setSearchQuery('')} className={isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}>
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -324,7 +495,13 @@ export function BulkUpdateModal({
             {filteredColumns.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-center">
                 <Search className={`w-8 h-8 mb-3 ${isDarkMode ? 'text-gray-700' : 'text-gray-300'}`} />
-                <p className={`text-[13px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No fields match your search.</p>
+                <p className={`text-[13px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {fieldKind === 'tag'
+                    ? 'No tag / people fields on this table.'
+                    : fieldKind === 'normal'
+                      ? 'No normal fields on this table.'
+                      : 'No editable fields.'}
+                </p>
               </div>
             ) : (
               <div className="space-y-2 p-2">
@@ -371,7 +548,7 @@ export function BulkUpdateModal({
             )}
           </div>
 
-          <div className={`p-3 sm:p-4 flex flex-wrap items-center justify-between gap-2 border-t flex-shrink-0 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)]
+          <div className={`p-3 sm:px-4 sm:py-2.5 flex flex-wrap items-center justify-between gap-2 border-t flex-shrink-0 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)]
             ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
             <span className={`text-[12px] font-medium px-2 py-1 rounded-md ${isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
               <strong className={isDarkMode ? 'text-gray-200' : 'text-gray-900'}>{enabledFields.size}</strong> field{enabledFields.size !== 1 ? 's' : ''} ·{' '}
@@ -381,7 +558,7 @@ export function BulkUpdateModal({
               <button
                 type="button"
                 onClick={onClose}
-                className={`flex-1 sm:flex-none min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-bold transition-colors border
+                className={`flex-1 sm:flex-none min-h-[44px] sm:min-h-[34px] px-4 py-2 sm:py-1.5 rounded-xl text-[13px] font-bold transition-colors border
                   ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
               >
                 Cancel
@@ -389,7 +566,7 @@ export function BulkUpdateModal({
               <button
                 type="submit"
                 disabled={enabledFields.size === 0 || scopeCount === 0}
-                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-bold transition-all bg-[#13C296] hover:bg-[#0f9f7a] text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-[#13C296]/20"
+                className="flex-1 sm:flex-none min-h-[44px] sm:min-h-[34px] flex items-center justify-center gap-1.5 px-4 py-2 sm:py-1.5 rounded-xl text-[13px] font-bold transition-all bg-[#13C296] hover:bg-[#0f9f7a] text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-[#13C296]/20"
               >
                 <Check className="w-4 h-4" />
                 Apply to {scopeCount.toLocaleString()} {scopeCount === 1 ? 'row' : 'rows'}

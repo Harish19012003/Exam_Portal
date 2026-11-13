@@ -171,6 +171,7 @@ function TableDataRowComponent({
       {/* Selection / Index / Expander Column cell */}
       {(selectionMode !== 'none' || enableSubRows || Boolean(selectionColumn?.customIconElements?.some(e => e.enabled))) && checkboxWidth > 0 && (
         <td
+          data-col-key="__checkbox"
           style={{
             width: checkboxWidth,
             minWidth: checkboxWidth,
@@ -179,7 +180,7 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`px-1 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })}`}
+          className={`px-2 border-b ${theme.borderRow} ${getStickyCellClassName('left', { isSelected })} dt-sticky-cell--checkbox`}
         >
           <div className="flex items-center justify-center gap-1.5">
             {(selectionColumn?.elementOrder ?? ['checkbox']).map(itemId => {
@@ -372,6 +373,18 @@ function TableDataRowComponent({
             ? draftValue
             : row.values[col.key];
 
+        // Assignees / table-lookups show labels in `values` but persist ids in `rawValues`.
+        // Editors must receive ids or a blur/save will write the label and get reverted.
+        const editorValue = (() => {
+          if (isComposite) return undefined;
+          if (isEditingThisRow && draftValue !== undefined) return draftValue;
+          const field = isFieldColumn(targetColConfig) ? targetColConfig : null;
+          if (field && (field.userTags || field.lookup) && row.rawValues && field.key in row.rawValues) {
+            return row.rawValues[field.key];
+          }
+          return row.values[col.key];
+        })();
+
         const isEditingThisCell =
           (isEditingCellRow && editingCellColKey === col.key) ||
           (isEditingThisRow && canEdit && !isComposite);
@@ -489,7 +502,7 @@ function TableDataRowComponent({
                   onFocus={() => onSetFocusedCell({ rowId: row.rowId, colKey: col.key })}
                 >
                   <CellEditor
-                    value={displayValue}
+                    value={editorValue}
                     row={row}
                     column={targetColConfig}
                     // Must be row-scoped: col-only autoFocus opens every lookup menu in multi-edit.
@@ -619,7 +632,7 @@ function TableDataRowComponent({
               ? String(rowFormatCss.backgroundColor)
               : getStickyCellBackground(isDarkMode, { isSelected }),
           }}
-          className={`border-b ${theme.borderRow} px-0.5 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
+          className={`border-b ${theme.borderRow} px-2 ${getStickyCellClassName('right', { isSelected })} dt-sticky-cell--actions`}
         >
           <div
             className={`flex items-center justify-center gap-1 transition-opacity ${

@@ -4,9 +4,25 @@ import { ERROR_CODES, DEFAULT_ROLE_PERMISSIONS, normalizePermissionSet } from '@
 import { invalidateAccessCache } from '../../../core/access.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { getOrm } from '../../../database/connection.js';
-import { User } from '../../../database/entities/index.js';
+import { getOrm, getEm } from '../../../database/connection.js';
+import { User, UserTag } from '../../../database/entities/index.js';
 import { deleteSetting } from '../settings/settings.repository.js';
+import { getPlatformSettings } from '../settings/platform-settings.service.js';
+import { sendTemplatedEmail } from '../../../services/templated-email.js';
+import { logger } from '../../../core/logger.js';
+
+const MAX_TAGS_PER_USER = 30;
+
+/** Parse tag names from bulk row (array or comma/semicolon/pipe string). */
+const parseTagNames = (raw) => {
+  if (Array.isArray(raw)) {
+    return raw.map((t) => String(t || '').trim()).filter(Boolean);
+  }
+  return String(raw || '')
+    .split(/[,;|]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+};
 
 /**
  * Service to handle user-related business logic.
@@ -20,6 +36,7 @@ export const getUserById = async (id) => {
   // Remove password hash before returning
   const { password_hash, ...safeUser } = user;
   safeUser.phone_number = user.phone_number || null;
+  safeUser.user_code = user.user_code || null;
   safeUser.is_primary = Boolean(user.is_primary);
   safeUser.two_factor_enabled = Boolean(user.two_factor_enabled);
   safeUser.timezone = user.timezone || 'UTC';
@@ -73,14 +90,21 @@ export const createUser = async (userData, creatorUser) => {
     first_name: userData.first_name,
     last_name: userData.last_name,
     phone_number: userData.phone_number || userData.phone || null,
+    user_code: userData.user_code ? String(userData.user_code).trim() || null : null,
     role: userData.role || 'user',
     status: userData.status || 'active',
     is_primary: false,
     two_factor_enabled: false, // 2FA is always initialized as false; must be self-configured by user
-    timezone: userData.timezone || 'UTC',
+    // New accounts start in the platform's default timezone (Settings > Platform Settings).
+    timezone: userData.timezone || (await getPlatformSettings()).default_timezone,
     last_active_at: new Date(),
     permissions: JSON.stringify(userPermissions),
   });
+
+  // Welcome email (editable / switchable in Settings > Message Templates). Never blocks or fails account creation.
+  sendTemplatedEmail('welcome', userData.email, { first_name: userData.first_name || 'there', email: userData.email }).catch(
+    (err) => logger.warn(`Could not send welcome email to ${userData.email}: ${err.message}`),
+  );
 
   return await getUserById(userId);
 };
@@ -128,6 +152,10 @@ export const updateUser = async (targetId, updateData, currentActor) => {
   if (updateData.last_name !== undefined) payload.last_name = updateData.last_name;
   if (updateData.phone_number !== undefined) payload.phone_number = updateData.phone_number;
   if (updateData.phone !== undefined) payload.phone_number = updateData.phone;
+  if (updateData.user_code !== undefined) {
+    const code = updateData.user_code == null ? '' : String(updateData.user_code).trim();
+    payload.user_code = code || null;
+  }
   if (updateData.role !== undefined) payload.role = updateData.role;
   if (updateData.status !== undefined) payload.status = updateData.status;
   if (updateData.timezone !== undefined) payload.timezone = updateData.timezone;
@@ -279,6 +307,7 @@ const toAssignable = (u) => ({
   id: String(u.id),
   name: displayName(u),
   email: u.email || '',
+  user_code: u.user_code ? String(u.user_code).trim() : '',
   tag_ids: Array.isArray(u.tag_ids) ? u.tag_ids.map(String) : [],
 });
 
@@ -326,104 +355,395 @@ export const bulkCreateUsers = async (usersList, creatorUser) => {
     errors: [],
   };
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // One tag load + one email index — avoid N lookups / N bcrypt hashes / N flushes.
+  const em = getEm();
+  const [allTags, existingEmailList] = await Promise.all([
+    em.find(UserTag, {}),
+    userRepository.listEmails(),
+  ]);
+  const tagByName = new Map(
+    allTags.map((t) => [String(t.name || '').trim().toLowerCase(), String(t.id ?? t._id)]),
+  );
+  const existingEmails = new Set(existingEmailList);
   const seenEmailsInBatch = new Set();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const passwordHashCache = new Map();
+  const hashPassword = async (password) => {
+    const key = String(password);
+    if (passwordHashCache.has(key)) return passwordHashCache.get(key);
+    const hashed = await bcrypt.hash(key, 10);
+    passwordHashCache.set(key, hashed);
+    return hashed;
+  };
+
+  const ready = [];
 
   for (let index = 0; index < usersList.length; index++) {
     const raw = usersList[index];
-    const rowNum = index + 1; // 1-indexed
+    const rowNum = index + 1;
 
-    // Normalize keys
     const email = String(raw.email || raw.Email || '').trim().toLowerCase();
     const firstName = String(raw.first_name || raw['First Name'] || raw.firstName || '').trim();
     const lastName = String(raw.last_name || raw['Last Name'] || raw.lastName || '').trim();
     const phoneNumber = String(raw.phone_number || raw['Phone Number'] || raw.phone || raw.Phone || '').trim();
+    const userCode = String(raw.user_code || raw['User Code'] || raw.userCode || raw.code || '').trim();
     const rawRole = String(raw.role || raw.Role || 'user').trim().toLowerCase().replace(/\s+/g, '_');
     const role = ['super_admin', 'global_admin', 'admin', 'user'].includes(rawRole) ? rawRole : 'user';
     const rawStatus = String(raw.status || raw.Status || 'active').trim().toLowerCase();
     const status = ['active', 'inactive', 'suspended'].includes(rawStatus) ? rawStatus : 'active';
     const timezone = String(raw.timezone || raw.Timezone || 'UTC').trim();
-    const password = String(raw.password || raw.Password || 'Password@123').trim();
+    const password = String(raw.password || raw.Password || 'Password@123').trim() || 'Password@123';
 
-    // Required headers validation
+    const tagNames = parseTagNames(raw.tags ?? raw.Tags ?? raw.tag_ids ?? '');
+    const unknownTags = [];
+    const tagIds = [];
+    for (const name of tagNames) {
+      const id = tagByName.get(name.toLowerCase());
+      if (!id) {
+        unknownTags.push(name);
+        continue;
+      }
+      if (!tagIds.includes(id)) tagIds.push(id);
+    }
+
+    const fail = (reason) => {
+      results.failedCount++;
+      results.errors.push({ row: rowNum, email: email || 'N/A', error: reason, reason });
+    };
+
+    if (unknownTags.length) {
+      fail(`Unknown tag(s): ${unknownTags.join(', ')}`);
+      continue;
+    }
+    if (tagIds.length > MAX_TAGS_PER_USER) {
+      fail(`A user can have at most ${MAX_TAGS_PER_USER} tags`);
+      continue;
+    }
     if (!firstName) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email: email || 'N/A', error: 'Missing required header: first_name', reason: 'Missing required header: first_name' });
+      fail('Missing required header: first_name');
       continue;
     }
-
     if (!email) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email: 'N/A', error: 'Missing required header: email', reason: 'Missing required header: email' });
+      fail('Missing required header: email');
       continue;
     }
-
     if (!emailRegex.test(email)) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Invalid email format', reason: 'Invalid email format' });
+      fail('Invalid email format');
       continue;
     }
-
     if (seenEmailsInBatch.has(email)) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Duplicate email in uploaded CSV', reason: 'Duplicate email in uploaded CSV' });
+      fail('Duplicate email in uploaded CSV');
       continue;
     }
     seenEmailsInBatch.add(email);
-
-    // Check DB email uniqueness
-    const existing = await userRepository.findByEmail(email);
-    if (existing) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Email already exists in database', reason: 'Email already exists in database' });
+    if (existingEmails.has(email)) {
+      fail('Email already exists in database');
       continue;
     }
-
-    // Role authority check
     if (role !== 'user' && creatorUser?.role !== 'super_admin') {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: 'Only Super Admins can create admin or super_admin accounts', reason: 'Only Super Admins can create admin or super_admin accounts' });
+      fail('Only Super Admins can create admin or super_admin accounts');
       continue;
     }
 
-    try {
-      const userId = uuidv4();
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const perms = DEFAULT_ROLE_PERMISSIONS[role] || [];
+    ready.push({
+      rowNum,
+      email,
+      firstName,
+      lastName,
+      phoneNumber,
+      userCode,
+      role,
+      status,
+      timezone,
+      password,
+      tagIds,
+    });
+  }
 
-      await userRepository.create({
+  // Unique passwords only (default Password@123 → one bcrypt for the whole import).
+  const uniquePasswords = [...new Set(ready.map((r) => r.password))];
+  await Promise.all(uniquePasswords.map((p) => hashPassword(p)));
+
+  const INSERT_CHUNK = 100;
+  for (let i = 0; i < ready.length; i += INSERT_CHUNK) {
+    const slice = ready.slice(i, i + INSERT_CHUNK);
+    const payloads = slice.map((row) => {
+      const userId = uuidv4();
+      const perms = DEFAULT_ROLE_PERMISSIONS[row.role] || [];
+      return {
         id: userId,
-        email,
-        password_hash: hashedPassword,
-        first_name: firstName,
-        last_name: lastName || null,
-        phone_number: phoneNumber || null,
-        role,
-        status,
+        email: row.email,
+        password_hash: passwordHashCache.get(row.password),
+        first_name: row.firstName,
+        last_name: row.lastName || null,
+        phone_number: row.phoneNumber || null,
+        user_code: row.userCode || null,
+        role: row.role,
+        status: row.status,
         is_primary: false,
         two_factor_enabled: false,
-        timezone: timezone || 'UTC',
+        timezone: row.timezone || 'UTC',
         last_active_at: new Date(),
         permissions: JSON.stringify(perms),
-      });
+        tag_ids: row.tagIds,
+        _meta: row,
+      };
+    });
 
-      results.successCount++;
-      results.createdUsers.push({
-        id: userId,
-        email,
-        first_name: firstName,
-        last_name: lastName,
-        phone_number: phoneNumber || null,
-        role,
-        status,
-        timezone,
+    try {
+      const created = await userRepository.createMany(
+        payloads.map(({ _meta, ...data }) => data),
+      );
+      created.forEach((user, idx) => {
+        const meta = payloads[idx]._meta;
+        existingEmails.add(meta.email);
+        results.successCount++;
+        results.createdUsers.push({
+          id: user.id || payloads[idx].id,
+          email: meta.email,
+          first_name: meta.firstName,
+          last_name: meta.lastName,
+          phone_number: meta.phoneNumber || null,
+          role: meta.role,
+          status: meta.status,
+          timezone: meta.timezone,
+          tag_ids: meta.tagIds,
+        });
       });
     } catch (err) {
-      results.failedCount++;
-      results.errors.push({ row: rowNum, email, error: err.message || 'Failed to insert user', reason: err.message || 'Failed to insert user' });
+      // Fall back to one-by-one so one bad row does not fail the whole chunk.
+      for (const payload of payloads) {
+        const { _meta: meta, ...data } = payload;
+        try {
+          await userRepository.create(data);
+          existingEmails.add(meta.email);
+          results.successCount++;
+          results.createdUsers.push({
+            id: data.id,
+            email: meta.email,
+            first_name: meta.firstName,
+            last_name: meta.lastName,
+            phone_number: meta.phoneNumber || null,
+            role: meta.role,
+            status: meta.status,
+            timezone: meta.timezone,
+            tag_ids: meta.tagIds,
+          });
+        } catch (rowErr) {
+          results.failedCount++;
+          results.errors.push({
+            row: meta.rowNum,
+            email: meta.email,
+            error: rowErr.message || 'Failed to insert user',
+            reason: rowErr.message || 'Failed to insert user',
+          });
+        }
+      }
     }
   }
 
+  if (results.successCount > 0) invalidateAccessCache();
+  return results;
+};
+
+/**
+ * Bulk update existing users (one request / chunk). Faster than N× PUT /users/:id.
+ * Each item needs `id`. Optional `tags` (names) → tag_ids. Password hashed once per distinct value.
+ */
+export const bulkUpdateUsers = async (usersList, actorUser) => {
+  if (!Array.isArray(usersList) || usersList.length === 0) {
+    throw new AppError('No users provided in bulk update', 400, ERROR_CODES.VALIDATION_ERROR);
+  }
+
+  const results = {
+    total: usersList.length,
+    successCount: 0,
+    failedCount: 0,
+    updatedUsers: [],
+    errors: [],
+  };
+
+  const em = getEm();
+  const allTags = await em.find(UserTag, {});
+  const tagByName = new Map(
+    allTags.map((t) => [String(t.name || '').trim().toLowerCase(), String(t.id ?? t._id)]),
+  );
+  const knownTagIds = new Set(allTags.map((t) => String(t.id ?? t._id)));
+
+  const passwordHashCache = new Map();
+  const hashPassword = async (password) => {
+    const key = String(password);
+    if (passwordHashCache.has(key)) return passwordHashCache.get(key);
+    const hashed = await bcrypt.hash(key, 10);
+    passwordHashCache.set(key, hashed);
+    return hashed;
+  };
+
+  const ready = [];
+  for (let index = 0; index < usersList.length; index++) {
+    const raw = usersList[index] || {};
+    const rowNum = index + 1;
+    const id = String(raw.id || raw._id || '').trim();
+    const email = String(raw.email || '').trim().toLowerCase();
+    const fail = (reason) => {
+      results.failedCount++;
+      results.errors.push({ row: rowNum, email: email || id || 'N/A', error: reason, reason });
+    };
+    if (!id) {
+      fail('Missing user id');
+      continue;
+    }
+
+    const tagIds = [];
+    const unknownTags = [];
+    let setTags = false;
+    if (Array.isArray(raw.tag_ids)) {
+      setTags = true;
+      raw.tag_ids.map(String).forEach((tid) => {
+        if (!knownTagIds.has(tid)) unknownTags.push(tid);
+        else if (!tagIds.includes(tid)) tagIds.push(tid);
+      });
+    } else if (raw.tags != null || raw.Tags != null) {
+      const tagNames = parseTagNames(raw.tags ?? raw.Tags ?? '');
+      setTags = true;
+      tagNames.forEach((name) => {
+        const tid = tagByName.get(name.toLowerCase());
+        if (!tid) unknownTags.push(name);
+        else if (!tagIds.includes(tid)) tagIds.push(tid);
+      });
+    }
+    if (unknownTags.length) {
+      fail(`Unknown tag(s): ${unknownTags.join(', ')}`);
+      continue;
+    }
+    if (tagIds.length > MAX_TAGS_PER_USER) {
+      fail(`A user can have at most ${MAX_TAGS_PER_USER} tags`);
+      continue;
+    }
+
+    const rawRole = raw.role != null ? String(raw.role).trim().toLowerCase().replace(/\s+/g, '_') : undefined;
+    const role =
+      rawRole == null || rawRole === ''
+        ? undefined
+        : ['super_admin', 'global_admin', 'admin', 'user'].includes(rawRole)
+          ? rawRole
+          : 'user';
+    const rawStatus = raw.status != null ? String(raw.status).trim().toLowerCase() : undefined;
+    const status =
+      rawStatus == null || rawStatus === ''
+        ? undefined
+        : ['active', 'inactive', 'suspended'].includes(rawStatus)
+          ? rawStatus
+          : 'active';
+
+    ready.push({
+      rowNum,
+      id,
+      email,
+      first_name: raw.first_name !== undefined ? String(raw.first_name || '').trim() : undefined,
+      last_name: raw.last_name !== undefined ? String(raw.last_name || '').trim() : undefined,
+      phone_number:
+        raw.phone_number !== undefined || raw.phone !== undefined
+          ? String(raw.phone_number || raw.phone || '').trim()
+          : undefined,
+      user_code: raw.user_code !== undefined ? String(raw.user_code || '').trim() : undefined,
+      role,
+      status,
+      timezone: raw.timezone !== undefined ? String(raw.timezone || '').trim() || 'UTC' : undefined,
+      password: raw.password ? String(raw.password).trim() : '',
+      setTags,
+      tagIds,
+    });
+  }
+
+  const uniquePasswords = [...new Set(ready.map((r) => r.password).filter(Boolean))];
+  await Promise.all(uniquePasswords.map((p) => hashPassword(p)));
+
+  const CHUNK = 100;
+  for (let i = 0; i < ready.length; i += CHUNK) {
+    const slice = ready.slice(i, i + CHUNK);
+    const ids = slice.map((r) => r.id);
+    const entities = await em.find(User, { _id: { $in: ids } });
+    const byId = new Map(entities.map((e) => [String(e._id), e]));
+
+    for (const row of slice) {
+      const entity = byId.get(row.id);
+      if (!entity) {
+        results.failedCount++;
+        results.errors.push({
+          row: row.rowNum,
+          email: row.email || row.id,
+          error: 'User not found',
+          reason: 'User not found',
+        });
+        continue;
+      }
+
+      try {
+        if (entity.is_primary && (!actorUser?.is_primary || String(actorUser.id) !== String(entity._id))) {
+          throw new AppError(
+            'The Primary Super Admin account is protected and can only be modified by the Primary Super Admin.',
+            403,
+            ERROR_CODES.FORBIDDEN,
+          );
+        }
+        if (
+          (row.role === 'super_admin' || entity.role === 'super_admin') &&
+          actorUser?.role !== 'super_admin'
+        ) {
+          throw new AppError(
+            'Only a Super Admin has authority to manage Super Admin accounts and roles.',
+            403,
+            ERROR_CODES.FORBIDDEN,
+          );
+        }
+        if (row.role !== undefined && row.role !== entity.role && actorUser?.role !== 'super_admin') {
+          throw new AppError(
+            'Only a Super Admin can change roles. Use groups to give access.',
+            403,
+            ERROR_CODES.FORBIDDEN,
+          );
+        }
+        if (entity.is_primary && row.role && row.role !== 'super_admin') {
+          throw new AppError(
+            'The Primary Super Admin cannot be demoted from the super_admin role.',
+            400,
+            ERROR_CODES.VALIDATION_ERROR,
+          );
+        }
+
+        if (row.first_name !== undefined) entity.first_name = row.first_name || null;
+        if (row.last_name !== undefined) entity.last_name = row.last_name || null;
+        if (row.phone_number !== undefined) entity.phone_number = row.phone_number || null;
+        if (row.user_code !== undefined) entity.user_code = row.user_code || null;
+        if (row.role !== undefined) {
+          if (row.role !== entity.role) {
+            entity.permissions = DEFAULT_ROLE_PERMISSIONS[row.role] || [];
+          }
+          entity.role = row.role;
+        }
+        if (row.status !== undefined) entity.status = row.status;
+        if (row.timezone !== undefined) entity.timezone = row.timezone || 'UTC';
+        if (row.password) entity.password_hash = passwordHashCache.get(row.password);
+        if (row.setTags) entity.tag_ids = row.tagIds;
+
+        results.successCount++;
+        results.updatedUsers.push({ id: row.id, email: entity.email || row.email });
+      } catch (err) {
+        results.failedCount++;
+        results.errors.push({
+          row: row.rowNum,
+          email: row.email || row.id,
+          error: err.message || 'Update failed',
+          reason: err.message || 'Update failed',
+        });
+      }
+    }
+
+    await em.flush();
+  }
+
+  if (results.successCount > 0) invalidateAccessCache();
   return results;
 };
 

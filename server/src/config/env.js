@@ -21,6 +21,9 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(1),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
 
+  /** Encrypts integration secrets stored in the database (SMTP password, ...). Falls back to a key derived from JWT_REFRESH_SECRET. */
+  SETTINGS_ENCRYPTION_KEY: z.string().optional(),
+
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),

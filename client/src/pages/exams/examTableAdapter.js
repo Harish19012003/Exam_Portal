@@ -67,8 +67,12 @@ const MODIFY_BY_KEYS = new Set([
 export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
   (fields || []).map((field, index) => {
     const userTagsField = isUserTagsField(field);
-    // Assignee fields always store user id[]; force multiselect-shaped cells.
-    const dataType = userTagsField ? 'multiselect' : toTableDataType(field);
+    // User-tag assignees: Multiselect dropdown (or allowMultiple) → multi; Dropdown → one person.
+    const dataType = userTagsField
+      ? field.dataType === 'multiselect' || field.allowMultiple
+        ? 'multiselect'
+        : 'dropdown'
+      : toTableDataType(field);
     const isAuto = field.autoFill && field.autoFill !== 'none';
     const options = userTagsField ? [] : resolveFieldOptions(field);
     const accentColor = resolveDateShiftFieldAccent(field, dateShifts);
@@ -119,7 +123,12 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
             syncFields: syncFieldsForLookupField(fields, field),
           }
         : undefined,
-      userTags: userTagsField ? { tagIds: (field.userTagIds || []).map(String) } : undefined,
+      userTags: userTagsField
+        ? {
+            tagIds: (field.userTagIds || []).map(String),
+            multiple: field.dataType === 'multiselect' || Boolean(field.allowMultiple),
+          }
+        : undefined,
       required: Boolean(field.required) && !isAuto,
       filterable: true,
       sortable: true,

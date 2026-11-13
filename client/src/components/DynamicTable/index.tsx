@@ -1,10 +1,14 @@
-import { Fragment, useCallback, useEffect, useState, useMemo, useRef, type MutableRefObject } from 'react';
+import { Fragment, useCallback, useEffect, useState, useMemo, useRef, type MutableRefObject, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 // Dynamic Table Root Component
 
-import { ChevronDown, ChevronUp, Copy } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Loader2 } from 'lucide-react';
 import { TransposeIcon } from './icons/TransposeIcon';
 import { COLUMN_CONFIG, MOCK_ROWS } from './tableData';
 import { useTableState } from './hooks/useTableState';
+import { TableChangesBar } from './components/TableChangesBar';
+import { diffAggregations } from './utils/layoutDraft';
+import { pickLayoutSlice } from './utils/prefsStorage';
 import { useDynamicTableFeedback } from './hooks/useDynamicTableFeedback';
 import { useProcessedRows } from './hooks/useProcessedRows';
 import { useVirtualRows } from './hooks/useVirtualRows';
@@ -88,8 +92,8 @@ interface DynamicTableProps {
   layoutPrefs?: import('./utils/prefsStorage').TablePrefs | null;
   /** Fallback density when no saved layout density exists (e.g. center list → compact). */
   defaultDensity?: import('./types').Density;
-  /** Debounced personal layout persist. */
-  onLayoutPrefsChange?: (prefs: import('./utils/prefsStorage').TablePrefs) => void;
+  /** Saves the personal layout when the user clicks Save on the unsaved-changes bar. May reject on failure. */
+  onLayoutPrefsChange?: (prefs: import('./utils/prefsStorage').TablePrefs) => void | Promise<unknown>;
   /** Super admin: publish current layout as org default. */
   onSaveLayoutAsDefault?: (prefs: import('./utils/prefsStorage').TablePrefs) => void | Promise<void>;
   /** Clear personal override and reload org default. */
@@ -100,6 +104,21 @@ interface DynamicTableProps {
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
   /** Called once for a bulk update (all selected rows). Falls back to onRowUpdate per row. */
   onBulkUpdate?: (items: { rowId: string; values: Record<string, unknown>; row: DataRow }[]) => Promise<void> | void;
+  /**
+   * DB-scoped Mass Edit (Selected / Filtered / All). When set, the page resolves which
+   * database rows to update — not only the currently loaded page.
+   */
+  onBulkUpdateByScope?: (payload: {
+    updates: Record<string, unknown>;
+    scope: 'selected' | 'filtered' | 'all';
+    selectedRowIds: string[];
+    filters: Record<string, unknown>;
+    search: string;
+    columns: ColumnConfig[];
+    columnVisibility: Record<string, boolean>;
+    lookupPicks?: import('./components/BulkLookupPicker').BulkLookupPickMeta[];
+    assigneePicks?: import('./components/BulkAssigneePicker').BulkAssigneePickMeta[];
+  }) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
   /**
    * CSV import: receives parsed objects keyed by column label/key.
@@ -110,7 +129,7 @@ interface DynamicTableProps {
     rows: Record<string, string>[],
     handlers?: {
       onProgress?: (done: number, total: number) => void;
-      mode?: 'add' | 'update' | 'upsert';
+      mode?: 'add' | 'update' | 'upsert' | 'replace';
       matchKey?: string;
     },
   ) => Promise<void> | void;
@@ -120,6 +139,17 @@ interface DynamicTableProps {
   importDefaultMatchKey?: string;
   /** Existing rows used for match preview (id + values). */
   importExistingRows?: { id: string; values?: Record<string, unknown> | null }[];
+  /** Show “Replace all” (wipe existing, then import incoming). Off by default. */
+  importAllowReplaceAll?: boolean;
+  /**
+   * Columns for the Bulk Import modal. When set, used instead of the live table columns
+   * (needed when the grid is display-only / editable:false, e.g. Users).
+   */
+  importModalColumns?: ColumnConfig[];
+  /** Shown in Bulk Import so the operator knows which list/group the import targets. */
+  importScopeLabel?: string;
+  importScopeHint?: string;
+  importScopeHelp?: ReactNode;
   /** Actions column Explore — page defines destination. */
   onExploreRow?: (row: DataRow) => void;
   /** Actions column Duplicate — page creates a copy of the row. */
@@ -198,6 +228,7 @@ export function DynamicTable({
   onRowUpdate,
   onRowDelete,
   onBulkUpdate,
+  onBulkUpdateByScope,
   onRefresh,
   onEditRow,
   onDeleteRowRequest,
@@ -205,6 +236,11 @@ export function DynamicTable({
   importMatchKeys,
   importDefaultMatchKey,
   importExistingRows,
+  importAllowReplaceAll = false,
+  importModalColumns,
+  importScopeLabel,
+  importScopeHint,
+  importScopeHelp,
   onExploreRow,
   onDuplicateRow: onDuplicateRowProp,
   showAddRow,
@@ -230,6 +266,18 @@ export function DynamicTable({
     (initialRows as DataRow[]) ?? MOCK_ROWS,
     { tableId, shareState, layoutPrefs, defaultDensity, onLayoutPrefsChange, onRowUpdate, onRowDelete, onDeleteRowRequest, onBulkUpdate, onRefresh },
   );
+
+  // Personal layout changes are kept as a browser draft (they survive a reload), but Feature Builder
+  // changes are not — warn before the tab closes or reloads with unpublished feature changes.
+  useEffect(() => {
+    if (!featuresDirty) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [featuresDirty]);
 
   /**
    * Prefer live `columnWidths` (incl. user resize). Only fill missing date×shift
@@ -270,6 +318,11 @@ export function DynamicTable({
   const [editingRecordSidebarRow, setEditingRecordSidebarRow] = useState<DataRow | null>(null);
   const [detailModalRow, setDetailModalRow] = useState<DataRow | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importBgJob, setImportBgJob] = useState<{
+    done: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   const handleOpenRecordSidebar = useCallback((row: DataRow) => {
     setEditingRecordSidebarRow(row);
@@ -644,8 +697,10 @@ export function DynamicTable({
    * Bulk Import column order = what the user sees in the table: pinned-left, normal, pinned-right
    * (same arrangement as the grid), then hidden columns last so pasting a copy of the visible
    * table lines up column-for-column.
+   * Pages can pass `importModalColumns` when the grid itself is not editable (e.g. Users).
    */
   const importColumns = useMemo(() => {
+    if (Array.isArray(importModalColumns) && importModalColumns.length) return importModalColumns;
     if (featureConfig.isTransposed) return state.columns;
     const shown = new Set(visibleColumns.map((c) => c.key));
     const rest = state.columnOrder
@@ -654,7 +709,7 @@ export function DynamicTable({
     const restKeys = new Set(rest.map((c) => c.key));
     const orphans = state.columns.filter((c) => !shown.has(c.key) && !restKeys.has(c.key));
     return [...visibleColumns, ...rest, ...orphans];
-  }, [featureConfig.isTransposed, visibleColumns, state.columnOrder, state.columns]);
+  }, [importModalColumns, featureConfig.isTransposed, visibleColumns, state.columnOrder, state.columns]);
 
   const handleOpenFilter = useCallback(
     (key: string, rect: DOMRect) => {
@@ -717,16 +772,20 @@ export function DynamicTable({
     ],
   );
 
-  // Seed / re-seed Actions width from the feature preset so a fat layout leftover
-  // (old 132–168 defaults or accidental drag) doesn’t leave empty padding.
+  // When Feature Builder Actions width preset changes, adopt it. On first mount
+  // keep the saved/user width — forcing the preset here was wiping resize on refresh.
   const actionsWidthPresetKey = `${activeFeatures.rowActions?.widthPreset ?? ''}:${activeFeatures.rowActions?.width ?? ''}:${activeFeatures.enableActionsColumn ? 1 : 0}`;
   const actionsWidthSyncRef = useRef<string | null>(null);
   useEffect(() => {
     if (featureConfig.isTransposed || activeFeatures.enableActionsColumn === false) return;
     const nextW = resolveActionsColumnWidthPx(activeFeatures.rowActions);
     const cur = state.columnWidths['__actions'];
-    const presetChanged = actionsWidthSyncRef.current !== actionsWidthPresetKey;
-    if (!presetChanged && cur != null && cur <= nextW) return;
+    const prevKey = actionsWidthSyncRef.current;
+    if (prevKey === null) {
+      actionsWidthSyncRef.current = actionsWidthPresetKey;
+      return;
+    }
+    if (prevKey === actionsWidthPresetKey) return;
     actionsWidthSyncRef.current = actionsWidthPresetKey;
     if (cur !== nextW) state.handleColumnWidthChange('__actions', nextW);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when feature Actions width changes; ignore live drag
@@ -884,7 +943,7 @@ export function DynamicTable({
 
         <div
           ref={scrollWrapperRef}
-          className="flex-1 overflow-auto print:overflow-visible min-h-0 print:min-h-auto relative outline-none print:block"
+          className="flex-1 overflow-auto overscroll-x-none print:overflow-visible min-h-0 print:min-h-auto relative outline-none print:block"
           onScroll={handleScroll}
           tabIndex={0}
           onKeyDown={handleKeyDown}
@@ -1183,12 +1242,13 @@ export function DynamicTable({
                 <tr className="group">
                   {activeFeatures.enableRowSelection && (
                     <td
+                      data-col-key="__checkbox"
                       style={{
                         width: CHECKBOX_WIDTH,
                         minWidth: CHECKBOX_WIDTH,
                         maxWidth: CHECKBOX_WIDTH,
                       }}
-                      className={`px-3 py-3 border-r ${theme.borderRow}`}
+                      className={`px-2 py-3 border-r ${theme.borderRow}`}
                     />
                   )}
                   {visibleColumns.map(col => {
@@ -1232,6 +1292,7 @@ export function DynamicTable({
                   )}
                   {activeFeatures.enableActionsColumn && (
                     <td
+                      data-col-key="__actions"
                       style={{
                         width: ACTIONS_WIDTH,
                         minWidth: ACTIONS_WIDTH,
@@ -1240,7 +1301,7 @@ export function DynamicTable({
                         position: 'sticky',
                         zIndex: 30,
                       }}
-                      className={`px-1 py-3 dt-sticky-th dt-sticky-th--right ${theme.bgPinnedFooter}`}
+                      className={`px-2 py-3 dt-sticky-th dt-sticky-th--right dt-sticky-cell--actions ${theme.bgPinnedFooter}`}
                     >
                       {Object.keys(aggregations).length > 0 && (
                         <div className="flex items-center justify-center w-full h-full">
@@ -1491,17 +1552,42 @@ export function DynamicTable({
           onSaveLayoutAsDefault={
             onSaveLayoutAsDefault
               ? () =>
-                  onSaveLayoutAsDefault({
-                    columnOrder: state.columnOrder,
-                    columnVisibility: state.columnVisibility,
-                    columnWidths: effectiveColumnWidths,
-                    density: state.density,
-                  })
+                  onSaveLayoutAsDefault(
+                    pickLayoutSlice({
+                      columnOrder: state.columnOrder,
+                      columnVisibility: state.columnVisibility,
+                      columnWidths: effectiveColumnWidths,
+                      density: state.density,
+                      columnAggregations: diffAggregations(state.columns, resolvedInitialColumns),
+                      conditionalFormats: state.conditionalFormats,
+                    }),
+                  )
               : undefined
           }
           onResetLayoutToDefault={onResetLayoutToDefault}
         />
       )}
+
+      <TableChangesBar
+        isDarkMode={isDarkMode}
+        summary={state.layoutChangeSummary}
+        layoutDirty={state.layoutDirty}
+        layoutSaving={state.layoutSaving}
+        layoutError={state.layoutSaveError}
+        onSaveLayout={() => void state.saveLayoutChanges()}
+        onDiscardLayout={state.discardLayoutChanges}
+        featuresDirty={featuresDirty}
+        featuresSaving={isSavingFeatures}
+        onPublishFeatures={
+          onSaveFeatures
+            ? () =>
+                void onSaveFeatures({
+                  ...baseFeatures,
+                  quickFilterFieldKeys: quickFiltersStore.fieldKeys,
+                } as TableFeaturesConfig)
+            : undefined
+        }
+      />
 
       {state.contextMenu && (
         <ContextMenu
@@ -1530,17 +1616,68 @@ export function DynamicTable({
         <BulkUpdateModal
           columns={state.columns}
           selectedCount={state.selectedRows.size}
-          filteredCount={filteredRows.length}
-          totalCount={state.rows.length}
+          filteredCount={
+            serverPagination
+              ? // No client filter → Filtered = whole table; else unknown until scan (show page matches as hint).
+                Object.keys(state.filters || {}).length || state.search
+                  ? filteredRows.length
+                  : serverPagination.totalRowCount
+              : filteredRows.length
+          }
+          totalCount={serverPagination ? serverPagination.totalRowCount : state.rows.length}
           serverPaginated={Boolean(serverPagination)}
-          onApply={(updates, picks, scope = 'selected') => {
+          dbScoped={Boolean(onBulkUpdateByScope)}
+          onApply={(updates, picks, scope = 'selected', assigneePicks) => {
+            if (onBulkUpdateByScope) {
+              // Page writes to the DB (Selected / Filtered / All). Only paint locally here —
+              // do not call handleBulkUpdate (that would fire onBulkUpdate again per loaded row).
+              const selectedRowIds = Array.from(state.selectedRows);
+              const visibleTargets =
+                scope === 'selected'
+                  ? state.rows.filter((r) => selectedRowIds.includes(r.rowId))
+                  : scope === 'filtered'
+                    ? filteredRows
+                    : state.rows;
+              const visibleIds = new Set(visibleTargets.map((r) => r.rowId));
+              const displayUpdates: Record<string, unknown> = { ...updates };
+              (assigneePicks || []).forEach((pick) => {
+                const labelList = (pick.ids || []).map((id) => pick.labels?.[id] || id);
+                displayUpdates[pick.columnKey] =
+                  labelList.length > 1 || Array.isArray(updates[pick.columnKey])
+                    ? labelList
+                    : labelList[0] || '';
+              });
+              if (visibleIds.size) {
+                state.setRows((prev) =>
+                  prev.map((r) =>
+                    visibleIds.has(r.rowId) ? { ...r, values: { ...r.values, ...displayUpdates } } : r,
+                  ),
+                );
+              }
+              state.setShowBulkUpdate(false);
+              state.setSelectedRows(new Set());
+              void Promise.resolve(
+                onBulkUpdateByScope({
+                  updates,
+                  scope,
+                  selectedRowIds,
+                  filters: state.filters || {},
+                  search: state.search || '',
+                  columns: state.columns,
+                  columnVisibility: state.columnVisibility || {},
+                  lookupPicks: picks,
+                  assigneePicks,
+                }),
+              );
+              return;
+            }
             const targets =
               scope === 'all'
                 ? state.rows
                 : scope === 'filtered'
                   ? filteredRows
                   : state.rows.filter((r) => state.selectedRows.has(r.rowId));
-            state.handleBulkUpdate(updates, picks, targets);
+            state.handleBulkUpdate(updates, picks, targets, assigneePicks);
           }}
           onClose={() => state.setShowBulkUpdate(false)}
           isDarkMode={isDarkMode}
@@ -1550,7 +1687,11 @@ export function DynamicTable({
       {importModalOpen && onImportRows && (
         <ImportDataModal
           columns={importColumns}
-          visibleKeys={visibleColumns.map((c) => c.key)}
+          visibleKeys={
+            Array.isArray(importModalColumns) && importModalColumns.length
+              ? importModalColumns.map((c) => c.key)
+              : visibleColumns.map((c) => c.key)
+          }
           isDarkMode={isDarkMode}
           title="Bulk Import"
           draftKey={tableId}
@@ -1558,21 +1699,80 @@ export function DynamicTable({
           matchKeyOptions={importMatchKeys}
           defaultMatchKey={importDefaultMatchKey}
           existingRows={importExistingRows}
+          allowReplaceAll={importAllowReplaceAll}
+          scopeLabel={importScopeLabel}
+          scopeHint={importScopeHint}
+          scopeHelp={importScopeHelp}
           onClose={() => setImportModalOpen(false)}
+          onMinimize={({ done, total, mode }) => {
+            setImportBgJob({
+              done,
+              total,
+              label:
+                mode === 'update'
+                  ? 'Updating rows'
+                  : mode === 'replace'
+                    ? 'Replacing rows'
+                    : mode === 'upsert'
+                      ? 'Upserting rows'
+                      : 'Importing rows',
+            });
+          }}
+          onImportProgress={(done, total) => {
+            setImportBgJob((prev) => (prev ? { ...prev, done, total } : prev));
+          }}
           onImport={async (rows, handlers) => {
-            await onImportRows(rows, handlers);
-            const mode = handlers?.mode || 'add';
-            const n = rows.length;
-            showSuccess(
-              mode === 'update'
-                ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}`
-                : mode === 'upsert'
-                  ? `Upserted ${n} row${n === 1 ? '' : 's'}`
-                  : `Imported ${n} row${n === 1 ? '' : 's'}`,
-            );
+            try {
+              await onImportRows(rows, handlers);
+              const mode = handlers?.mode || 'add';
+              const n = rows.length;
+              const scopeBit = importScopeLabel ? ` in “${importScopeLabel}”` : '';
+              showSuccess(
+                mode === 'update'
+                  ? `Updated matching rows from ${n} pasted row${n === 1 ? '' : 's'}${scopeBit}`
+                  : mode === 'upsert'
+                    ? `Upserted ${n} row${n === 1 ? '' : 's'}${scopeBit}`
+                    : mode === 'replace'
+                      ? `Replaced all${scopeBit} with ${n} incoming row${n === 1 ? '' : 's'}`
+                      : `Imported ${n} row${n === 1 ? '' : 's'}${scopeBit}`,
+              );
+            } finally {
+              setImportBgJob(null);
+            }
           }}
         />
       )}
+
+      {importBgJob &&
+        createPortal(
+          <div
+            className={`fixed bottom-4 right-4 z-[10001] flex max-w-[min(360px,92vw)] items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl
+              ${isDarkMode ? 'border-gray-600 bg-[#0f1c18] text-gray-100' : 'border-gray-200 bg-white text-gray-900'}`}
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#13C296]" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{importBgJob.label}…</p>
+              <p className={`text-[12px] tabular-nums ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {(importBgJob.done || 0).toLocaleString()} / {(importBgJob.total || 0).toLocaleString()}
+              </p>
+              <div className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>
+                <div
+                  className="h-full rounded-full bg-[#13C296] transition-[width] duration-300"
+                  style={{
+                    width: `${
+                      importBgJob.total
+                        ? Math.min(100, Math.round((100 * (importBgJob.done || 0)) / importBgJob.total))
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
 
       {editingRecordSidebarRow && (

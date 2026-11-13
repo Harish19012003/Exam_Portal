@@ -3,7 +3,7 @@
 .users-page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--page-gap, 12px);
 }
 
 /* Header */
@@ -2973,4 +2973,8 @@ input:checked + .slider:before {
   .users-form-select .exams-search-select-trigger {
     min-height: 44px;
   }
+}
+
+.users-title {
+  font-family: var(--font-display);
 }

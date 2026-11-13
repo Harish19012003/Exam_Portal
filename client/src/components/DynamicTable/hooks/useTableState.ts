@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { AggregationType, ColumnConfig, ConditionalFormatRule, DataRow, RowData, FilterValue, PendingDelete, SortConfig, PendingEdit, SavedView, Density } from '../types';
 import { genRowId } from '../utils';
 import {
@@ -15,6 +15,13 @@ import {
 import { publishSharedColumns } from '../../DynamicData/schemaStore';
 import { getSharedRows, publishSharedRows, subscribeSharedRows } from '../../DynamicData/rowsStore';
 import { normalizeConditionalFormatRule } from '../utils/conditionalFormat';
+import {
+  applyAggregations,
+  diffAggregations,
+  layoutSignature,
+  summarizeLayoutChanges,
+  type LayoutSlice,
+} from '../utils/layoutDraft';
 import { createCompositeColumnHandlers } from './tableState/compositeColumnHandlers';
 import { createConditionalFormatHandlers } from './tableState/conditionalFormatHandlers';
 import { createSavedViewHandlers, loadSavedViews } from './tableState/savedViewHandlers';
@@ -22,6 +29,9 @@ import { setLookupPick } from '../editors/lookupPicks';
 import { seedLookupRow } from '../editors/lookupSeeds';
 import { setLookupDisplayOverrides } from '../editors/lookupDisplayOverrides';
 import type { BulkLookupPickMeta } from '../components/BulkLookupPicker';
+import type { BulkAssigneePickMeta } from '../components/BulkAssigneePicker';
+import { seedAssigneeLabels } from '../editors/assigneeLabels';
+import { useDebouncedRowSave } from './useDebouncedRowSave';
 export type { TableStateHandlers } from './tableState/types';
 import type { TableStateHandlers } from './tableState/types';
 
@@ -42,41 +52,87 @@ const isDateShiftColumn = (col: { key?: string; dateShiftTemplate?: boolean } | 
   return String(col?.key || '').toLowerCase().startsWith('ds_');
 };
 
-const resolveLayoutSeed = (
-  cols: ColumnConfig[],
-  serverLayout?: TablePrefs | null,
-  tableId?: string,
-  defaultDensity: Density = 'standard',
-): {
+type LayoutSeed = {
   columnOrder: string[];
   columnVisibility: Record<string, boolean>;
   columnWidths: Record<string, number>;
   density: Density;
-} => {
+  /** Footer totals that differ from the page schema (`null` = removed). */
+  columnAggregations: Record<string, AggregationType | null>;
+  conditionalFormats: ConditionalFormatRule[];
+};
+
+const hasKeys = (obj?: Record<string, unknown> | null) =>
+  Boolean(obj && typeof obj === 'object' && Object.keys(obj).length > 0);
+
+/**
+ * Starting layout for the table.
+ *  - 'saved'   → what is stored on the server (user override, else org default). The baseline that
+ *                "unsaved changes" are measured against.
+ *  - 'current' → the same, plus this browser's draft when it was made from that saved layout.
+ *                A draft made from an older saved layout (saved elsewhere since) is stale and ignored.
+ */
+/** Exported for tests. */
+export const resolveLayoutSeed = (
+  cols: ColumnConfig[],
+  serverLayout?: TablePrefs | null,
+  tableId?: string,
+  defaultDensity: Density = 'standard',
+  mode: 'saved' | 'current' = 'current',
+): LayoutSeed => {
   const keys = cols.map((c) => c.key);
   const schemaVisibility = cols.reduce<Record<string, boolean>>((acc, c) => {
     acc[c.key] = c.visible !== false;
     return acc;
   }, {});
-  const local = loadTablePrefs(tableId);
   const layout = pickLayoutSlice(serverLayout);
-  const fromLocal = pickLayoutSlice(local);
-  // Server (user/org) wins over localStorage cache
+
+  const local = mode === 'current' ? loadTablePrefs(tableId) : null;
+  const isLegacyCache = Boolean(local && local.baseSig === undefined);
+  // A draft is valid when it was made from the layout that is saved now. Browser caches from before
+  // drafts existed (no signature) are only used as before: when nothing is saved on the server yet.
+  const draft: TablePrefs | null = !local
+    ? null
+    : isLegacyCache
+      ? (Object.keys(layout).length === 0 ? local : null)
+      : local.baseSig === layoutSignature(layout)
+        ? local
+        : null;
+  const draftSlice = pickLayoutSlice(draft);
+
   const preferred = {
-    columnOrder: layout.columnOrder ?? fromLocal.columnOrder,
-    columnVisibility: layout.columnVisibility ?? fromLocal.columnVisibility,
-    columnWidths: layout.columnWidths ?? fromLocal.columnWidths,
+    columnOrder:
+      Array.isArray(draftSlice.columnOrder) && draftSlice.columnOrder.length > 0
+        ? draftSlice.columnOrder
+        : layout.columnOrder,
+    columnVisibility: hasKeys(draftSlice.columnVisibility as Record<string, unknown>)
+      ? draftSlice.columnVisibility
+      : layout.columnVisibility,
+    columnWidths: hasKeys(draftSlice.columnWidths as Record<string, unknown>)
+      ? draftSlice.columnWidths
+      : layout.columnWidths,
   };
 
-  // Server density always wins. A page-level default (e.g. center list → compact)
-  // also wins over a stale localStorage "standard" left by the old global default.
-  let density = (layout.density as Density) || null;
-  if (!density && fromLocal.density) {
-    const localDensity = fromLocal.density as Density;
-    if (defaultDensity !== 'standard' && localDensity === 'standard') density = defaultDensity;
-    else density = localDensity;
+  // Density: a draft or the saved layout wins. A page-level default (e.g. center list → compact) also
+  // wins over a stale browser "standard" left by the old global default.
+  let density = (draftSlice.density as Density) || (layout.density as Density) || null;
+  if (draft && isLegacyCache && density === 'standard' && defaultDensity !== 'standard') {
+    density = defaultDensity;
   }
   if (!density) density = defaultDensity;
+
+  // Footer totals + highlight rules. Browser caches from before drafts existed held these only locally
+  // (they were never restored) — pick them up once so they can be saved properly.
+  const legacy = mode === 'current' && isLegacyCache ? local : null;
+  const legacyAggs =
+    legacy && !('columnAggregations' in legacy) && Array.isArray(legacy.columns)
+      ? diffAggregations(legacy.columns, cols)
+      : undefined;
+  const columnAggregations =
+    draftSlice.columnAggregations ?? layout.columnAggregations ?? legacyAggs ?? {};
+  const conditionalFormats = (
+    draftSlice.conditionalFormats ?? layout.conditionalFormats ?? legacy?.conditionalFormats ?? []
+  ).map(normalizeConditionalFormatRule);
 
   // Prefer saved/user widths; fall back to schema / date×shift template width.
   const preferredWidths = preferred.columnWidths || {};
@@ -88,14 +144,31 @@ const resolveLayoutSeed = (
       columnWidths[c.key] = c.width;
     }
   });
+  // Sticky chrome columns are not in the schema — still restore their saved widths.
+  ['__checkbox', '__actions'].forEach((k) => {
+    if (preferredWidths[k] != null) columnWidths[k] = preferredWidths[k];
+  });
 
   return {
     columnOrder: mergeColumnOrder(keys, preferred.columnOrder),
     columnVisibility: mergeColumnVisibility(keys, schemaVisibility, preferred.columnVisibility),
     columnWidths,
     density,
+    columnAggregations,
+    conditionalFormats,
   };
 };
+
+/** Layout seed → the comparable slice. Footer totals are round-tripped so "same as schema" entries drop out. */
+/** Exported for tests. */
+export const seedToSlice = (seed: LayoutSeed, schema: ColumnConfig[]): LayoutSlice => ({
+  columnOrder: seed.columnOrder,
+  columnVisibility: seed.columnVisibility,
+  columnWidths: seed.columnWidths,
+  density: seed.density,
+  columnAggregations: diffAggregations(applyAggregations(schema, seed.columnAggregations), schema),
+  conditionalFormats: seed.conditionalFormats,
+});
 
 const sanitizeRows = (rws: (DataRow | RowData)[]): DataRow[] => {
   return rws.map((r, idx) => {
@@ -115,8 +188,8 @@ export type UseTableStateOptions = {
   layoutPrefs?: TablePrefs | null;
   /** Used when neither server nor local layout has a density yet. */
   defaultDensity?: Density;
-  /** Debounced personal layout save. */
-  onLayoutPrefsChange?: (prefs: TablePrefs) => void;
+  /** Saves the personal layout when the user clicks Save on the unsaved-changes bar. May reject on failure. */
+  onLayoutPrefsChange?: (prefs: TablePrefs) => void | Promise<unknown>;
   onRowUpdate?: (rowId: string, updatedValues: Record<string, unknown>, row: DataRow) => Promise<void> | void;
   onRowDelete?: (rowIds: string[]) => Promise<void> | void;
   /**
@@ -149,7 +222,28 @@ export function useTableState(
   const [rows, setRows] = useState<DataRow[]>(() =>
     sanitizeRows((shareState ? getSharedRows() : null) ?? initialRows),
   );
-  const [columns, setColumns] = useState<ColumnConfig[]>(() => sanitizeColumns(initialColumns));
+  // Starting layout: the saved layout, plus this browser's draft when it is still based on it.
+  // Computed once; later schema changes recompute below.
+  const [seeds] = useState(() => {
+    const schema = sanitizeColumns(initialColumns);
+    return {
+      current: resolveLayoutSeed(schema, layoutPrefs, tableId, defaultDensity, 'current'),
+      saved: resolveLayoutSeed(schema, layoutPrefs, tableId, defaultDensity, 'saved'),
+      schema,
+    };
+  });
+  /** The page's own column definitions — footer totals are saved as differences from these. */
+  const schemaColumnsRef = useRef<ColumnConfig[]>(seeds.schema);
+  const [columns, setColumns] = useState<ColumnConfig[]>(() =>
+    applyAggregations(seeds.schema, seeds.current.columnAggregations),
+  );
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  /** The last SAVED layout — "unsaved changes" means the table differs from this. */
+  const savedSliceRef = useRef<LayoutSlice>(seedToSlice(seeds.saved, seeds.schema));
+  const [savedSig, setSavedSig] = useState(() => layoutSignature(savedSliceRef.current));
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const [layoutSaveError, setLayoutSaveError] = useState<string | null>(null);
 
   const [sort, setSort] = useState<SortConfig[]>([]);
   const [filters, setFilters] = useState<Record<string, FilterValue>>({});
@@ -171,7 +265,7 @@ export function useTableState(
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
 
-  const initialSeed = resolveLayoutSeed(sanitizeColumns(initialColumns), layoutPrefs, tableId, defaultDensity);
+  const initialSeed = seeds.current;
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => initialSeed.columnWidths);
 
@@ -198,8 +292,8 @@ export function useTableState(
 
   const [density, setDensity] = useState<Density>(() => initialSeed.density);
 
-  const [conditionalFormats, setConditionalFormats] = useState<ConditionalFormatRule[]>(() =>
-    readPref('conditionalFormats', [], tableId).map(normalizeConditionalFormatRule),
+  const [conditionalFormats, setConditionalFormats] = useState<ConditionalFormatRule[]>(
+    () => seeds.current.conditionalFormats,
   );
   const [recentFormatColors, setRecentFormatColors] = useState<string[]>(() =>
     readPref('recentFormatColors', [], tableId),
@@ -217,14 +311,31 @@ export function useTableState(
   // Columns / table identity — reset chrome when schema changes; keep live resize widths.
   useEffect(() => {
     const cleanCols = sanitizeColumns(initialColumns);
-    const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId, defaultDensity);
+    const seed = resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId, defaultDensity, 'current');
     const keySet = new Set(cleanCols.map((c) => c.key));
-    setColumns(cleanCols);
+    // Keep footer totals: saved / draft ones, plus anything changed in this session on columns that still exist.
+    const sessionAggs = diffAggregations(columnsRef.current, schemaColumnsRef.current);
+    Object.keys(sessionAggs).forEach((k) => {
+      if (!keySet.has(k)) delete sessionAggs[k];
+    });
+    schemaColumnsRef.current = cleanCols;
+    setColumns(applyAggregations(cleanCols, { ...seed.columnAggregations, ...sessionAggs }));
+    // The page's schema changed (e.g. a preset switch): re-measure "saved" against the new columns.
+    savedSliceRef.current = seedToSlice(
+      resolveLayoutSeed(cleanCols, layoutPrefsRef.current, tableId, defaultDensity, 'saved'),
+      cleanCols,
+    );
+    setSavedSig(layoutSignature(savedSliceRef.current));
     setColumnOrder(seed.columnOrder);
     setColumnVisibility(seed.columnVisibility);
     // Merge: keep in-session (or just-resized) widths; adopt new template when it changes.
+    // Preserve sticky chrome cols (__checkbox / __actions) — dropping them forced preset reset.
     setColumnWidths((prev) => {
       const next: Record<string, number> = {};
+      ['__checkbox', '__actions'].forEach((k) => {
+        if (prev[k] != null) next[k] = prev[k];
+        else if (seed.columnWidths[k] != null) next[k] = seed.columnWidths[k];
+      });
       keySet.forEach((k) => {
         const col = cleanCols.find((c) => c.key === k);
         const templateW = col?.width;
@@ -321,7 +432,33 @@ export function useTableState(
   }, [initialColumns]);
 
 
-  // Debounce local prefs — column resize can fire many updates per second.
+  /** The layout as it is right now — what Save would store. */
+  const currentSlice = useMemo<LayoutSlice>(
+    () => ({
+      columnOrder,
+      columnVisibility,
+      columnWidths,
+      density,
+      columnAggregations: diffAggregations(columns, schemaColumnsRef.current),
+      conditionalFormats,
+    }),
+    [columnOrder, columnVisibility, columnWidths, density, columns, conditionalFormats],
+  );
+  const currentSig = useMemo(() => layoutSignature(currentSlice), [currentSlice]);
+  const onLayoutPrefsChangeRef = useRef(onLayoutPrefsChange);
+  onLayoutPrefsChangeRef.current = onLayoutPrefsChange;
+
+  /** Unsaved personal changes (only for tables that can save a layout). */
+  const layoutDirty = Boolean(onLayoutPrefsChange) && currentSig !== savedSig;
+  const layoutChangeSummary = useMemo(
+    () => (layoutDirty ? summarizeLayoutChanges(currentSlice, savedSliceRef.current) : []),
+    // savedSig stands in for the saved slice (a ref) so the list refreshes after a save
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layoutDirty, currentSlice, savedSig],
+  );
+
+  // Browser draft — debounced, column resize can fire many updates per second. Survives a reload so
+  // unsaved changes are not lost; `baseSig` ties it to the saved layout it was made from.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       saveTablePrefs({
@@ -332,32 +469,50 @@ export function useTableState(
         density,
         conditionalFormats,
         recentFormatColors,
+        columnAggregations: currentSlice.columnAggregations,
+        baseSig: layoutSignature(pickLayoutSlice(layoutPrefsRef.current)),
       }, tableId);
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [columns, columnWidths, columnOrder, columnVisibility, density, conditionalFormats, recentFormatColors, tableId]);
+  }, [columns, columnWidths, columnOrder, columnVisibility, density, conditionalFormats, recentFormatColors, currentSlice, savedSig, tableId]);
 
-  // Debounced persist of personal layout (skip first paint)
-  const skipInitialLayoutSave = useRef(true);
-  const onLayoutPrefsChangeRef = useRef(onLayoutPrefsChange);
-  onLayoutPrefsChangeRef.current = onLayoutPrefsChange;
-  useEffect(() => {
-    if (!onLayoutPrefsChangeRef.current) return;
-    if (skipInitialLayoutSave.current) {
-      skipInitialLayoutSave.current = false;
-      return;
+  /** Store the personal layout on the server. Returns true on success; on failure the draft is kept. */
+  const saveLayoutChanges = useCallback(async (): Promise<boolean> => {
+    const save = onLayoutPrefsChangeRef.current;
+    if (!save) return false;
+    setLayoutSaving(true);
+    setLayoutSaveError(null);
+    try {
+      await save(pickLayoutSlice(currentSlice as TablePrefs));
+      savedSliceRef.current = currentSlice;
+      setSavedSig(currentSig);
+      return true;
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Could not save your table changes. They are kept in this browser — try again.';
+      setLayoutSaveError(message);
+      return false;
+    } finally {
+      setLayoutSaving(false);
     }
-    const slice = pickLayoutSlice({
-      columnOrder,
-      columnVisibility,
-      columnWidths,
-      density,
+  }, [currentSlice, currentSig]);
+
+  /** Throw away unsaved changes and go back to the last saved layout. */
+  const discardLayoutChanges = useCallback(() => {
+    const saved = savedSliceRef.current;
+    setColumnOrder(saved.columnOrder || []);
+    setColumnVisibility(saved.columnVisibility || {});
+    setColumnWidths(saved.columnWidths || {});
+    if (saved.density) setDensity(saved.density as Density);
+    setConditionalFormats(saved.conditionalFormats || []);
+    setColumns((prev) => {
+      const schemaTotals = new Map(schemaColumnsRef.current.map((c) => [c.key, c.aggregation]));
+      const reset = prev.map((c) => ({ ...c, aggregation: schemaTotals.get(c.key) }));
+      return applyAggregations(reset, saved.columnAggregations);
     });
-    const timer = window.setTimeout(() => {
-      onLayoutPrefsChangeRef.current?.(slice);
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [columnOrder, columnVisibility, columnWidths, density]);
+    setLayoutSaveError(null);
+  }, []);
 
   // Let the sibling Dynamic* views render composites/formulas built here.
   useEffect(() => {
@@ -466,8 +621,11 @@ export function useTableState(
 
   const handleClearSelection = useCallback(() => setSelectedRows(new Set()), []);
 
+  // Coalesce rapid inline edits into one PATCH per row (optimistic UI still instant).
+  const { queueSave, flushRow, flushAll, cancelRow } = useDebouncedRowSave(onRowUpdate);
+
   // ── Inline edit ────────────────────────────────────────────────────────────
-  // Call onRowUpdate OUTSIDE the setState updater — React Strict Mode runs updaters
+  // Queue saves OUTSIDE the setState updater — React Strict Mode runs updaters
   // twice in dev, which was double-saving and clearing the lookup pick mid-flight.
   const handleCellSave = useCallback((rowId: string, colKey: string, newValue: unknown) => {
     let updated: DataRow | undefined;
@@ -479,12 +637,10 @@ export function useTableState(
       return next;
     });
     setEditingCell(null);
-    if (updated && onRowUpdate) {
-      void onRowUpdate(rowId, { [colKey]: newValue }, updated);
-    }
-  }, [onRowUpdate]);
+    if (updated) queueSave(rowId, { [colKey]: newValue }, updated);
+  }, [queueSave]);
 
-  /** One local paint + one onRowUpdate for multi-cell patches (lookup group fill). */
+  /** One local paint + one queued onRowUpdate for multi-cell patches (lookup group fill). */
   const handleCellsSave = useCallback((rowId: string, updates: Record<string, unknown>) => {
     if (!updates || Object.keys(updates).length === 0) return;
     let updated: DataRow | undefined;
@@ -496,10 +652,8 @@ export function useTableState(
       return next;
     });
     setEditingCell(null);
-    if (updated && onRowUpdate) {
-      void onRowUpdate(rowId, updates, updated);
-    }
-  }, [onRowUpdate]);
+    if (updated) queueSave(rowId, updates, updated);
+  }, [queueSave]);
 
   const handleRowDraftChange = useCallback((rowId: string, colKey: string, newValue: unknown) => {
     setRowDrafts(prev => ({
@@ -532,8 +686,10 @@ export function useTableState(
         updated = nextRows.find(r => r.rowId === rowId);
         return nextRows;
       });
-      if (updated && onRowUpdate) {
-        void onRowUpdate(rowId, draft, updated);
+      // Explicit row commit — merge into queue then flush immediately.
+      if (updated) {
+        queueSave(rowId, draft, updated);
+        flushRow(rowId);
       }
     }
     setRowDrafts(prev => {
@@ -547,7 +703,7 @@ export function useTableState(
       next.delete(rowId);
       return next;
     });
-  }, [onRowUpdate]);
+  }, [queueSave, flushRow]);
 
   const cancelRowDraft = useCallback((rowId: string) => {
     setRowDrafts(prev => {
@@ -585,6 +741,7 @@ export function useTableState(
     }
     if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
 
+    cancelRow(rowId);
     setRows(prev => prev.filter(r => r.rowId !== rowId));
     setSelectedRows(prev => { const s = new Set(prev); s.delete(rowId); return s; });
     setContextMenu(null);
@@ -595,7 +752,7 @@ export function useTableState(
     }, 15000);
     deleteTimerRef.current = timerId;
     setPendingDelete({ rowId, row, timerId, index });
-  }, [rows, onRowDelete, onDeleteRowRequest]);
+  }, [rows, onRowDelete, onDeleteRowRequest, cancelRow]);
 
   const handleUndoDelete = useCallback(() => {
     if (!pendingDelete) return;
@@ -621,18 +778,23 @@ export function useTableState(
 
   const handleDeleteSelected = useCallback(() => {
     const ids = Array.from(selectedRows);
+    ids.forEach((id) => cancelRow(id));
     setRows(prev => prev.filter(r => !selectedRows.has(r.rowId)));
     setSelectedRows(new Set());
     setShowBulkConfirm(false);
     if (ids.length && onRowDelete) void onRowDelete(ids);
-  }, [selectedRows, onRowDelete]);
+  }, [selectedRows, onRowDelete, cancelRow]);
 
   const handleBulkUpdate = useCallback((
     updates: Record<string, unknown>,
     lookupPicks: BulkLookupPickMeta[] = [],
     targetRows?: DataRow[],
+    assigneePicks: BulkAssigneePickMeta[] = [],
   ) => {
     if (Object.keys(updates).length === 0) return;
+
+    // Flush any pending cell saves first so bulk does not race them.
+    flushAll();
 
     const targets =
       targetRows ??
@@ -653,6 +815,19 @@ export function useTableState(
         });
         if (Object.keys(displayPatch).length) setLookupDisplayOverrides(r.rowId, displayPatch);
       });
+    });
+
+    // Seed assignee names so chips don't flash “…” after Mass Edit.
+    const displayUpdates: Record<string, unknown> = { ...updates };
+    assigneePicks.forEach((pick) => {
+      seedAssigneeLabels(
+        Object.entries(pick.labels || {}).map(([id, name]) => ({ id, name: String(name) })),
+      );
+      const labelList = pick.ids.map((id) => pick.labels[id] || id);
+      displayUpdates[pick.columnKey] =
+        labelList.length > 1 || Array.isArray(updates[pick.columnKey])
+          ? labelList
+          : labelList[0] || '';
     });
 
     const payload = targets.map((r) => ({
@@ -682,13 +857,13 @@ export function useTableState(
       });
 
       return prev.map((r) =>
-        targetIds.has(r.rowId) ? { ...r, values: { ...r.values, ...updates } } : r,
+        targetIds.has(r.rowId) ? { ...r, values: { ...r.values, ...displayUpdates } } : r,
       );
     });
 
     setSelectedRows(new Set());
     setShowBulkUpdate(false);
-  }, [selectedRows, rows, onRowUpdate, onBulkUpdate]);
+  }, [selectedRows, rows, onRowUpdate, onBulkUpdate, flushAll]);
 
   const handleAddRow = useCallback(() => {
     const newRow: DataRow = { rowId: genRowId(), version: 1, values: {} };
@@ -936,6 +1111,7 @@ export function useTableState(
     savedViews, activeViewId, handleSaveView, handleLoadView, handleDeleteView,
     handleUpdateColumnAggregation,
     handleUpdateColumnProp,
+    layoutDirty, layoutSaving, layoutSaveError, layoutChangeSummary, saveLayoutChanges, discardLayoutChanges,
     handleAddFormulaColumn,
     handleUpdateFormulaColumn,
     conditionalFormats,

@@ -5,6 +5,8 @@ import { AppFooter } from '../components/AppFooter/AppFooter';
 import { PageGate } from './PageGate';
 import { ROLES } from '@exam-view/shared';
 import { DashboardLayout } from '../layouts/DashboardLayout';
+import { RouteErrorPage } from '../components/ErrorPage/ErrorPage';
+import { NotFoundScreen } from '../components/ErrorPage/NotFoundScreen';
 
 import { DashboardHome } from '../pages/DashboardHome';
 import { ExamsPage } from '../pages/ExamsPage';
@@ -38,17 +40,18 @@ const PublicShell = () => (
   </>
 );
 
-const NotFoundPage = () => (
-  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: 'var(--bg-app, #f9fafb)', color: 'var(--text-primary, #030712)', padding: '24px', textAlign: 'center' }}>
-    <h1 style={{ fontSize: '72px', fontWeight: '800', margin: 0, color: 'var(--primary-color, #2563eb)' }}>404</h1>
-    <h2 style={{ fontSize: '22px', fontWeight: '700', margin: 0 }}>Page Not Found</h2>
-    <p style={{ color: 'var(--text-secondary, #6b7280)', maxWidth: '420px', margin: 0 }}>The requested page could not be found. Please check the URL or return to the dashboard.</p>
-    <AppFooter variant="floating" />
-    <a href="/dashboard" style={{ marginTop: '12px', padding: '10px 20px', borderRadius: '8px', background: 'var(--primary-color, #2563eb)', color: '#fff', textDecoration: 'none', fontWeight: '600', fontSize: '14px' }}>Back to Dashboard</a>
-  </div>
-);
+/** DEV only: open /__error-preview (full page) or /dashboard-preview-error (inside the app shell) to see the error screens. */
+const ErrorPreview = () => {
+  const type = new URLSearchParams(window.location.search).get('type');
+  throw new Error(
+    type === 'stale'
+      ? 'Failed to fetch dynamically imported module: /assets/ExamsPage-3fa9c1.js'
+      : 'Preview: something broke while rendering this page',
+  );
+};
 
-export const router = createBrowserRouter([
+const appRoutes = [
+  ...(import.meta.env.DEV ? [{ path: '/__error-preview', element: <ErrorPreview /> }] : []),
   {
     path: '/',
     element: <LandingPage />,
@@ -78,6 +81,7 @@ export const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
+          ...(import.meta.env.DEV ? [{ path: '/dashboard-preview-error', element: <ErrorPreview /> }] : []),
           {
             path: '/dashboard',
             element: <PageGate page="dashboard"><DashboardHome /></PageGate>,
@@ -167,9 +171,13 @@ export const router = createBrowserRouter([
   },
   {
     path: '*',
-    element: <NotFoundPage />,
+    element: <NotFoundScreen />,
   },
-]);
+];
+
+// One pathless parent carries the error screen, so any crash or failed route below shows it instead of
+// the default "Unexpected Application Error" page.
+export const router = createBrowserRouter([{ errorElement: <RouteErrorPage />, children: appRoutes }]);
 
 export const AppRouter = () => {
   return <RouterProvider router={router} />;

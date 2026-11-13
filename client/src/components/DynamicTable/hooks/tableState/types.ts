@@ -112,6 +112,7 @@ export interface TableStateHandlers {
     updates: Record<string, unknown>,
     lookupPicks?: import('../../components/BulkLookupPicker').BulkLookupPickMeta[],
     targetRows?: import('../../types').DataRow[],
+    assigneePicks?: import('../../components/BulkAssigneePicker').BulkAssigneePickMeta[],
   ) => void;
 
   // Drag state for column reorder
@@ -127,6 +128,14 @@ export interface TableStateHandlers {
 
   // Column Aggregation
   handleUpdateColumnAggregation: (colKey: string, agg: AggregationType | undefined) => void;
+  /** Unsaved personal table changes (widths, order, visibility, density, footer totals, highlight rules). */
+  layoutDirty: boolean;
+  layoutSaving: boolean;
+  layoutSaveError: string | null;
+  /** What differs from the saved layout, e.g. ['column widths', 'footer totals']. */
+  layoutChangeSummary: string[];
+  saveLayoutChanges: () => Promise<boolean>;
+  discardLayoutChanges: () => void;
 
   // Custom Column Properties
   handleUpdateColumnProp: (colKey: string, prop: string, value: unknown) => void;

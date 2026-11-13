@@ -13,6 +13,8 @@ export const UserSchema = new EntitySchema({
     first_name: { type: 'string', nullable: true },
     last_name: { type: 'string', nullable: true },
     phone_number: { type: 'string', nullable: true },
+    /** Optional org / centre code (e.g. AM) used to group or assign users later. */
+    user_code: { type: 'string', nullable: true },
     role: { type: 'string', default: 'user' },
     status: { type: 'string', default: 'active' },
     is_primary: { type: 'boolean', default: false },
@@ -23,6 +25,9 @@ export const UserSchema = new EntitySchema({
     tag_ids: { type: 'json', nullable: true },
     two_factor_enabled: { type: 'boolean', default: false },
     timezone: { type: 'string', default: 'UTC' },
+    /** Profile picture (Cloudinary). Stored URL + public id so it can be replaced / removed. */
+    avatar_url: { type: 'string', nullable: true },
+    avatar_public_id: { type: 'string', nullable: true },
     last_active_at: { type: 'Date', nullable: true },
     created_at: { type: 'Date', onCreate: () => new Date() },
     updated_at: { type: 'Date', onCreate: () => new Date(), onUpdate: () => new Date() },

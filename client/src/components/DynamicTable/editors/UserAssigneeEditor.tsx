@@ -3,23 +3,54 @@ import { createPortal } from 'react-dom';
 import type { CellEditorProps } from '../types';
 import { isFieldColumn } from '../types';
 import { listAssignableUsers } from '../../../pages/exams/assigneeApi';
-import { seedAssigneeLabels } from './assigneeLabels';
+import {
+  findAssigneeIdByLabel,
+  formatAssigneeDisplay,
+  getAssigneeLabel,
+  seedAssigneeLabels,
+} from './assigneeLabels';
 import './UserAssigneeEditor.css';
 
-type Person = { id: string; name: string; email: string; tag_ids?: string[] };
+type Person = { id: string; name: string; email: string; user_code?: string; tag_ids?: string[] };
+
+const looksLikeUserId = (value: string) => {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  if (/^[a-f0-9]{24}$/i.test(s)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  return false;
+};
 
 const idsOf = (value: unknown): string[] =>
   (Array.isArray(value) ? value : value ? [value] : []).map(String).filter(Boolean);
 
-/** Multi-select people filtered by the field's configured user tags. Stores user id[]. */
+/** Coerce cell value to user ids (never keep display names like "Aadarsh · AAD5005"). */
+const coerceAssigneeIds = (value: unknown): string[] => {
+  const out: string[] = [];
+  idsOf(value).forEach((token) => {
+    if (looksLikeUserId(token)) {
+      if (!out.includes(token)) out.push(token);
+      return;
+    }
+    const fromLabel = findAssigneeIdByLabel(token);
+    if (fromLabel && !out.includes(fromLabel)) out.push(fromLabel);
+  });
+  return out;
+};
+
+/** People filtered by the field's user tags. Dropdown = one id; Multiselect dropdown = id[]. */
 export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode, autoFocus }: CellEditorProps) {
   const tagIds = isFieldColumn(column) ? column.userTags?.tagIds || [] : [];
+  const multiple = !isFieldColumn(column) || column.userTags?.multiple !== false;
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState('');
   const [people, setPeople] = useState<Person[]>([]);
-  const [selected, setSelected] = useState<string[]>(() => idsOf(value));
+  const [selected, setSelected] = useState<string[]>(() => {
+    const ids = coerceAssigneeIds(value);
+    return multiple ? ids : ids.slice(0, 1);
+  });
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -42,7 +73,7 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
       setLabels((prev) => {
         const next = { ...prev };
         rows.forEach((p) => {
-          next[p.id] = p.name || p.email || p.id;
+          next[p.id] = formatAssigneeDisplay(p) || p.id;
         });
         return next;
       });
@@ -80,15 +111,22 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
 
   const paintAndSave = useCallback(
     (ids: string[]) => {
+      const clean = ids.filter(looksLikeUserId);
       seedAssigneeLabels(
-        ids.map((id) => ({
-          id,
-          name: labels[id] || people.find((p) => p.id === id)?.name || people.find((p) => p.id === id)?.email,
-        })),
+        clean.map((id) => {
+          const person = people.find((p) => p.id === id);
+          return {
+            id,
+            name: person?.name || labels[id] || getAssigneeLabel(id) || id,
+            email: person?.email,
+            user_code: person?.user_code,
+          };
+        }),
       );
-      onSave(ids);
+      // Single-select fields persist one id string; multi persists id[].
+      onSave(multiple ? clean : clean[0] || '');
     },
-    [labels, people, onSave],
+    [labels, people, onSave, multiple],
   );
 
   useEffect(() => {
@@ -106,10 +144,21 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q));
+    return people.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.email.toLowerCase().includes(q) ||
+        String(p.user_code || '')
+          .toLowerCase()
+          .includes(q),
+    );
   }, [people, query]);
 
   const toggle = (id: string) => {
+    if (!multiple) {
+      setSelected((prev) => (prev.includes(id) ? [] : [id]));
+      return;
+    }
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
@@ -152,7 +201,9 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
             commit();
           }
         }}
-        aria-label={`Assign people for ${column.label}`}
+        aria-label={
+          multiple ? `Assign people for ${column.label}` : `Assign person for ${column.label}`
+        }
         style={{
           display: 'block',
           width: '100%',
@@ -184,7 +235,7 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
             ref={menuRef}
             className={`ua-menu${dark ? ' is-dark' : ''}`}
             role="listbox"
-            aria-multiselectable
+            aria-multiselectable={multiple}
             style={{
               left: pos.left,
               width: pos.width,
@@ -207,11 +258,28 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
                     role="option"
                     aria-selected={on}
                     className={`ua-menu__row${on ? (dark ? ' is-on-dark' : ' is-on') : ''}`}
-                    onClick={() => toggle(p.id)}
+                    onClick={() => {
+                      if (!multiple) {
+                        const next = selected.includes(p.id) ? [] : [p.id];
+                        setSelected(next);
+                        setActive(false);
+                        paintAndSave(next);
+                        return;
+                      }
+                      toggle(p.id);
+                    }}
                   >
                     <span className={`ua-menu__check${on ? ' is-on' : ''}`} aria-hidden="true" />
                     <span className="ua-menu__meta">
-                      <span className="ua-menu__name">{p.name}</span>
+                      <span className="ua-menu__name">
+                        {p.name}
+                        {p.user_code ? (
+                          <span className="ua-menu__code" title="User code">
+                            {' '}
+                            · {p.user_code}
+                          </span>
+                        ) : null}
+                      </span>
                       {p.email ? <span className="ua-menu__email">{p.email}</span> : null}
                     </span>
                   </button>

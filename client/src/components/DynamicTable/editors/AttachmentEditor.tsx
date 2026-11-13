@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { Icon } from '@iconify/react';
 import type { AttachmentItem, CellEditorProps } from '../types';
 import { editorBase } from './shared';
+import { uploadAttachment } from '../../../api/uploadApi';
 
 export function AttachmentEditor({ value, onSave, isDarkMode, autoFocus }: CellEditorProps) {
   const parseInitial = () => {
@@ -31,6 +32,8 @@ export function AttachmentEditor({ value, onSave, isDarkMode, autoFocus }: CellE
   const [isOpen, setIsOpen] = useState(!!autoFocus);
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -43,18 +46,32 @@ export function AttachmentEditor({ value, onSave, isDarkMode, autoFocus }: CellE
     onSave(val);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Files go to Cloudinary (never a temporary browser link), and only the returned URL is saved in the cell.
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const newItems: AttachmentItem[] = files.map(f => ({
-      id: Math.random().toString(36).substring(7),
-      name: f.name,
-      url: URL.createObjectURL(f),
-      type: f.type.startsWith('image/') ? 'image' : 'file',
-      size: f.size,
-      addedAt: Date.now()
-    }));
-    setVal(prev => [...prev, ...newItems]);
     if (fileRef.current) fileRef.current.value = '';
+    if (!files.length) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const uploaded: AttachmentItem[] = [];
+      for (const f of files) {
+        const r = await uploadAttachment(f);
+        uploaded.push({
+          id: r.public_id || Math.random().toString(36).substring(7),
+          name: r.name,
+          url: r.url,
+          type: r.type as AttachmentItem['type'],
+          size: r.size,
+          addedAt: Date.now(),
+        });
+      }
+      setVal(prev => [...prev, ...uploaded]);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleAddUrl = () => {
@@ -195,9 +212,9 @@ export function AttachmentEditor({ value, onSave, isDarkMode, autoFocus }: CellE
               ) : (
                 <div className="flex gap-2">
                   <input type="file" multiple className="hidden" ref={fileRef} onChange={handleFileUpload} />
-                  <button onClick={() => fileRef.current?.click()} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold rounded-md border transition-colors ${isDarkMode ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>
+                  <button disabled={uploading} onClick={() => fileRef.current?.click()} className={`flex-1 disabled:opacity-60 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold rounded-md border transition-colors ${isDarkMode ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>
                     <Icon icon="hugeicons:upload-01" className="w-3.5 h-3.5" />
-                    Upload File
+                    {uploading ? 'Uploading…' : 'Upload File'}
                   </button>
                   <button onClick={() => setShowUrlInput(true)} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold rounded-md border transition-colors ${isDarkMode ? 'border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>
                     <Icon icon="hugeicons:link-01" className="w-3.5 h-3.5" />
@@ -205,6 +222,7 @@ export function AttachmentEditor({ value, onSave, isDarkMode, autoFocus }: CellE
                   </button>
                 </div>
               )}
+              {uploadError && <p role="alert" className="mt-2 text-[12px] font-medium text-red-600">{uploadError}</p>}
             </div>
           </div>
         </div>,
