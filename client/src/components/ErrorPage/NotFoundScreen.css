@@ -1,0 +1,510 @@
+.nf {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  box-sizing: border-box;
+  --nf-fs: clamp(150px, min(28vw, 50vh), 500px);
+  --nf-d1: rgba(255, 255, 255, 0.78);
+  --nf-d2: rgba(255, 255, 255, 0.2);
+  color: #1a1f4d;
+  background: linear-gradient(180deg, #8296ee 0%, #a3b3f7 32%, #d3dafb 66%, #eef1ff 100%);
+}
+
+.nf-top {
+  position: relative;
+  z-index: 3;
+  align-self: stretch;
+  padding: clamp(16px, 3vw, 28px) clamp(18px, 4vw, 40px);
+}
+
+.nf-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.nf-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #4631c8;
+  font-size: 16px;
+  box-shadow: 0 4px 12px rgba(35, 25, 110, 0.25);
+}
+
+/* ── Sky ───────────────────────────────────────────────────────────────────────────── */
+.nf-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.nf-sun {
+  position: absolute;
+  top: -14%;
+  right: 4%;
+  width: 56vmin;
+  height: 56vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.22) 34%, rgba(255, 255, 255, 0.06) 56%, rgba(255, 255, 255, 0) 70%);
+}
+
+.nf-stars {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.6px 1.6px at 12% 18%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 28% 42%, #fff, transparent),
+    radial-gradient(1.8px 1.8px at 46% 12%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 63% 30%, #fff, transparent),
+    radial-gradient(1.6px 1.6px at 78% 16%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 90% 38%, #fff, transparent),
+    radial-gradient(1.4px 1.4px at 8% 58%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 94% 62%, #fff, transparent);
+  animation: nfTwinkle 4.5s ease-in-out infinite;
+}
+
+@keyframes nfTwinkle {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.35; }
+}
+
+.nf-cloud-float {
+  position: absolute;
+  fill: rgba(255, 255, 255, 0.62);
+  filter: drop-shadow(0 6px 10px rgba(60, 60, 150, 0.1));
+}
+
+.nf-cloud-float--1 { top: 16%; left: 7%; width: clamp(90px, 13vw, 190px); animation: nfDrift 19s ease-in-out infinite; }
+.nf-cloud-float--2 { top: 24%; right: 9%; width: clamp(110px, 16vw, 240px); animation: nfDrift 24s ease-in-out -8s infinite reverse; }
+.nf-cloud-float--3 { top: 56%; left: 3%; width: clamp(70px, 10vw, 150px); opacity: 0.7; animation: nfDrift 21s ease-in-out -4s infinite; }
+
+@keyframes nfDrift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(34px); }
+}
+
+/* layered cloud bank along the bottom */
+.nf-bank {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 100%;
+  height: clamp(130px, 26vh, 280px);
+}
+
+.nf-bank-back { fill: #b7c2f6; }
+.nf-snow { fill: #ffffff; opacity: 0.85; }
+.nf-bank-mid { fill: #9fd2c2; }
+.nf-bank-front { fill: #6db9a3; }
+.nf-pine { fill: #2f806d; }
+
+/* ── Hero: giant 404 behind the mascot ─────────────────────────────────────────────── */
+.nf-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: calc(var(--nf-fs) * 0.1) 0 calc(var(--nf-fs) * 0.1);
+  animation: nfPop 0.7s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.nf-digits {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--nf-fs) * 0.05);
+  transform: translate(-50%, -50%);
+  font-size: var(--nf-fs);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The digits fade from bright to almost nothing, so they sit in the sky rather than on top of it */
+.nf-digits span {
+  display: block;
+  width: 0.72em;
+  text-align: center;
+  background: linear-gradient(180deg, var(--nf-d1), var(--nf-d2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* The "0" is a solid pill (no hollow centre) with a soft glow, so the mascot sits cleanly in front */
+.nf-zero {
+  display: block;
+  width: 0.7em;
+  height: 0.9em;
+  border-radius: 0.35em;
+  background: linear-gradient(180deg, var(--nf-d1), var(--nf-d2));
+  box-shadow: 0 0 calc(var(--nf-fs) * 0.16) rgba(255, 255, 255, 0.35);
+}
+
+/* ── Stage ─────────────────────────────────────────────────────────────────────────── */
+.nf-stage {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+  padding: 0 20px clamp(40px, 9vh, 84px);
+  text-align: center;
+}
+
+.nf-mascot {
+  position: relative;
+  width: clamp(200px, calc(var(--nf-fs) * 0.84), 430px);
+  height: auto;
+  overflow: visible;
+}
+
+/* idle glance, replaced by pointer tracking after the first mouse move */
+.nf-pupils {
+  animation: nfLook 8s ease-in-out infinite;
+}
+
+.nf-hero.is-tracking .nf-pupils {
+  animation: none;
+}
+
+.nf-look {
+  transition: transform 0.12s ease-out;
+}
+
+/* curious head tilt, a quick blink, fireflies at night */
+.nf-owl-head {
+  transform-box: view-box;
+  transform-origin: 180px 146px;
+  animation: nfTilt 7s ease-in-out infinite;
+}
+
+.nf-lid {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  transform: scaleY(0);
+  animation: nfLid 5.5s ease-in-out infinite;
+}
+
+.nf-firefly {
+  display: none;
+  animation: nfFly 6s ease-in-out infinite;
+}
+
+.nf-firefly--b { animation-delay: -2s; }
+.nf-firefly--c { animation-delay: -4s; }
+
+@keyframes nfTilt {
+  0%, 38%, 100% { transform: rotate(0deg); }
+  46%, 68% { transform: rotate(-8deg); }
+  80%, 90% { transform: rotate(6deg); }
+}
+
+@keyframes nfLid {
+  0%, 91% { transform: scaleY(0); }
+  94% { transform: scaleY(1); }
+  97%, 100% { transform: scaleY(0); }
+}
+
+@keyframes nfFly {
+  0%, 100% { opacity: 0.2; transform: translate(0, 0); }
+  50% { opacity: 1; transform: translate(10px, -14px); }
+}
+
+.nf-q {
+  animation: nfQ 3.8s ease-in-out infinite;
+}
+
+.nf-q--b {
+  animation-delay: -1.9s;
+}
+
+@keyframes nfLook {
+  0%, 18% { transform: translateX(0); }
+  30%, 48% { transform: translateX(-4px); }
+  62%, 82% { transform: translateX(5px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes nfQ {
+  0%, 100% { transform: translateY(0) rotate(-6deg); opacity: 0.9; }
+  50% { transform: translateY(-9px) rotate(6deg); opacity: 0.45; }
+}
+
+@keyframes nfPop {
+  from { opacity: 0; transform: translateY(18px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes nfUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Copy ──────────────────────────────────────────────────────────────────────────── */
+.nf-title {
+  margin: 6px 0 10px;
+  font-size: clamp(1.7rem, 4.6vw, 2.6rem);
+  font-weight: 750;
+  line-height: 1.14;
+  letter-spacing: -0.028em;
+  color: #161a45;
+  animation: nfUp 0.5s 0.2s ease-out both;
+}
+
+/* the word "lost" gets a hand-drawn wavy underline */
+.nf-lost {
+  position: relative;
+  display: inline-block;
+  color: #4631c8;
+}
+
+.nf-squiggle {
+  position: absolute;
+  left: 0;
+  bottom: -0.2em;
+  width: 100%;
+  height: 0.3em;
+  overflow: visible;
+}
+
+.nf-squiggle path {
+  stroke: #ffc247;
+}
+
+.nf-sub {
+  margin: 0;
+  max-width: 420px;
+  font-size: clamp(0.98rem, 2vw, 1.12rem);
+  line-height: 1.5;
+  color: #4a5080;
+  animation: nfUp 0.5s 0.3s ease-out both;
+}
+
+/* the address that was not found: a quiet pill with the long id shortened */
+.nf-path {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 8px;
+  max-width: 100%;
+  margin: 16px 0 0;
+  padding: 6px 14px;
+  border: 1px solid rgba(70, 49, 200, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 12.5px;
+  color: #5b6190;
+  animation: nfUp 0.5s 0.36s ease-out both;
+}
+
+.nf-path svg {
+  flex-shrink: 0;
+  color: #7a6df0;
+}
+
+.nf-path code {
+  padding: 0;
+  background: transparent;
+  color: #2f3568;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.nf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+  margin-top: 26px;
+  animation: nfUp 0.5s 0.42s ease-out both;
+}
+
+.nf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 18px;
+  border: 1px solid rgba(70, 49, 200, 0.18);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1a1f4d;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(35, 25, 110, 0.1);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.nf-btn:hover {
+  background: #f4f2ff;
+  border-color: rgba(70, 49, 200, 0.4);
+}
+
+.nf-back {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: #4a5080;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(74, 80, 128, 0.35);
+  cursor: pointer;
+}
+
+.nf-back:hover {
+  color: #1a1f4d;
+  text-decoration-color: currentColor;
+}
+
+.nf-btn:focus-visible,
+.nf-back:focus-visible,
+.nf-brand:focus-visible {
+  outline: 2px solid #4631c8;
+  outline-offset: 3px;
+}
+
+.nf-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* ── Phones ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .nf {
+    --nf-fs: clamp(150px, 41vw, 300px);
+  }
+
+  .nf-mascot {
+    width: calc(var(--nf-fs) * 1.05);
+  }
+
+  .nf-btn,
+  .nf-back {
+    min-height: 44px;
+  }
+
+  .nf-btn {
+    padding: 10px 22px;
+    font-size: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nf-hero,
+  .nf-title,
+  .nf-sub,
+  .nf-path,
+  .nf-actions,
+  .nf-mascot,
+  .nf-pupils,
+  .nf-owl-head,
+  .nf-lid,
+  .nf-firefly,
+  .nf-q,
+  .nf-cloud-float,
+  .nf-stars {
+    animation: none;
+  }
+
+  .nf-look {
+    transition: none;
+  }
+}
+
+/* ── Night ─────────────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .nf {
+  --nf-d1: rgba(255, 255, 255, 0.16);
+  --nf-d2: rgba(255, 255, 255, 0.03);
+  color: #e8eaff;
+  background: linear-gradient(180deg, #0c1130 0%, #18215a 42%, #27317e 78%, #3a4499 100%);
+}
+
+[data-theme="dark"] .nf-sun {
+  background: radial-gradient(circle, rgba(170, 185, 255, 0.28), rgba(170, 185, 255, 0) 64%);
+}
+
+[data-theme="dark"] .nf-stars { display: block; }
+[data-theme="dark"] .nf-cloud-float { fill: rgba(150, 165, 240, 0.16); filter: none; }
+[data-theme="dark"] .nf-bank-back { fill: #2c3787; }
+[data-theme="dark"] .nf-snow { fill: #aab6ff; opacity: 0.35; }
+[data-theme="dark"] .nf-bank-mid { fill: #1d4a5e; }
+[data-theme="dark"] .nf-bank-front { fill: #153b4d; }
+[data-theme="dark"] .nf-pine { fill: #0c2a38; }
+[data-theme="dark"] .nf-firefly { display: block; }
+[data-theme="dark"] .nf-zero { box-shadow: 0 0 calc(var(--nf-fs) * 0.16) rgba(150, 165, 255, 0.18); }
+[data-theme="dark"] .nf-title { color: #ffffff; }
+[data-theme="dark"] .nf-sub { color: #c3c9f5; }
+[data-theme="dark"] .nf-lost { color: #b3a7ff; }
+[data-theme="dark"] .nf-path { color: #aab2e8; background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.14); }
+[data-theme="dark"] .nf-path svg { color: #b3a7ff; }
+[data-theme="dark"] .nf-path code { color: #dfe3ff; }
+[data-theme="dark"] .nf-btn { background: #ffffff; color: #1a1f4d; }
+[data-theme="dark"] .nf-back { color: #c3c9f5; text-decoration-color: rgba(195, 201, 245, 0.4); }
+[data-theme="dark"] .nf-back:hover { color: #ffffff; }
+
+[data-theme="dark"] .nf-q { fill: #c7bfff; }
+
+.nf .app-footer { color: rgba(255, 255, 255, 0.92); text-shadow: 0 1px 2px rgba(20, 40, 60, 0.35); }
+
+/* Fonts: display for the brand and headline, code font for the missing address */
+.nf-brand,
+.nf-title {
+  font-family: var(--font-display);
+}
+
+.nf-path code {
+  font-family: var(--font-code);
+}
+
+/* A standalone full-screen page (not a table or popup): every piece of text uses the display font */
+.nf {
+  font-family: var(--font-display);
+}
+
+.nf-btn,
+.nf-back,
+.nf-brand {
+  font-family: var(--font-display);
+}

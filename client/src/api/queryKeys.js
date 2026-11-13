@@ -34,6 +34,9 @@ export const queryKeys = {
   },
   configLists: ['config-lists'],
   platformSettings: ['platform-settings'],
+  /** Public portal name / logo / favicon (works on login). */
+  platformBranding: ['platform-branding'],
+  messageTemplates: ['message-templates'],
   integrations: {
     email: ['integrations', 'email'],
     storage: ['integrations', 'storage'],

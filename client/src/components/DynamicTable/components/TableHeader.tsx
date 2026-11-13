@@ -767,10 +767,10 @@ export function TableHeader({
               backgroundColor: thStyleBg,
               color: thStyleFg,
             }}
-            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-2 py-3 text-center`}
+            className={`group/th relative dt-sticky-th dt-sticky-th--right ${thBg} border-b ${borderCls} px-2 py-3 text-center ${headerWraps ? 'align-top' : 'align-middle'}`}
           >
             {(rowActions?.showLabel !== false && (rowActions?.showLabel || Boolean(rowActions?.label))) && (
-              <span className={`text-[11px] font-bold uppercase tracking-wide truncate ${textCls}`}>
+              <span className={`block text-[12px] font-bold uppercase tracking-wide truncate ${textCls}`}>
                 {rowActions?.label ?? 'Actions'}
               </span>
             )}

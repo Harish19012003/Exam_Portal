@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import {
   Sun,
   Moon,
+  Menu,
+  X,
   ArrowRight,
   Monitor,
   UserCheck,
@@ -10,9 +12,11 @@ import {
   Bell,
   MapPin,
   ShieldCheck,
-  Menu,
-  X,
   CheckCircle2,
+  LayoutGrid,
+  Smartphone,
+  Zap,
+  Users,
   Activity,
 } from 'lucide-react';
 import { AppFooter } from '../components/AppFooter/AppFooter';
@@ -21,12 +25,22 @@ import './LandingPage.css';
 const NAV = [
   { href: '#features', label: 'Features' },
   { href: '#how', label: 'How it works' },
-  { href: '#metrics', label: 'Why Exam View' },
+];
+
+const HERO_TILES = [
+  { icon: Users, cls: 'people', x: 120, y: 170, size: 88 },
+  { icon: Bell, cls: 'yellow', x: 220, y: 70, size: 74 },
+  { icon: MapPin, cls: 'sky', x: 260, y: 240, size: 74 },
+  { icon: CheckCircle2, cls: 'main', x: 500, y: 170, size: 118 },
+  { icon: Zap, cls: 'orange', x: 745, y: 80, size: 74 },
+  { icon: UserCheck, cls: 'verify', x: 775, y: 235, size: 62 },
+  { icon: Monitor, cls: 'white', x: 880, y: 170, size: 88 },
 ];
 
 const FEATURES = [
   {
     icon: Monitor,
+    tag: 'Real-time',
     title: 'Real-time center monitoring',
     text: 'Live shift progress, check-ins and candidate load across every region, on one screen.',
     wide: true,
@@ -53,9 +67,23 @@ const FEATURES = [
   },
   {
     icon: ShieldCheck,
+    tag: 'Every action',
     title: 'Tamper-proof audit trail',
     text: 'Every change and admin action is logged with a timestamp and IP address.',
     wide: true,
+  },
+  {
+    icon: LayoutGrid,
+    tag: '1 portal',
+    title: 'One portal for everything',
+    text: 'Scheduling, monitoring and audit together, instead of juggling separate tools.',
+  },
+  {
+    icon: Smartphone,
+    tag: 'Any device',
+    title: 'Works on any device',
+    text: 'Phone, tablet or desktop: supervisors get the same live view wherever they are.',
+    full: true,
   },
 ];
 
@@ -63,12 +91,6 @@ const STEPS = [
   { n: '01', title: 'Set up the exam', text: 'Create the exam, add shifts and assign centers in a few guided steps.' },
   { n: '02', title: 'Go live', text: 'Centers check in, candidates are verified and shifts start on schedule.' },
   { n: '03', title: 'Monitor & review', text: 'Watch progress in real time, then review the full audit log afterward.' },
-];
-
-const PREVIEW_ROWS = [
-  { name: 'Morning Shift · Batch A', meta: '42 centers', pct: 92 },
-  { name: 'Morning Shift · Batch B', meta: '38 centers', pct: 76 },
-  { name: 'Afternoon Shift · Batch A', meta: '51 centers', pct: 48 },
 ];
 
 export const LandingPage = () => {
@@ -177,78 +199,51 @@ export const LandingPage = () => {
 
       <main>
         {/* Hero */}
-        <section className="lp-hero">
-          <div className="lp-container lp-hero-grid">
-            <div className="lp-hero-copy">
-              <span className="lp-eyebrow">
-                <span className="lp-live-dot" /> Online examination operations
-              </span>
-              <h1 className="lp-h1">
-                Run every exam with <span className="lp-accent">complete confidence.</span>
-              </h1>
-              <p className="lp-lead">
-                Exam View brings scheduling, center monitoring, identity verification and audit
-                logging into one portal, so large-scale exams stay on time and on the record.
-              </p>
-              <div className="lp-cta-row">
-                <Link to={primaryTo} className="lp-btn lp-btn-primary lp-btn-lg">
-                  {isLoggedIn ? 'Enter dashboard' : 'Sign in to console'}
-                  <ArrowRight size={18} />
-                </Link>
-                <a href="#features" className="lp-btn lp-btn-ghost lp-btn-lg">
-                  See what it does
-                </a>
-              </div>
-              <ul className="lp-checks">
-                <li><CheckCircle2 size={16} /> Live center status</li>
-                <li><CheckCircle2 size={16} /> Biometric checks</li>
-                <li><CheckCircle2 size={16} /> Full audit log</li>
-              </ul>
+        <section className="lp-hero hz">
+          <div className="lp-container hz-inner">
+            <div className="hz-stage" aria-hidden="true">
+              <svg className="hz-lines" viewBox="0 0 1000 340" preserveAspectRatio="xMidYMid meet">
+                <path d="M170 170 H830" />
+                <path d="M300 85 L355 170" />
+                <path d="M260 240 H335 L385 170" />
+                <path d="M745 80 H668 L618 170" />
+                <path d="M775 235 H700 L645 170" />
+                <circle cx="300" cy="85" r="4.5" />
+                <circle cx="335" cy="240" r="4.5" />
+                <circle cx="668" cy="80" r="4.5" />
+                <circle cx="700" cy="235" r="4.5" />
+              </svg>
+              {HERO_TILES.map(({ icon: Icon, cls, x, y, size }) => (
+                <span
+                  key={cls}
+                  className={`hz-tile hz-tile--${cls}`}
+                  style={{ left: `${x / 10}%`, top: `${(y / 340) * 100}%`, width: `${size / 10}%` }}
+                >
+                  <Icon strokeWidth={1.75} />
+                </span>
+              ))}
             </div>
 
-            {/* Illustrative product preview */}
-            <div className="lp-preview" aria-hidden="true">
-              <div className="lp-preview-bar">
-                <span className="lp-dots"><i /><i /><i /></span>
-                <span className="lp-preview-pill"><Activity size={12} /> Live</span>
-              </div>
-              <div className="lp-preview-body">
-                <div className="lp-preview-stats">
-                  <div><span>Active exams</span><strong>16</strong></div>
-                  <div><span>Centers online</span><strong>185</strong></div>
-                  <div><span>Verified</span><strong>99.4%</strong></div>
-                </div>
-                <div className="lp-preview-list">
-                  {PREVIEW_ROWS.map((r) => (
-                    <div key={r.name} className="lp-preview-row">
-                      <div className="lp-preview-row-head">
-                        <span>{r.name}</span>
-                        <em>{r.meta}</em>
-                      </div>
-                      <div className="lp-bar"><i style={{ width: `${r.pct}%` }} /></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <p className="lp-preview-note">Sample data for illustration</p>
+            <span className="hz-badge"><span className="hz-badge-dot" />Built for high-concurrency exams</span>
+            <h1 className="hz-title">
+              All-in-one exam <span className="hz-grad">operations</span> platform
+            </h1>
+            <p className="hz-lead">
+              Scheduling, center monitoring, identity checks and audit logging in one portal, so large exams
+              stay on time and on the record.
+            </p>
+            <div className="hz-actions">
+              <Link to={primaryTo} className="hz-cta">
+                {isLoggedIn ? 'Open dashboard' : 'Sign in to console'}
+                <ArrowRight size={18} />
+              </Link>
+              <a href="#features" className="hz-ghost">See what it does</a>
             </div>
-          </div>
-        </section>
-
-        {/* Metrics */}
-        <section className="lp-section lp-metrics" id="metrics">
-          <div className="lp-container lp-metrics-grid">
-            {[
-              ['Real-time', 'Center and shift status as it happens'],
-              ['1 portal', 'Scheduling, monitoring and audit together'],
-              ['Every action', 'Logged with timestamp and IP'],
-              ['Any device', 'Works on phone, tablet and desktop'],
-            ].map(([big, small]) => (
-              <div key={big} className="lp-metric lp-reveal">
-                <strong>{big}</strong>
-                <span>{small}</span>
-              </div>
-            ))}
+            <ul className="hz-trust">
+              <li><CheckCircle2 size={15} /> Real-time monitoring</li>
+              <li><CheckCircle2 size={15} /> Biometric checks</li>
+              <li><CheckCircle2 size={15} /> Full audit trail</li>
+            </ul>
           </div>
         </section>
 
@@ -263,16 +258,21 @@ export const LandingPage = () => {
               </p>
             </div>
             <div className="lp-bento">
-              {FEATURES.map(({ icon: Icon, title, text, wide }, i) => (
+              {FEATURES.map(({ icon: Icon, title, text, tag, wide, full }, i) => (
                 <article
                   key={title}
-                  className={`lp-card lp-reveal${wide ? ' lp-card-wide' : ''}`}
+                  className={`lp-card lp-reveal${wide ? ' lp-card-wide' : ''}${full ? ' lp-card-full' : ''}`}
                   style={{ '--d': `${(i % 3) * 0.08}s` }}
                   onMouseMove={spotlight}
                 >
-                  <span className="lp-card-icon"><Icon size={22} /></span>
-                  <h3>{title}</h3>
-                  <p>{text}</p>
+                  <div className="lp-card-top">
+                    <span className="lp-card-icon"><Icon size={22} /></span>
+                    {tag && <span className="lp-card-tag">{tag}</span>}
+                  </div>
+                  <div className="lp-card-body">
+                    <h3>{title}</h3>
+                    <p>{text}</p>
+                  </div>
                 </article>
               ))}
             </div>
@@ -295,20 +295,6 @@ export const LandingPage = () => {
                 </li>
               ))}
             </ol>
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section className="lp-section">
-          <div className="lp-container">
-            <div className="lp-cta-box lp-reveal">
-              <h2>Ready to oversee your next exam?</h2>
-              <p>Sign in to schedule shifts, manage centers and monitor exams in real time.</p>
-              <Link to={primaryTo} className="lp-btn lp-btn-light lp-btn-lg">
-                {isLoggedIn ? 'Open dashboard' : 'Access the portal'}
-                <ArrowRight size={18} />
-              </Link>
-            </div>
           </div>
         </section>
       </main>

@@ -1,445 +1,384 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Mail,
   Send,
   Save,
   Eye,
   Code,
-  Sparkles,
   Check,
   CheckCircle2,
-  Copy,
   AlertCircle,
-  Clock,
   Shield,
-  FileText,
   Tag,
+  UserPlus,
+  KeyRound,
+  Mail,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react';
-import { apiClient } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
+import {
+  fetchMessageTemplates,
+  saveMessageTemplate,
+  resetMessageTemplate,
+  sendTestMessageTemplate,
+} from '../../api/messageTemplatesApi';
 
-const INITIAL_TEMPLATES = [
-  {
-    id: 'otp',
-    name: 'Login Verification OTP',
-    category: 'Security',
-    badge: 'Auth',
-    subject: 'Your Exam View Verification Code: {otp_code}',
-    variables: ['{first_name}', '{otp_code}', '{expiry_minutes}', '{portal_url}'],
-    sampleData: {
-      first_name: 'Alex',
-      otp_code: '482910',
-      expiry_minutes: '10',
-      portal_url: 'https://examview.portal.com',
-    },
-    body: `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
-      <div style="width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: #ffffff; font-weight: bold; font-size: 18px; line-height: 36px; text-align: center;">E</div>
-      <span style="font-size: 18px; font-weight: 700; color: #030712;">Exam View</span>
-    </div>
-    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0; margin-bottom: 12px;">Sign-in Verification Code</h2>
-    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">We received a login request for your Exam View account. Use the one-time code below to complete your sign in:</p>
-    
-    <div style="background-color: #f3f4f6; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 24px;">
-      <span style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #111827;">{otp_code}</span>
-    </div>
+const CATEGORY_ICONS = {
+  auth: KeyRound,
+  security: Shield,
+  welcome: UserPlus,
+};
+const categoryIcon = (badge) => CATEGORY_ICONS[String(badge || '').toLowerCase()] || Mail;
 
-    <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">This code is valid for <strong>{expiry_minutes} minutes</strong>. If you did not attempt to sign in, you can safely ignore this message.</p>
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-    <p style="color: #9ca3af; font-size: 12px; margin: 0; text-align: center;">Exam View Portal • Secure Authentication</p>
-  </div>
-</body>
-</html>`,
-  },
-  {
-    id: 'password_reset',
-    name: 'Password Reset Request',
-    category: 'Security',
-    badge: 'Security',
-    subject: 'Reset Your Exam View Password',
-    variables: ['{first_name}', '{reset_url}', '{expiry_minutes}', '{support_email}'],
-    sampleData: {
-      first_name: 'Jordan',
-      reset_url: 'https://examview.portal.com/reset-password?token=sample_token',
-      expiry_minutes: '60',
-      support_email: 'support@examview.com',
-    },
-    body: `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
-      <div style="width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: #ffffff; font-weight: bold; font-size: 18px; line-height: 36px; text-align: center;">E</div>
-      <span style="font-size: 18px; font-weight: 700; color: #030712;">Exam View</span>
-    </div>
-    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0; margin-bottom: 12px;">Password Reset Request</h2>
-    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #4b5563; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">We received a request to reset the password for your Exam View account. Click the button below to choose a new password:</p>
-    
-    <div style="text-align: center; margin: 28px 0;">
-      <a href="{reset_url}" style="background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Reset Password</a>
-    </div>
+const errorText = (err, fallback) => err?.response?.data?.message || err?.message || fallback;
 
-    <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">This link will expire in <strong>{expiry_minutes} minutes</strong>. If you did not request a password change, please contact <strong>{support_email}</strong> immediately.</p>
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-    <p style="color: #9ca3af; font-size: 12px; margin: 0; text-align: center;">Exam View Portal • Secure Authentication</p>
-  </div>
-</body>
-</html>`,
-  },
-  {
-    id: 'exam_invite',
-    name: 'Exam Schedule & Invitation',
-    category: 'Academic',
-    badge: 'Exams',
-    subject: 'Upcoming Exam Notification: {exam_title}',
-    variables: ['{student_name}', '{exam_title}', '{exam_date}', '{start_time}', '{duration}', '{portal_url}'],
-    sampleData: {
-      student_name: 'Taylor Smith',
-      exam_title: 'Mathematics Final Term Examination 2026',
-      exam_date: 'October 28, 2026',
-      start_time: '10:00 AM IST',
-      duration: '180 Minutes',
-      portal_url: 'https://examview.portal.com/exams',
-    },
-    body: `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0; margin-bottom: 8px;">Upcoming Exam Schedule</h2>
-    <p style="color: #4b5563; font-size: 14px; line-height: 1.6;">Dear <strong>{student_name}</strong>,</p>
-    <p style="color: #4b5563; font-size: 14px; line-height: 1.6;">You have been enrolled in the following examination:</p>
-    
-    <div style="background-color: #f9fafb; border-left: 4px solid #2563eb; padding: 16px; border-radius: 4px; margin: 20px 0;">
-      <h3 style="margin: 0 0 10px 0; color: #111827; font-size: 16px;">{exam_title}</h3>
-      <p style="margin: 4px 0; font-size: 13.5px; color: #4b5563;">📅 <strong>Date:</strong> {exam_date}</p>
-      <p style="margin: 4px 0; font-size: 13.5px; color: #4b5563;">⏰ <strong>Start Time:</strong> {start_time}</p>
-      <p style="margin: 4px 0; font-size: 13.5px; color: #4b5563;">⏳ <strong>Duration:</strong> {duration}</p>
-    </div>
+/** Fill {variable} placeholders with the template's sample values (preview only). */
+const fillSample = (text, sample) =>
+  String(text || '').replace(/\{([a-z_]+)\}/g, (match, key) => (sample && key in sample ? sample[key] : match));
 
-    <div style="text-align: center; margin: 24px 0;">
-      <a href="{portal_url}" style="background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 11px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Go to Exam Portal</a>
-    </div>
-  </div>
-</body>
-</html>`,
-  },
-  {
-    id: 'exam_results',
-    name: 'Exam Results Announcement',
-    category: 'Academic',
-    badge: 'Results',
-    subject: 'Official Results Announced: {exam_title}',
-    variables: ['{student_name}', '{exam_title}', '{score}', '{total_marks}', '{portal_url}'],
-    sampleData: {
-      student_name: 'Taylor Smith',
-      exam_title: 'Mathematics Final Term Examination 2026',
-      score: '94',
-      total_marks: '100',
-      portal_url: 'https://examview.portal.com/results',
-    },
-    body: `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0;">Official Examination Results</h2>
-    <p style="color: #4b5563; font-size: 14px;">Hello <strong>{student_name}</strong>,</p>
-    <p style="color: #4b5563; font-size: 14px;">The evaluation for <strong>{exam_title}</strong> has been finalized. Your results are now available:</p>
-    
-    <div style="background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(99,102,241,0.08)); border-radius: 10px; padding: 20px; text-align: center; margin: 24px 0;">
-      <span style="font-size: 13px; font-weight: 600; text-transform: uppercase; color: #2563eb; letter-spacing: 0.5px;">Your Final Score</span>
-      <div style="font-size: 38px; font-weight: 800; color: #030712; margin-top: 4px;">{score} / {total_marks}</div>
-    </div>
+export const MessageTemplatesTab = ({ actionsSlot = null }) => {
+  const queryClient = useQueryClient();
+  const { data: templates = [], isLoading, isError, refetch } = useQuery({
+    queryKey: queryKeys.messageTemplates,
+    queryFn: fetchMessageTemplates,
+  });
 
-    <div style="text-align: center; margin: 20px 0;">
-      <a href="{portal_url}" style="background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 11px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">View Detailed Scorecard</a>
-    </div>
-  </div>
-</body>
-</html>`,
-  },
-  {
-    id: 'two_factor',
-    name: 'Two-Factor Auth Enabled',
-    category: 'Security',
-    badge: 'Security',
-    subject: 'Two-Factor Authentication Enabled on Your Account',
-    variables: ['{first_name}', '{portal_url}'],
-    sampleData: {
-      first_name: 'Portal Admin',
-      portal_url: 'https://examview.portal.com',
-    },
-    body: `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0;">Two-Factor Authentication Active</h2>
-    <p style="color: #4b5563; font-size: 14px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #4b5563; font-size: 14px;">This is a security confirmation that Two-Factor Authentication (TOTP Authenticator App) has been successfully activated on your Exam View account.</p>
-    <p style="color: #4b5563; font-size: 14px;">From now on, you will be prompted for a 6-digit verification code from your authenticator app whenever you sign in.</p>
-  </div>
-</body>
-</html>`,
-  },
-  {
-    id: 'welcome',
-    name: 'Welcome / New Account',
-    category: 'Onboarding',
-    badge: 'Welcome',
-    subject: 'Welcome to Exam View Portal - Your Account is Ready',
-    variables: ['{first_name}', '{email}', '{login_url}'],
-    sampleData: {
-      first_name: 'Morgan',
-      email: 'morgan@example.com',
-      login_url: 'https://examview.portal.com/login',
-    },
-    body: `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 30px 10px;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
-    <h2 style="font-size: 20px; font-weight: 700; color: #030712; margin-top: 0;">Welcome to Exam View</h2>
-    <p style="color: #4b5563; font-size: 14px;">Hello <strong>{first_name}</strong>,</p>
-    <p style="color: #4b5563; font-size: 14px;">Your account has been created on the Exam View portal with username <strong>{email}</strong>.</p>
-    <div style="text-align: center; margin: 24px 0;">
-      <a href="{login_url}" style="background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 11px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Access Your Account</a>
-    </div>
-  </div>
-</body>
-</html>`,
-  },
-];
-
-export const MessageTemplatesTab = () => {
-  const [templates, setTemplates] = useState(INITIAL_TEMPLATES);
   const [selectedId, setSelectedId] = useState('otp');
+  const [drafts, setDrafts] = useState({}); // { [id]: { subject?, body?, enabled? } } — unsaved edits only
   const [viewMode, setViewMode] = useState('preview'); // 'preview' | 'code'
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState(null); // { type: 'success' | 'error', text }
   const [testEmailOpen, setTestEmailOpen] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
   const [testEmailSending, setTestEmailSending] = useState(false);
-  const [testEmailMsg, setTestEmailMsg] = useState('');
+  const [testEmailMsg, setTestEmailMsg] = useState(null);
+  const bodyRef = useRef(null);
 
-  const currentTemplate = templates.find((t) => t.id === selectedId) || templates[0];
-
-  const handleUpdateCurrent = (field, value) => {
-    setTemplates((prev) =>
-      prev.map((t) => (t.id === selectedId ? { ...t, [field]: value } : t))
-    );
+  const server = templates.find((t) => t.id === selectedId) || templates[0];
+  const draft = (server && drafts[server.id]) || {};
+  const current = server ? { ...server, ...draft } : null;
+  const isDirty = (tpl) => {
+    const d = drafts[tpl.id];
+    return Boolean(d) && ['subject', 'body', 'enabled'].some((k) => k in d && d[k] !== tpl[k]);
   };
+  const dirty = server ? isDirty(server) : false;
 
-  const handleInsertVariable = (variable) => {
-    handleUpdateCurrent('body', currentTemplate.body + ' ' + variable);
+  const patchCache = (updated) =>
+    queryClient.setQueryData(queryKeys.messageTemplates, (list = []) => list.map((t) => (t.id === updated.id ? updated : t)));
+
+  const setDraft = (field, value) => {
+    setNotice(null);
+    setDrafts((prev) => ({ ...prev, [server.id]: { ...(prev[server.id] || {}), [field]: value } }));
   };
-
-  const handleSave = () => {
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
-  };
-
-  const renderSamplePreview = (html, sampleData) => {
-    let result = html;
-    Object.entries(sampleData).forEach(([k, v]) => {
-      const reg = new RegExp(`\\{${k}\\}`, 'g');
-      result = result.replace(reg, v);
+  const clearDraft = (id) =>
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
-    return result;
+
+  const handleInsertVariable = (name) => {
+    const token = `{${name}}`;
+    if (viewMode === 'code' && bodyRef.current) {
+      const el = bodyRef.current;
+      const start = el.selectionStart ?? current.body.length;
+      const end = el.selectionEnd ?? start;
+      setDraft('body', `${current.body.slice(0, start)}${token}${current.body.slice(end)}`);
+      return;
+    }
+    // Subject is the only text field in preview mode, so variables go there.
+    setDraft('subject', `${current.subject} ${token}`.trim());
+  };
+
+  const handleSave = async () => {
+    if (!server || !dirty || saving) {return;}
+    const patch = {};
+    ['subject', 'body', 'enabled'].forEach((k) => {
+      if (k in draft && draft[k] !== server[k]) {patch[k] = draft[k];}
+    });
+    setSaving(true);
+    setNotice(null);
+    try {
+      const updated = await saveMessageTemplate(server.id, patch);
+      patchCache(updated);
+      clearDraft(server.id);
+      setNotice({ type: 'success', text: `${server.name} saved` });
+      setTimeout(() => setNotice(null), 4000);
+    } catch (err) {
+      setNotice({ type: 'error', text: errorText(err, 'Could not save the template') });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!server) {return;}
+    if (!window.confirm(`Reset "${server.name}" to the built-in default? Your edits to it will be lost.`)) {return;}
+    setSaving(true);
+    setNotice(null);
+    try {
+      const updated = await resetMessageTemplate(server.id);
+      patchCache(updated);
+      clearDraft(server.id);
+      setNotice({ type: 'success', text: 'Reset to the default template' });
+      setTimeout(() => setNotice(null), 4000);
+    } catch (err) {
+      setNotice({ type: 'error', text: errorText(err, 'Could not reset the template') });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSendTestEmail = async (e) => {
     e.preventDefault();
-    if (!testEmailAddress) return;
+    if (!testEmailAddress || !server) {return;}
     setTestEmailSending(true);
-    setTestEmailMsg('');
-
+    setTestEmailMsg(null);
     try {
-      // Send test email
-      await apiClient.post('/auth/otp/send', { email: testEmailAddress });
-      setTestEmailMsg(`Sample test message dispatched to ${testEmailAddress}!`);
+      await sendTestMessageTemplate(server.id, testEmailAddress);
+      setTestEmailMsg({ type: 'success', text: `Test email sent to ${testEmailAddress}` });
       setTimeout(() => {
         setTestEmailOpen(false);
-        setTestEmailMsg('');
-      }, 3500);
-    } catch {
-      setTestEmailMsg(`Test email dispatched (Ethereal test transporter enabled)`);
-      setTimeout(() => {
-        setTestEmailOpen(false);
-        setTestEmailMsg('');
-      }, 3500);
+        setTestEmailMsg(null);
+      }, 2500);
+    } catch (err) {
+      setTestEmailMsg({ type: 'error', text: errorText(err, 'Could not send the test email') });
     } finally {
       setTestEmailSending(false);
     }
   };
 
+  const previewDoc = useMemo(
+    () => (current ? fillSample(current.body, current.sample) : ''),
+    [current?.body, current?.sample], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const headerActions = (
+    <div className="config-toolbar-actions">
+      <button
+        type="button"
+        className="config-add-btn secondary"
+        onClick={() => {
+          setTestEmailMsg(null);
+          setTestEmailOpen(true);
+        }}
+        disabled={!server}
+        title="Send the saved version of this email to an address you choose"
+      >
+        <Send size={14} aria-hidden="true" />
+        <span>Send test</span>
+      </button>
+      <button
+        type="button"
+        className="config-add-btn"
+        onClick={handleSave}
+        disabled={!dirty || saving}
+        title={dirty ? 'Save changes to this template' : 'No changes to save'}
+      >
+        {saving ? <Loader2 size={14} className="ps-spin" aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}
+        <span>{saving ? 'Saving…' : 'Save template'}</span>
+      </button>
+    </div>
+  );
+
+  if (isLoading) {
+    return <div className="msg-templates-container msg-state">Loading templates…</div>;
+  }
+  if (isError || !current) {
+    return (
+      <div className="msg-templates-container msg-state" role="alert">
+        <AlertCircle size={18} aria-hidden="true" />
+        <span>Could not load the email templates.</span>
+        <button type="button" className="config-add-btn secondary" onClick={() => refetch()}>Try again</button>
+      </div>
+    );
+  }
+
   return (
     <div className="msg-templates-container">
-      {/* HEADER BAR */}
-      <div className="msg-templates-header">
-        <div>
-          <h2 className="msg-templates-title">Transactional Message Templates</h2>
-          <p className="msg-templates-desc">
-            Manage and customize automated email notifications for authentication, exam schedules, and system alerts.
-          </p>
-        </div>
+      {actionsSlot ? createPortal(headerActions, actionsSlot) : <div className="msg-templates-header">{headerActions}</div>}
 
-        <div className="msg-templates-header-actions">
-          <button
-            type="button"
-            className="msg-test-btn"
-            onClick={() => setTestEmailOpen(true)}
-            title="Dispatch a sample email to verify rendering"
-          >
-            <Send size={15} />
-            <span>Send Test Email</span>
-          </button>
-          <button
-            type="button"
-            className="msg-save-btn"
-            onClick={handleSave}
-            title="Save template changes"
-          >
-            {saveSuccess ? <Check size={16} /> : <Save size={16} />}
-            <span>{saveSuccess ? 'Saved Successfully!' : 'Save Template'}</span>
-          </button>
+      {notice && (
+        <div className={`ps-alert ${notice.type}`} role="status">
+          {notice.type === 'success' ? <CheckCircle2 size={18} aria-hidden="true" /> : <AlertCircle size={18} aria-hidden="true" />}
+          <span>{notice.text}</span>
         </div>
-      </div>
+      )}
 
-      {/* MAIN TWO-COLUMN STUDIO LAYOUT */}
       <div className="msg-studio-grid">
-        {/* LEFT COLUMN: TEMPLATE LIST */}
         <div className="msg-sidebar-card">
           <div className="msg-sidebar-header">
             <span className="msg-sidebar-title">Templates ({templates.length})</span>
           </div>
 
           <div className="msg-template-list">
-            {templates.map((tpl) => (
-              <div
-                key={tpl.id}
-                className={`msg-template-card ${tpl.id === selectedId ? 'active' : ''}`}
-                onClick={() => setSelectedId(tpl.id)}
-              >
-                <div className="msg-template-card-top">
-                  <span className="msg-template-name">{tpl.name}</span>
-                  <span className={`msg-template-badge ${tpl.category.toLowerCase()}`}>
-                    {tpl.badge}
+            {templates.map((tpl) => {
+              const enabled = tpl.id in drafts && 'enabled' in drafts[tpl.id] ? drafts[tpl.id].enabled : tpl.enabled;
+              const Icon = categoryIcon(tpl.badge);
+              return (
+                <button
+                  type="button"
+                  key={tpl.id}
+                  className={`msg-template-card ${tpl.id === selectedId ? 'active' : ''} ${enabled ? '' : 'is-off'}`}
+                  onClick={() => setSelectedId(tpl.id)}
+                  aria-current={tpl.id === selectedId ? 'true' : undefined}
+                >
+                  <span className="msg-template-icon" aria-hidden="true"><Icon size={16} /></span>
+                  <span className="msg-template-text">
+                    <span className="msg-template-name" title={tpl.name}>{tpl.name}</span>
+                    <span className="msg-template-kind">{enabled ? tpl.badge : 'Off'}</span>
                   </span>
-                </div>
-                <span className="msg-template-subject-preview">
-                  {tpl.subject}
-                </span>
-              </div>
-            ))}
+                  {isDirty(tpl) && <span className="msg-template-dot" title="Unsaved changes" aria-label="Unsaved changes" />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: TEMPLATE EDITOR & PREVIEW */}
         <div className="msg-editor-card">
-          {/* SUBJECT LINE EDIT */}
-          <div className="msg-field-row">
-            <label className="msg-field-label">Email Subject Line</label>
-            <input
-              type="text"
-              className="msg-subject-input"
-              value={currentTemplate.subject}
-              onChange={(e) => handleUpdateCurrent('subject', e.target.value)}
-              placeholder="Email subject..."
-            />
-          </div>
-
-          {/* DYNAMIC VARIABLES CHIPS */}
-          <div className="msg-variables-bar">
-            <span className="msg-variables-label">Available Variables:</span>
-            <div className="msg-chips-wrap">
-              {currentTemplate.variables.map((v) => (
-                <button
-                  type="button"
-                  key={v}
-                  className="msg-var-chip"
-                  onClick={() => handleInsertVariable(v)}
-                  title={`Click to append ${v} into template`}
-                >
-                  <Tag size={12} />
-                  <span>{v}</span>
-                </button>
-              ))}
+          {/* ON / OFF for this email */}
+          <div className="msg-enable-row">
+            <div className="msg-enable-text">
+              <span className="msg-enable-title">Send this email</span>
+              <span className="msg-enable-hint">
+                {current.enabled
+                  ? 'Users receive this email automatically.'
+                  : current.required
+                    ? 'Switched off — people will not get this email, so sign-in or password recovery may not work.'
+                    : 'Switched off — nothing is sent.'}
+              </span>
             </div>
-          </div>
-
-          {/* VIEW SWITCHER: PREVIEW VS CODE */}
-          <div className="msg-view-tabs-row">
-            <div className="msg-view-tabs">
-              <button
-                type="button"
-                className={`msg-view-tab ${viewMode === 'preview' ? 'active' : ''}`}
-                onClick={() => setViewMode('preview')}
-              >
-                <Eye size={14} />
-                <span>Visual HTML Preview</span>
-              </button>
-              <button
-                type="button"
-                className={`msg-view-tab ${viewMode === 'code' ? 'active' : ''}`}
-                onClick={() => setViewMode('code')}
-              >
-                <Code size={14} />
-                <span>HTML Code Editor</span>
-              </button>
-            </div>
-            <span className="msg-sample-note">
-              Preview rendered with sample student & system data
-            </span>
-          </div>
-
-          {/* PREVIEW CONTAINER */}
-          {viewMode === 'preview' ? (
-            <div className="msg-preview-frame-wrap">
-              <div
-                className="msg-preview-sandbox"
-                dangerouslySetInnerHTML={{
-                  __html: renderSamplePreview(currentTemplate.body, currentTemplate.sampleData),
+            <label className="msg-switch" aria-label={`Send ${current.name} email`}>
+              <input
+                type="checkbox"
+                checked={current.enabled}
+                onChange={(e) => {
+                  if (
+                    !e.target.checked &&
+                    current.required &&
+                    !window.confirm(`"${current.name}" is used for sign-in and password recovery. If you switch it off, people will not receive it and may be unable to sign in or recover access. Switch it off anyway?`)
+                  ) {
+                    return;
+                  }
+                  setDraft('enabled', e.target.checked);
                 }}
               />
+              <span className="msg-switch-track" />
+            </label>
+          </div>
+
+          <div className={`msg-editor-body ${current.enabled ? '' : 'is-off'}`}>
+            <div className="msg-field-row">
+              <label className="msg-field-label" htmlFor="msg-subject">Subject</label>
+              <input
+                id="msg-subject"
+                type="text"
+                className="msg-subject-input"
+                value={current.subject}
+                maxLength={200}
+                onChange={(e) => setDraft('subject', e.target.value)}
+                placeholder="Email subject…"
+              />
             </div>
-          ) : (
-            <textarea
-              className="msg-code-editor"
-              value={currentTemplate.body}
-              onChange={(e) => handleUpdateCurrent('body', e.target.value)}
-              rows={16}
-              spellCheck={false}
-            />
-          )}
+
+            <div className="msg-variables-bar">
+              <span className="msg-variables-label">Insert variable</span>
+              <div className="msg-chips-wrap">
+                {current.variables.map((name) => (
+                  <button
+                    type="button"
+                    key={name}
+                    className="msg-var-chip"
+                    onClick={() => handleInsertVariable(name)}
+                    title={viewMode === 'code' ? `Insert {${name}} at the cursor` : `Add {${name}} to the subject`}
+                  >
+                    <Tag size={12} aria-hidden="true" />
+                    <span>{`{${name}}`}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="msg-view-tabs-row">
+              <div className="msg-view-tabs">
+                <button type="button" className={`msg-view-tab ${viewMode === 'preview' ? 'active' : ''}`} onClick={() => setViewMode('preview')}>
+                  <Eye size={14} aria-hidden="true" />
+                  <span>Preview</span>
+                </button>
+                <button type="button" className={`msg-view-tab ${viewMode === 'code' ? 'active' : ''}`} onClick={() => setViewMode('code')}>
+                  <Code size={14} aria-hidden="true" />
+                  <span>HTML</span>
+                </button>
+              </div>
+              <div className="msg-view-actions">
+                <span className="msg-sample-note">Preview uses sample values; real emails use the user's own</span>
+                {(current.customized || dirty) && (
+                  <button type="button" className="msg-reset-btn" onClick={handleReset} disabled={saving} title="Go back to the built-in template">
+                    <RotateCcw size={13} aria-hidden="true" /> Reset to default
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {viewMode === 'preview' ? (
+              <div className="msg-preview-frame-wrap">
+                <div className="msg-mail-meta">
+                  <span className="msg-mail-meta-label">Subject</span>
+                  <span className="msg-mail-meta-value">{fillSample(current.subject, current.sample)}</span>
+                </div>
+                {/* Sandboxed: the template HTML can never run scripts in the portal. */}
+                <iframe
+                  className="msg-preview-iframe"
+                  title={`${current.name} preview`}
+                  sandbox="allow-same-origin"
+                  srcDoc={previewDoc}
+                  onLoad={(e) => {
+                    const doc = e.currentTarget.contentDocument;
+                    if (doc?.body) {e.currentTarget.style.height = `${doc.documentElement.scrollHeight}px`;}
+                  }}
+                />
+              </div>
+            ) : (
+              <textarea
+                ref={bodyRef}
+                className="msg-code-editor"
+                value={current.body}
+                onChange={(e) => setDraft('body', e.target.value)}
+                rows={16}
+                spellCheck={false}
+                aria-label="Email HTML"
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      {/* TEST EMAIL MODAL */}
       {testEmailOpen && (
-        <div className="msg-modal-overlay" onClick={() => setTestEmailOpen(false)}>
-          <div className="msg-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="msg-modal-overlay" onClick={() => !testEmailSending && setTestEmailOpen(false)}>
+          <div className="msg-modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Send test email">
             <div className="msg-modal-header">
-              <div className="msg-modal-icon-wrap">
-                <Send size={18} />
-              </div>
-              <h3 className="msg-modal-title">Send Test Email</h3>
+              <div className="msg-modal-icon-wrap"><Send size={18} /></div>
+              <h3 className="msg-modal-title">Send test email</h3>
             </div>
             <p className="msg-modal-desc">
-              Dispatch a test version of <strong>{currentTemplate.name}</strong> to your inbox to check design and rendering.
+              Sends the <strong>saved</strong> version of <strong>{server.name}</strong> with sample values, through your configured mail server.
+              {dirty && ' You have unsaved edits — save first to include them.'}
             </p>
 
             {testEmailMsg && (
-              <div className="msg-modal-alert">
-                <CheckCircle2 size={16} />
-                <span>{testEmailMsg}</span>
+              <div className={`msg-modal-alert ${testEmailMsg.type === 'error' ? 'is-error' : ''}`} role="status">
+                {testEmailMsg.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                <span>{testEmailMsg.text}</span>
               </div>
             )}
 
             <form onSubmit={handleSendTestEmail}>
               <div className="msg-modal-group">
-                <label className="msg-field-label">Recipient Email Address</label>
+                <label className="msg-field-label" htmlFor="msg-test-to">Recipient email address</label>
                 <input
+                  id="msg-test-to"
                   type="email"
                   className="msg-subject-input"
                   placeholder="you@example.com"
@@ -449,21 +388,12 @@ export const MessageTemplatesTab = () => {
                   autoFocus
                 />
               </div>
-
               <div className="msg-modal-footer">
-                <button
-                  type="button"
-                  className="msg-modal-cancel-btn"
-                  onClick={() => setTestEmailOpen(false)}
-                >
+                <button type="button" className="msg-modal-cancel-btn" onClick={() => setTestEmailOpen(false)} disabled={testEmailSending}>
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="msg-save-btn"
-                  disabled={testEmailSending || !testEmailAddress}
-                >
-                  {testEmailSending ? 'Sending...' : 'Send Test'}
+                <button type="submit" className="msg-save-btn" disabled={testEmailSending || !testEmailAddress}>
+                  {testEmailSending ? 'Sending…' : <><Check size={14} aria-hidden="true" /> Send test</>}
                 </button>
               </div>
             </form>

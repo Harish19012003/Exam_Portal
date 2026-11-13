@@ -128,6 +128,14 @@ export interface TableStateHandlers {
 
   // Column Aggregation
   handleUpdateColumnAggregation: (colKey: string, agg: AggregationType | undefined) => void;
+  /** Unsaved personal table changes (widths, order, visibility, density, footer totals, highlight rules). */
+  layoutDirty: boolean;
+  layoutSaving: boolean;
+  layoutSaveError: string | null;
+  /** What differs from the saved layout, e.g. ['column widths', 'footer totals']. */
+  layoutChangeSummary: string[];
+  saveLayoutChanges: () => Promise<boolean>;
+  discardLayoutChanges: () => void;
 
   // Custom Column Properties
   handleUpdateColumnProp: (colKey: string, prop: string, value: unknown) => void;

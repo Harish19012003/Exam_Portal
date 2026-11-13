@@ -34,6 +34,17 @@ export const PageTitle = ({ title, subtitle, info, leading }) => {
   );
 };
 
+/**
+ * Root wrapper for a page: stacks the heading and the content with the shared gap (`--page-gap`).
+ * Use it as the outermost element of every page so spacing is defined once, here.
+ * `fill` makes it take the full available height (table pages that scroll inside).
+ */
+export const PageShell = ({ children, className = '', fill = false, ...rest }) => (
+  <div className={`page-shell ${fill ? 'page-shell--fill' : ''} ${className}`.trim()} {...rest}>
+    {children}
+  </div>
+);
+
 /** Standard page heading bar: title block on the left, `actions` on the right. */
 export const PageHeading = ({ title, subtitle, info, leading, actions, className = '' }) => (
   <div className={`page-heading ${className}`.trim()}>

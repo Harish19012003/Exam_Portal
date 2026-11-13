@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { examPath } from './exams/examUrl';
 import { IconButton } from '../components/Button';
-import { PageTitle } from '../components/PageHeading';
+import { PageTitle, PageShell } from '../components/PageHeading';
 import { useConfirm } from '../feedback';
 import { apiErrorMessage } from './exams/examTableApi';
 import { useNavigate } from 'react-router-dom';
@@ -753,7 +753,7 @@ export const ExamsPage = () => {
   };
 
   return (
-    <div className="exams-page exams-page--table">
+    <PageShell className="exams-page exams-page--table">
       <div className="exams-page-heading-row">
         <PageTitle title="Exam management" />
         {formFields.length > 0 && (
@@ -962,6 +962,6 @@ export const ExamsPage = () => {
         onClose={() => setIsFieldBuilderOpen(false)}
         onChange={setFormFields}
       />
-    </div>
+    </PageShell>
   );
 };

@@ -8,6 +8,7 @@ import {
 } from '@exam-view/shared';
 import * as repo from './exam-table.repository.js';
 import * as presetRepo from '../exam-presets/exam-preset.repository.js';
+import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
 
 const MAX_FIELDS = 100;
 const MAX_FEATURES_BYTES = 200000;
@@ -361,7 +362,9 @@ export const updateRow = (examId, rowId, body, userId) =>
 
 /**
  * Mass Edit: same values patch for many rows.
- * body.all === true → every row; else body.ids (required non-empty).
+ * body.all === true → every row;
+ * else body.filters / body.search → match then update;
+ * else body.ids (required non-empty).
  */
 export const bulkUpdateRows = (examId, body, userId) =>
   withMeta(async () => {
@@ -373,19 +376,44 @@ export const bulkUpdateRows = (examId, body, userId) =>
     if (!Object.keys(cleaned).length) throw validationError('No field values to update');
     const all = Boolean(body?.all);
     const ids = Array.isArray(body?.ids) ? body.ids.map(String).filter(Boolean) : [];
-    if (!all && !ids.length) throw validationError('Provide row ids or set all: true');
+    const filterQuery = {
+      search: body?.search,
+      filters: body?.filters,
+      searchKeys: body?.searchKeys,
+    };
+    const useFilter = !all && !ids.length && hasActiveQuery(filterQuery);
+    if (!all && !ids.length && !useFilter) {
+      throw validationError('Provide row ids, filters/search, or set all: true');
+    }
     // Center-code uniqueness across a mass edit is too ambiguous — block that key.
     if (Object.prototype.hasOwnProperty.call(cleaned, CENTER_CODE_KEY)) {
       throw validationError('Center code cannot be mass-edited; update rows individually');
     }
+
+    let targetIds = all ? null : ids;
+    if (useFilter) {
+      const listed = await repo.listRowValues(table.id, fields);
+      targetIds = listed
+        .filter((row) => rowMatchesQuery(row.values, filterQuery))
+        .map((row) => row.id);
+      if (!targetIds.length) {
+        return { updated: 0, all: false, filtered: true, ids: [] };
+      }
+    }
+
     const updated = await repo.updateRowsBulk(
       table.id,
       writableFields,
       cleaned,
       userId,
-      all ? null : ids,
+      targetIds,
     );
-    return { updated, all, ids: all ? undefined : ids };
+    return {
+      updated,
+      all,
+      filtered: Boolean(useFilter),
+      ids: all ? undefined : targetIds,
+    };
   });
 
 export const getRowsByIds = (examId, rowIds) =>

@@ -68,15 +68,14 @@ export function useTableLayoutPrefs(tableId, { enabled = true } = {}) {
     };
   }, [reload, queryClient, tableId]);
 
+  // Called when the user clicks Save on the table's unsaved-changes bar. Errors are rethrown so the bar
+  // can say the save failed (the draft stays in the browser) — they used to be swallowed silently.
   const onLayoutPrefsChange = useCallback(
     async (prefs) => {
-      if (!tableId) return;
-      try {
-        const result = await saveUserTableLayout(tableId, prefs);
-        setBundle(result);
-      } catch {
-        // localStorage cache still holds the layout
-      }
+      if (!tableId) return null;
+      const result = await saveUserTableLayout(tableId, prefs);
+      setBundle(result);
+      return result;
     },
     [tableId, setBundle],
   );

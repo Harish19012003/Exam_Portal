@@ -231,8 +231,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 14px clamp(14px, 2.5vw, 22px);
+  gap: 8px 12px;
+  padding: 8px clamp(14px, 2.5vw, 18px);
   background: var(--bg-card, #ffffff);
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 14px;
@@ -936,4 +936,94 @@
 .ps-card-icon {
   background: var(--bg-secondary, #f3f4f6);
   color: var(--text-secondary, #6b7280);
+}
+
+/* Display font on headings only */
+.ps-card-title,
+.ps-identity-name,
+.ps-nav-title {
+  font-family: var(--font-display);
+}
+
+.ps-mono {
+  font-family: var(--font-code);
+}
+/* Branding uploads (logo + favicon) */
+.ps-brand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.ps-brand-slot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 14px;
+}
+.ps-brand-preview {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-secondary, #6b7280);
+  overflow: hidden;
+}
+.ps-brand-preview--favicon { padding: 8px; box-sizing: border-box; }
+.ps-brand-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ps-brand-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ps-brand-label { font-size: 13px; font-weight: 600; color: var(--text-primary, #030712); }
+.ps-brand-hint { font-size: 12px; line-height: 1.4; color: var(--text-secondary, #6b7280); }
+.ps-brand-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.ps-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-color, #5c43fa);
+  cursor: pointer;
+}
+.ps-link-btn:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.ps-link-btn:disabled { opacity: 0.6; cursor: default; }
+.ps-link-btn--danger { color: #dc2626; }
+.ps-spin { animation: ps-spin 0.8s linear infinite; }
+@keyframes ps-spin { to { transform: rotate(360deg); } }
+.ps-identity-mark.has-logo { background: var(--bg-card, #fff); }
+.ps-identity-mark img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: inherit; }
+@media (max-width: 480px) {
+  .ps-brand-slot { padding: 10px; }
+  .ps-link-btn { min-height: 44px; }
+}
+
+
+/* Stacks of cards inside the two-column grid (so a short card never leaves a blank gap under it) */
+.ps-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* Compact save bar: slimmer buttons on desktop, full 44px touch targets on small screens. */
+.ps-actions .ps-btn { min-height: 34px; padding: 6px 14px; font-size: 13px; border-radius: 8px; }
+.ps-actions .ps-btn--primary { box-shadow: none; }
+@media (max-width: 768px) {
+  .ps-actions { padding: 10px 14px; }
+  .ps-actions .ps-btn { min-height: 44px; padding: 10px 18px; }
+}
+
+/* Save bar stays pinned to the bottom of the page while you scroll through long forms. */
+.ps-actions {
+  position: sticky;
+  bottom: 12px;
+  z-index: 20;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
 }

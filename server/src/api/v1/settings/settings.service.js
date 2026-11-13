@@ -19,6 +19,15 @@ const parseJsonValue = (raw) => {
   }
 };
 
+const MAX_KEY_LENGTH = 120;
+const MAX_FORMAT_RULES = 100;
+const MAX_FORMAT_BYTES = 60000;
+/** Footer total types the table supports (client: AggregationType). */
+const AGGREGATION_TYPES = new Set([
+  'sum', 'avg', 'min', 'max', 'count', 'earliest', 'latest', 'range', 'countUnique',
+  'empty', 'filled', 'percentEmpty', 'percentFilled', 'median', 'percentChecked',
+]);
+
 const normalizeTableLayout = (input) => {
   if (!input || typeof input !== 'object') return null;
   const layout = {};
@@ -39,7 +48,40 @@ const normalizeTableLayout = (input) => {
   if (typeof input.density === 'string' && input.density) {
     layout.density = input.density;
   }
+  // Footer totals that differ from the page's defaults. `null` means "removed". An empty object is kept:
+  // it says "nothing differs", which is a real saved state.
+  if (input.columnAggregations && typeof input.columnAggregations === 'object' && !Array.isArray(input.columnAggregations)) {
+    const totals = {};
+    Object.entries(input.columnAggregations).forEach(([key, value]) => {
+      if (!key || key.length > MAX_KEY_LENGTH) return;
+      if (value === null) {
+        totals[key] = null;
+      } else if (typeof value === 'string' && AGGREGATION_TYPES.has(value)) {
+        totals[key] = value;
+      }
+    });
+    layout.columnAggregations = totals;
+  }
+  // Highlight (conditional format) rules. Plain JSON objects only; the client validates their shape.
+  if (Array.isArray(input.conditionalFormats)) {
+    layout.conditionalFormats = input.conditionalFormats
+      .filter((rule) => rule && typeof rule === 'object' && !Array.isArray(rule))
+      .slice(0, MAX_FORMAT_RULES)
+      .map((rule) => JSON.parse(JSON.stringify(rule)));
+  }
   return Object.keys(layout).length ? layout : null;
+};
+
+/** Reject (instead of silently truncating) a save that is too large, so Save never lies. */
+const assertLayoutWithinLimits = (payload) => {
+  const rules = payload?.conditionalFormats;
+  if (Array.isArray(rules) && (rules.length > MAX_FORMAT_RULES || JSON.stringify(rules).length > MAX_FORMAT_BYTES)) {
+    throw new AppError(
+      `Too many highlight rules to save (limit ${MAX_FORMAT_RULES}). Remove some and try again.`,
+      400,
+      ERROR_CODES.VALIDATION_ERROR,
+    );
+  }
 };
 
 const assertTableId = (tableId) => {
@@ -92,6 +134,7 @@ export const saveUserTableLayout = async (tableId, userId, payload) => {
   if (!userId) {
     throw new AppError('Authentication required', 401, ERROR_CODES.UNAUTHORIZED);
   }
+  assertLayoutWithinLimits(payload);
   const layout = normalizeTableLayout(payload);
   if (!layout) {
     throw new AppError('Invalid table layout payload', 400, ERROR_CODES.VALIDATION_ERROR);
@@ -111,6 +154,7 @@ export const clearUserTableLayout = async (tableId, userId) => {
 
 export const saveOrgTableLayoutDefault = async (tableId, userId, payload) => {
   const id = assertTableId(tableId);
+  assertLayoutWithinLimits(payload);
   const layout = normalizeTableLayout(payload);
   if (!layout) {
     throw new AppError('Invalid table layout payload', 400, ERROR_CODES.VALIDATION_ERROR);

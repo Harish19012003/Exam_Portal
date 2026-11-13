@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  findAssigneeIdByLabel,
   getAssigneeLabel,
   seedAssigneeLabels,
   subscribeAssigneeLabels,
@@ -146,7 +147,16 @@ export const restoreAssigneeIds = (updatedValues, originalValues, fields, rowId)
     // Intentional clear from assignee / Mass Edit picker.
     if (Array.isArray(cur) && cur.length === 0) return;
     if (cur === '' || cur == null) return;
-    // Display names only: keep original saved ids (patch didn't come from the assignee editor).
+    // Display names → try reverse map to ids before giving up.
+    const resolved = ids
+      .map((token) => (looksLikeUserId(token) ? token : findAssigneeIdByLabel(token)))
+      .filter(Boolean);
+    if (resolved.length) {
+      const multi = f.dataType === 'multiselect' || Boolean(f.allowMultiple);
+      next[f.key] = multi || resolved.length > 1 ? resolved : resolved[0];
+      return;
+    }
+    // Unknown labels: keep original saved ids (do not wipe on a bad paint).
     if (originalValues && f.key in originalValues) next[f.key] = originalValues[f.key];
   });
   return next;

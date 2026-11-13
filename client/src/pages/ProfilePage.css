@@ -1,7 +1,7 @@
 .profile-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--page-gap, 12px);
   width: 100%;
   max-width: min(960px, 100%);
   margin: 0 auto;
@@ -3372,4 +3372,17 @@ button.profile-stat:active {
 
 .profile-perm-filter.tone-danger {
   --tone: #dc2626;
+}
+
+/* Display font on headings and names only (not on form fields, tables or popups) */
+.profile-name,
+.profile-panel-title,
+.profile-section-title,
+.profile-perm-group-title,
+.profile-tab-title {
+  font-family: var(--font-display);
+}
+
+.profile-perm-code {
+  font-family: var(--font-code);
 }

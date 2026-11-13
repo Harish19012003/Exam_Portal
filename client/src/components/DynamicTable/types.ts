@@ -153,6 +153,11 @@ export interface DataRow {
   id?: string;
   version?: number;
   values: Record<string, unknown>;
+  /**
+   * Persisted cell values when `values` holds display labels
+   * (assignee names, lookup labels). Editors must read this for save.
+   */
+  rawValues?: Record<string, unknown>;
   subRows?: DataRow[];
   pinnedDirection?: 'top' | 'bottom' | null;
 }
@@ -162,6 +167,7 @@ export type RowData = {
   id?: string;
   version?: number;
   values: Record<string, unknown>;
+  rawValues?: Record<string, unknown>;
   subRows?: DataRow[];
   pinnedDirection?: 'top' | 'bottom' | null;
 };

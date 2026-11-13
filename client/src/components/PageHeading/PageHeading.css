@@ -1,5 +1,29 @@
 /* One heading style for every page: change it here and it changes everywhere. */
+/* Same header height on every page, with or without a subtitle, so content below starts at the same y. */
+:root {
+  --page-heading-min-h: 2.75rem;
+  --page-gap: 12px; /* space between the page heading and the content below it */
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-gap, 12px);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.page-shell--fill {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .page-heading {
+  min-height: var(--page-heading-min-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -34,12 +58,13 @@
 }
 
 .page-title {
-  font-size: clamp(1.125rem, 2vw, 1.25rem);
+  font-family: var(--font-display);
+  font-size: clamp(1rem, 1.8vw, 1.125rem);
   font-weight: 700;
   color: var(--text-primary, #030712);
   margin: 0;
-  letter-spacing: -0.3px;
-  line-height: 1.25;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   min-width: 0;
   overflow-wrap: anywhere;
 }

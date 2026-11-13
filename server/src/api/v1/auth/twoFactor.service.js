@@ -8,6 +8,7 @@ import { logger } from '../../../core/logger.js';
 import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 import { userRepository } from '../users/user.repository.js';
+import { sendTemplatedEmail } from '../../../services/templated-email.js';
 import { generateAccessToken, generateRefreshToken } from '../../../core/jwt.js';
 import {
   getSetting,
@@ -198,6 +199,12 @@ export const finalizeSetup = async (user, setupToken, verificationCode) => {
   await userRepository.update(user.id, { two_factor_enabled: 1 });
 
   logger.info(`✅ [2FA] Authenticator 2FA enabled for user ${user.email} (${user.id})`);
+
+  // Security confirmation email (editable / switchable in Settings > Message Templates). Never fails the setup.
+  userRepository
+    .findById(user.id)
+    .then((full) => full && sendTemplatedEmail('two_factor', full.email, { first_name: full.first_name || 'there' }))
+    .catch((err) => logger.warn(`Could not send 2FA confirmation email: ${err.message}`));
 
   return {
     success: true,

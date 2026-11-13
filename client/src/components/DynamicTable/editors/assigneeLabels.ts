@@ -75,3 +75,13 @@ export const getAssigneeLabel = (id: string): string | undefined => {
   if (!id) return undefined;
   return labels.get(String(id));
 };
+
+/** Reverse lookup: display chip text → user id (for save when the cell still shows a name). */
+export const findAssigneeIdByLabel = (label: string): string | undefined => {
+  const wanted = String(label || '').trim().toLowerCase();
+  if (!wanted) return undefined;
+  for (const [id, name] of labels.entries()) {
+    if (String(name).trim().toLowerCase() === wanted) return id;
+  }
+  return undefined;
+};

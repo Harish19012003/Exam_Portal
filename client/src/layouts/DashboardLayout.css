@@ -1127,3 +1127,7 @@
 [data-theme="dark"] .platform-banner {
   color: #fbbf24;
 }
+
+.brand-name {
+  font-family: var(--font-display);
+}

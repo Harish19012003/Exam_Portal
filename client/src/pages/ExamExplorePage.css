@@ -10,7 +10,7 @@
 
 /* Table views: match space below the toolbar to main-content top padding (8px). */
 .exam-explore-page.exams-page--table {
-  gap: 8px;
+  gap: var(--page-gap, 12px);
 }
 
 .exam-explore-page.exams-page--table > .page-heading {
@@ -462,4 +462,8 @@
   .exam-shift-vis-chip {
     min-height: 44px;
   }
+}
+
+.exam-explore-title {
+  font-family: var(--font-display);
 }

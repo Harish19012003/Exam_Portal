@@ -3,13 +3,40 @@ import { createPortal } from 'react-dom';
 import type { CellEditorProps } from '../types';
 import { isFieldColumn } from '../types';
 import { listAssignableUsers } from '../../../pages/exams/assigneeApi';
-import { formatAssigneeDisplay, seedAssigneeLabels } from './assigneeLabels';
+import {
+  findAssigneeIdByLabel,
+  formatAssigneeDisplay,
+  getAssigneeLabel,
+  seedAssigneeLabels,
+} from './assigneeLabels';
 import './UserAssigneeEditor.css';
 
 type Person = { id: string; name: string; email: string; user_code?: string; tag_ids?: string[] };
 
+const looksLikeUserId = (value: string) => {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  if (/^[a-f0-9]{24}$/i.test(s)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  return false;
+};
+
 const idsOf = (value: unknown): string[] =>
   (Array.isArray(value) ? value : value ? [value] : []).map(String).filter(Boolean);
+
+/** Coerce cell value to user ids (never keep display names like "Aadarsh · AAD5005"). */
+const coerceAssigneeIds = (value: unknown): string[] => {
+  const out: string[] = [];
+  idsOf(value).forEach((token) => {
+    if (looksLikeUserId(token)) {
+      if (!out.includes(token)) out.push(token);
+      return;
+    }
+    const fromLabel = findAssigneeIdByLabel(token);
+    if (fromLabel && !out.includes(fromLabel)) out.push(fromLabel);
+  });
+  return out;
+};
 
 /** People filtered by the field's user tags. Dropdown = one id; Multiselect dropdown = id[]. */
 export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode, autoFocus }: CellEditorProps) {
@@ -21,7 +48,7 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
   const [query, setQuery] = useState('');
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string[]>(() => {
-    const ids = idsOf(value);
+    const ids = coerceAssigneeIds(value);
     return multiple ? ids : ids.slice(0, 1);
   });
   const [labels, setLabels] = useState<Record<string, string>>({});
@@ -84,20 +111,22 @@ export function UserAssigneeEditor({ value, column, onSave, onCancel, isDarkMode
 
   const paintAndSave = useCallback(
     (ids: string[]) => {
+      const clean = ids.filter(looksLikeUserId);
       seedAssigneeLabels(
-        ids.map((id) => {
+        clean.map((id) => {
           const person = people.find((p) => p.id === id);
           return {
             id,
-            name: person?.name || labels[id] || id,
+            name: person?.name || labels[id] || getAssigneeLabel(id) || id,
             email: person?.email,
             user_code: person?.user_code,
           };
         }),
       );
-      onSave(ids);
+      // Single-select fields persist one id string; multi persists id[].
+      onSave(multiple ? clean : clean[0] || '');
     },
-    [labels, people, onSave],
+    [labels, people, onSave, multiple],
   );
 
   useEffect(() => {

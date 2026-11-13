@@ -5,6 +5,7 @@ import env from '../config/env.js';
 export const CLOUDINARY_PATHS = {
   PROFILE: 'Exam portal/System/user-profile',
   DYNAMIC: 'Exam portal/Dynamic Data',
+  BRANDING: 'Exam portal/System/branding',
 };
 
 // Config comes from env (Zod validated theoretically)

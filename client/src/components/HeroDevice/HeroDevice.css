@@ -1,0 +1,44 @@
+.hd {
+  --hd-ink: #0f172a;
+  --hd-paper: #ffffff;
+  --hd-soft: #e8eefb;
+  --hd-row: #f3f6fd;
+  --hd-accent: #2563eb;
+  --hd-grid: #e3e9f5;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  overflow: visible;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+:root[data-theme='dark'] .hd {
+  --hd-ink: #e5e7eb;
+  --hd-paper: #0f1a2e;
+  --hd-soft: #1c2b4a;
+  --hd-row: #16233d;
+  --hd-accent: #3b82f6;
+  --hd-grid: #1e2d4d;
+}
+.hd .hd-paper { fill: var(--hd-paper); stroke: var(--hd-ink); stroke-width: 0.9; }
+.hd .hd-screen { fill: var(--hd-paper); stroke: var(--hd-ink); stroke-width: 0.6; }
+.hd .hd-edge { fill: var(--hd-soft); stroke: var(--hd-ink); stroke-width: 0.9; }
+.hd .hd-edge-dark { fill: var(--hd-ink); stroke: var(--hd-ink); stroke-width: 0.9; opacity: 0.85; }
+.hd .hd-soft { fill: var(--hd-soft); stroke: var(--hd-ink); stroke-width: 0.7; }
+.hd .hd-row { fill: var(--hd-row); stroke: var(--hd-ink); stroke-width: 0.5; }
+.hd .hd-nav { fill: var(--hd-soft); stroke: none; }
+.hd .hd-ink { fill: var(--hd-ink); stroke: var(--hd-ink); stroke-width: 0.8; }
+.hd .hd-dot-solid { fill: var(--hd-ink); stroke: none; }
+.hd .hd-accent { fill: var(--hd-accent); stroke: var(--hd-ink); stroke-width: 0.7; }
+.hd .hd-accent-soft { fill: color-mix(in srgb, var(--hd-accent) 25%, var(--hd-paper)); stroke: var(--hd-ink); stroke-width: 0.6; }
+.hd .hd-green { fill: #4ade80; stroke: var(--hd-ink); stroke-width: 0.7; }
+.hd .hd-amber { fill: #fbbf24; stroke: var(--hd-ink); stroke-width: 0.7; }
+.hd .hd-line { fill: none; stroke: var(--hd-ink); stroke-width: 0.8; }
+.hd .hd-bold { fill: none; stroke: var(--hd-ink); stroke-width: 2.2; }
+.hd .hd-tick { stroke: #fff; stroke-width: 1.6; }
+.hd .hd-grid { fill: none; stroke: var(--hd-grid); stroke-width: 0.6; }
+.hd .hd-shadow { fill: rgba(15, 23, 42, 0.09); stroke: none; }
+:root[data-theme='dark'] .hd .hd-shadow { fill: rgba(0, 0, 0, 0.35); }
+.hd .hd-text { fill: var(--hd-ink); font-family: var(--font-body, Inter, sans-serif); }
+.hd .hd-text-inv { fill: var(--hd-paper); font-family: var(--font-body, Inter, sans-serif); letter-spacing: 0.04em; }

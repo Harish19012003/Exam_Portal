@@ -215,12 +215,7 @@ const loadUsers = async (em, ids) => {
   return new Map(users.map((u) => [String(u._id), u]));
 };
 
-const mapRow = (raw, fields, userMap) => {
-  const created = userMap.get(String(raw.sys_created_by || ''));
-  const updated = userMap.get(String(raw.sys_updated_by || ''));
-  const createdLabel = created
-    ? userLabel(created.first_name, created.last_name, created.email)
-    : '';
+const decodeRowValues = (raw, fields) => {
   const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
   const values = {};
   // Decode every known field; also keep any extra stored keys so other tabs' data stays available.
@@ -230,9 +225,18 @@ const mapRow = (raw, fields, userMap) => {
     if (field) values[key] = decodeCellValue(raw.values?.[key], effectiveType(field));
     else if (Object.prototype.hasOwnProperty.call(raw.values || {}, key)) values[key] = raw.values[key];
   });
+  return values;
+};
+
+const mapRow = (raw, fields, userMap) => {
+  const created = userMap.get(String(raw.sys_created_by || ''));
+  const updated = userMap.get(String(raw.sys_updated_by || ''));
+  const createdLabel = created
+    ? userLabel(created.first_name, created.last_name, created.email)
+    : '';
   return {
     id: String(raw.id ?? raw._id),
-    values,
+    values: decodeRowValues(raw, fields),
     createdAt: raw.sys_created_at,
     updatedAt: raw.sys_updated_at,
     createdByLabel: createdLabel,
@@ -240,6 +244,20 @@ const mapRow = (raw, fields, userMap) => {
       ? userLabel(updated.first_name, updated.last_name, updated.email) || createdLabel
       : createdLabel,
   };
+};
+
+/**
+ * Lightweight id + decoded values for server-side filter matching (no user joins).
+ */
+export const listRowValues = async (tableId, fields) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const rows = await em.find(ExamRow, { exam_id: examId }, { orderBy: { sys_created_at: 'DESC' } });
+  return rows.map((r) => ({
+    id: String(r.id ?? r._id),
+    values: decodeRowValues(r, fields),
+  }));
 };
 
 const resolveExamId = async (tableId) => {

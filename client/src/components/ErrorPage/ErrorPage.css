@@ -1,0 +1,433 @@
+.app-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: clamp(16px, 4vw, 40px);
+  background: var(--bg-app, #f3f4f6);
+  color: var(--text-primary, #030712);
+}
+
+.app-error--page {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app-error--inline {
+  min-height: min(70vh, 640px);
+  background: transparent;
+}
+
+/* Accent per kind: update = brand, crash = rose, 404 = amber-slate, no access = slate */
+.app-error-card {
+  --ea: var(--primary-color, #5c43fa);
+  --ea-rgb: 92, 67, 250;
+  --ea-text: #4a35d4;
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 28px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.1);
+  animation: appErrorIn 0.3s ease-out both;
+}
+
+.app-error-card--generic {
+  --ea: #d6456b;
+  --ea-rgb: 214, 69, 107;
+  --ea-text: #b3264c;
+}
+
+.app-error-card--notfound {
+  --ea: #d97706;
+  --ea-rgb: 217, 119, 6;
+  --ea-text: #a45206;
+}
+
+.app-error-card--forbidden {
+  --ea: #64748b;
+  --ea-rgb: 100, 116, 139;
+  --ea-text: #475569;
+}
+
+@keyframes appErrorIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.app-error-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(24px, 5vw, 44px) clamp(20px, 5vw, 48px) clamp(24px, 4vw, 36px);
+  text-align: center;
+}
+
+/* ── Illustration ──────────────────────────────────────────────────────────────────── */
+.app-error-illustration {
+  width: min(100%, 300px);
+  height: auto;
+  margin-bottom: 6px;
+  overflow: visible;
+}
+
+.app-error-page {
+  animation: appErrorBob 4.2s ease-in-out infinite;
+  transform-origin: 50% 60%;
+}
+
+.app-error-float--a { animation: appErrorFloat 5s ease-in-out infinite; }
+.app-error-float--b { animation: appErrorFloat 6s ease-in-out -2s infinite; }
+
+@keyframes appErrorBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes appErrorFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+/* ── Copy ──────────────────────────────────────────────────────────────────────────── */
+.app-error-title {
+  margin: 10px 0 10px;
+  font-size: clamp(1.6rem, 4.4vw, 2.1rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.app-error-message {
+  margin: 0 0 26px;
+  max-width: 380px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-secondary, #6b7280);
+}
+
+.app-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-error-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 16px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.app-error-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Touch screens keep the full 44px tap target */
+@media (max-width: 760px) {
+  .app-error-btn {
+    min-height: 44px;
+    padding: 10px 18px;
+    font-size: 14px;
+  }
+}
+
+/* Primary = a tinted wash of the accent, not a solid block, so it guides without shouting */
+.app-error-btn--primary {
+  border: 1px solid rgba(var(--ea-rgb), 0.32);
+  background: rgba(var(--ea-rgb), 0.1);
+  color: var(--ea-text);
+  box-shadow: none;
+}
+
+.app-error-btn--primary:hover {
+  background: rgba(var(--ea-rgb), 0.17);
+  border-color: rgba(var(--ea-rgb), 0.5);
+}
+
+.app-error-btn--ghost {
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #030712);
+}
+
+.app-error-btn--ghost:hover {
+  background: var(--bg-secondary, #f3f4f6);
+}
+
+.app-error-btn:focus-visible,
+.app-error-link:focus-visible {
+  outline: 2px solid var(--ea);
+  outline-offset: 2px;
+}
+
+/* ── Reference chip + details panel ─────────────────────────────────────────────────── */
+.app-error-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+  width: 100%;
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.app-error-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 999px;
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-secondary, #6b7280);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.app-error-ref:hover {
+  border-color: rgba(var(--ea-rgb), 0.45);
+  background: rgba(var(--ea-rgb), 0.06);
+}
+
+.app-error-ref strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary, #030712);
+}
+
+.app-error-ref svg {
+  color: var(--text-secondary, #6b7280);
+}
+
+.app-error-ref-label {
+  font-weight: 500;
+}
+
+.app-error-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.app-error-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-error-link:hover {
+  color: var(--ea);
+}
+
+.app-error-link svg {
+  transition: transform 0.2s ease;
+}
+
+.app-error-link svg.open {
+  transform: rotate(180deg);
+}
+
+/* Smooth expand without measuring heights */
+.app-error-details {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
+  visibility: hidden;
+  transition: grid-template-rows 0.25s ease, visibility 0s linear 0.25s;
+}
+
+.app-error-details.open {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 0.25s ease, visibility 0s;
+}
+
+.app-error-details-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-error-panel {
+  margin-top: 6px;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 14px;
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.app-error-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px 4px 14px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-card, #ffffff);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+
+.app-error-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ea);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.app-error-copy:hover {
+  background: rgba(var(--ea-rgb), 0.08);
+}
+
+.app-error-kv {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 14px 4px;
+}
+
+.app-error-kv > div {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12.5px;
+}
+
+.app-error-kv dt {
+  color: var(--text-secondary, #6b7280);
+  font-weight: 600;
+}
+
+.app-error-kv dd {
+  margin: 0;
+  color: var(--text-primary, #030712);
+  overflow-wrap: anywhere;
+}
+
+.app-error-panel pre {
+  max-height: 180px;
+  margin: 0;
+  padding: 10px 14px 14px;
+  overflow: auto;
+  background: transparent;
+  color: var(--text-primary, #030712);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-error-ref:focus-visible,
+.app-error-copy:focus-visible {
+  outline: 2px solid var(--ea);
+  outline-offset: 2px;
+}
+
+/* Inside the app shell: a little smaller, softer shadow */
+.app-error--inline .app-error-card {
+  max-width: 480px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+}
+
+.app-error--inline .app-error-illustration {
+  width: min(100%, 230px);
+}
+
+@media (max-width: 480px) {
+  .app-error-btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-error-details,
+  .app-error-link svg {
+    transition: none;
+  }
+
+  .app-error-card,
+  .app-error-page,
+  .app-error-float--a,
+  .app-error-float--b {
+    animation: none;
+  }
+}
+
+[data-theme="dark"] .app-error-card {
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Dark mode: lighter accent text on the tint */
+[data-theme="dark"] .app-error-card { --ea-text: #b3a7ff; }
+[data-theme="dark"] .app-error-card--generic { --ea-text: #ff9db7; }
+[data-theme="dark"] .app-error-card--notfound { --ea-text: #fbbf24; }
+[data-theme="dark"] .app-error-card--forbidden { --ea-text: #cbd5e1; }
+
+/* Fonts: display for the title, code font for ids and technical text */
+.app-error-title {
+  font-family: var(--font-display);
+}
+
+.app-error-meta strong,
+.app-error-panel pre {
+  font-family: var(--font-code);
+}
+
+/* Standalone error screens use the display font throughout (code and ids keep the code font) */
+.app-error,
+.app-error-btn,
+.app-error-link,
+.app-error-ref,
+.app-error-copy {
+  font-family: var(--font-display);
+}

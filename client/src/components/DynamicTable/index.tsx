@@ -6,6 +6,9 @@ import { ChevronDown, ChevronUp, Copy, Loader2 } from 'lucide-react';
 import { TransposeIcon } from './icons/TransposeIcon';
 import { COLUMN_CONFIG, MOCK_ROWS } from './tableData';
 import { useTableState } from './hooks/useTableState';
+import { TableChangesBar } from './components/TableChangesBar';
+import { diffAggregations } from './utils/layoutDraft';
+import { pickLayoutSlice } from './utils/prefsStorage';
 import { useDynamicTableFeedback } from './hooks/useDynamicTableFeedback';
 import { useProcessedRows } from './hooks/useProcessedRows';
 import { useVirtualRows } from './hooks/useVirtualRows';
@@ -89,8 +92,8 @@ interface DynamicTableProps {
   layoutPrefs?: import('./utils/prefsStorage').TablePrefs | null;
   /** Fallback density when no saved layout density exists (e.g. center list → compact). */
   defaultDensity?: import('./types').Density;
-  /** Debounced personal layout persist. */
-  onLayoutPrefsChange?: (prefs: import('./utils/prefsStorage').TablePrefs) => void;
+  /** Saves the personal layout when the user clicks Save on the unsaved-changes bar. May reject on failure. */
+  onLayoutPrefsChange?: (prefs: import('./utils/prefsStorage').TablePrefs) => void | Promise<unknown>;
   /** Super admin: publish current layout as org default. */
   onSaveLayoutAsDefault?: (prefs: import('./utils/prefsStorage').TablePrefs) => void | Promise<void>;
   /** Clear personal override and reload org default. */
@@ -263,6 +266,18 @@ export function DynamicTable({
     (initialRows as DataRow[]) ?? MOCK_ROWS,
     { tableId, shareState, layoutPrefs, defaultDensity, onLayoutPrefsChange, onRowUpdate, onRowDelete, onDeleteRowRequest, onBulkUpdate, onRefresh },
   );
+
+  // Personal layout changes are kept as a browser draft (they survive a reload), but Feature Builder
+  // changes are not — warn before the tab closes or reloads with unpublished feature changes.
+  useEffect(() => {
+    if (!featuresDirty) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [featuresDirty]);
 
   /**
    * Prefer live `columnWidths` (incl. user resize). Only fill missing date×shift
@@ -1537,17 +1552,42 @@ export function DynamicTable({
           onSaveLayoutAsDefault={
             onSaveLayoutAsDefault
               ? () =>
-                  onSaveLayoutAsDefault({
-                    columnOrder: state.columnOrder,
-                    columnVisibility: state.columnVisibility,
-                    columnWidths: effectiveColumnWidths,
-                    density: state.density,
-                  })
+                  onSaveLayoutAsDefault(
+                    pickLayoutSlice({
+                      columnOrder: state.columnOrder,
+                      columnVisibility: state.columnVisibility,
+                      columnWidths: effectiveColumnWidths,
+                      density: state.density,
+                      columnAggregations: diffAggregations(state.columns, resolvedInitialColumns),
+                      conditionalFormats: state.conditionalFormats,
+                    }),
+                  )
               : undefined
           }
           onResetLayoutToDefault={onResetLayoutToDefault}
         />
       )}
+
+      <TableChangesBar
+        isDarkMode={isDarkMode}
+        summary={state.layoutChangeSummary}
+        layoutDirty={state.layoutDirty}
+        layoutSaving={state.layoutSaving}
+        layoutError={state.layoutSaveError}
+        onSaveLayout={() => void state.saveLayoutChanges()}
+        onDiscardLayout={state.discardLayoutChanges}
+        featuresDirty={featuresDirty}
+        featuresSaving={isSavingFeatures}
+        onPublishFeatures={
+          onSaveFeatures
+            ? () =>
+                void onSaveFeatures({
+                  ...baseFeatures,
+                  quickFilterFieldKeys: quickFiltersStore.fieldKeys,
+                } as TableFeaturesConfig)
+            : undefined
+        }
+      />
 
       {state.contextMenu && (
         <ContextMenu

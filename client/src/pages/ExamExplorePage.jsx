@@ -4,7 +4,7 @@ import { queryKeys } from '../api/queryKeys';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { IconButton } from '../components/Button';
-import { PageHeading } from '../components/PageHeading';
+import { PageHeading, PageShell } from '../components/PageHeading';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -38,7 +38,6 @@ import {
   saveExamTableConfig,
   updateExamRow,
 } from './exams/examTableApi';
-import { applyFilters, applySearch } from '../components/DynamicData/dataProcessing';
 import {
   listExamPresets,
   findPresetForService,
@@ -737,27 +736,10 @@ export const ExamExplorePage = () => {
     }
   };
 
-  /** Load every center row for this exam (paginated API, 500/page). */
-  const fetchAllExamRows = useCallback(async () => {
-    const collected = [];
-    let page = 1;
-    let total = Infinity;
-    while (collected.length < total) {
-      const res = await listExamRows(examId, { page, limit: 500 });
-      total = Number(res?.total) || 0;
-      const batch = Array.isArray(res?.rows) ? res.rows : [];
-      if (!batch.length) break;
-      collected.push(...batch);
-      page += 1;
-      if (page > 200) break;
-    }
-    return collected;
-  }, [examId]);
-
   /**
    * Mass Edit against the database (modal already closed — progress chip top-right):
    * - Selected → checked row ids
-   * - Filtered → all DB rows matching current search/filters
+   * - Filtered → server matches search/filters, then updates
    * - All rows → every record in this exam table
    */
   const handleBulkUpdateByScope = useCallback(
@@ -844,7 +826,7 @@ export const ExamExplorePage = () => {
           });
           result = await bulkUpdateExamRows(examId, { values: localPatch, ids, view });
         } else {
-          // Filtered: scan full table, apply the same client search/filters, then patch those ids.
+          // Filtered: server applies the same search/filters (no full-table download).
           const hasFilter =
             Boolean(String(search || '').trim()) ||
             Object.values(filters || {}).some((f) => f != null && f !== '');
@@ -857,18 +839,31 @@ export const ExamExplorePage = () => {
             });
             result = await bulkUpdateExamRows(examId, { values: localPatch, all: true, view });
           } else {
+            const searchKeys = [];
+            (columns || []).forEach((col) => {
+              if (!col?.key || columnVisibility?.[col.key] === false) return;
+              if (Array.isArray(col.composedOf) && col.composedOf.length) {
+                col.composedOf.forEach((part) => {
+                  if (part?.field) searchKeys.push(String(part.field));
+                });
+              } else {
+                searchKeys.push(String(col.key));
+              }
+            });
             setMassEditJob({
               status: 'running',
               label: 'Mass edit',
-              detail: 'Scanning table for matching rows…',
-              progress: 25,
+              detail: 'Matching filters on the server…',
+              progress: 40,
             });
-            const allRows = await fetchAllExamRows();
-            const asTableRows = buildExamTableRows(allRows);
-            let matched = applySearch(asTableRows, search || '', columns || [], columnVisibility || {});
-            matched = applyFilters(matched, filters || {}, columns || []);
-            const ids = matched.map((r) => String(r.rowId || r.id)).filter(Boolean);
-            if (!ids.length) {
+            result = await bulkUpdateExamRows(examId, {
+              values: localPatch,
+              filters: filters || {},
+              search: search || '',
+              searchKeys,
+              view,
+            });
+            if (!Number(result?.updated)) {
               setMassEditJob({
                 status: 'error',
                 label: 'Mass edit',
@@ -877,13 +872,6 @@ export const ExamExplorePage = () => {
               });
               return;
             }
-            setMassEditJob({
-              status: 'running',
-              label: 'Mass edit',
-              detail: `Updating ${ids.length.toLocaleString()} matching row${ids.length === 1 ? '' : 's'}…`,
-              progress: 65,
-            });
-            result = await bulkUpdateExamRows(examId, { values: localPatch, ids, view });
           }
         }
 
@@ -911,7 +899,7 @@ export const ExamExplorePage = () => {
         await invalidateRows(examId);
       }
     },
-    [examId, view, fetchAllExamRows, invalidateRows],
+    [examId, view, invalidateRows],
   );
 
   // Auto-dismiss success / error chip after a few seconds.
@@ -1384,7 +1372,7 @@ export const ExamExplorePage = () => {
   const presetDiff = matchedPreset && fields.length ? diffPresetAgainstFields(matchedPreset.fields, fields) : null;
   const presetOutdated = Boolean(presetDiff && (presetDiff.changed.length || presetDiff.added.length || presetDiff.reordered));
   return (
-    <div className="exams-page exams-page--table exam-explore-page">
+    <PageShell className="exams-page exams-page--table exam-explore-page">
       {/* Title/subtitle omitted — ExamSubNav (next to back) names the current tab. */}
       <PageHeading
         leading={
@@ -1750,6 +1738,6 @@ export const ExamExplorePage = () => {
           onSave={handleApplyDateShifts}
         />
       )}
-    </div>
+    </PageShell>
   );
 };

@@ -8,7 +8,7 @@ import {
   verifyRefreshToken,
 } from '../../../core/jwt.js';
 import { userRepository } from '../users/user.repository.js';
-import { emailService } from '../../../integrations/email.js';
+import { sendTemplatedEmail } from '../../../services/templated-email.js';
 import { logger } from '../../../core/logger.js';
 import env from '../../../config/env.js';
 import bcrypt from 'bcryptjs';
@@ -158,29 +158,11 @@ export const forgotPassword = async (email) => {
   logger.info(`🔑 [PASSWORD RESET] Link generated for ${user.email}: ${resetLink}`);
 
   try {
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #1e293b;">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
-          <div style="width: 36px; height: 36px; background: #2563eb; color: #fff; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; text-align: center; line-height: 36px;">E</div>
-          <span style="font-size: 18px; font-weight: bold; color: #0f172a; margin-left: 8px;">Exam View</span>
-        </div>
-        <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 12px;">Reset Your Password</h2>
-        <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 20px;">
-          Hello ${user.first_name || 'there'},<br />
-          We received a request to reset the password for your Exam View portal account.
-        </p>
-        <div style="margin: 28px 0;">
-          <a href="${resetLink}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; font-size: 14px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
-            Reset Password
-          </a>
-        </div>
-        <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin: 0;">
-          This link is valid for <strong>15 minutes</strong>. If you did not request a password reset, you can safely ignore this email.
-        </p>
-      </div>
-    `;
-
-    await emailService.sendEmail(user.email, 'Exam View - Reset Your Password', html);
+    await sendTemplatedEmail('password_reset', user.email, {
+      first_name: user.first_name || 'there',
+      reset_url: resetLink,
+      expiry_minutes: '15',
+    });
   } catch (emailErr) {
     logger.warn(`Could not deliver reset email to ${user.email} (SMTP may be unconfigured): ${emailErr.message}`);
   }
@@ -261,29 +243,11 @@ export const sendLoginOtp = async (email) => {
   logger.info(`🔢 [LOGIN OTP] Verification code generated for ${user.email}: ${otpCode}`);
 
   try {
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #1e293b;">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
-          <div style="width: 36px; height: 36px; background: #2563eb; color: #fff; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; text-align: center; line-height: 36px;">E</div>
-          <span style="font-size: 18px; font-weight: bold; color: #0f172a; margin-left: 8px;">Exam View</span>
-        </div>
-        <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 10px;">Your Sign-in Code</h2>
-        <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 20px;">
-          Hello ${user.first_name || 'there'},<br />
-          Use this verification code to securely sign in to your Exam View account:
-        </p>
-        <div style="text-align: center; margin: 24px 0; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 20px 0;">
-          <span style="font-family: 'SF Mono', Consolas, Menlo, monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #2563eb;">
-            ${otpCode}
-          </span>
-        </div>
-        <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin: 0;">
-          This code is valid for <strong>5 minutes</strong>. If you did not request to sign in, you can safely ignore this email.
-        </p>
-      </div>
-    `;
-
-    await emailService.sendEmail(user.email, `Exam View Login Code: ${otpCode}`, html);
+    await sendTemplatedEmail('otp', user.email, {
+      first_name: user.first_name || 'there',
+      otp_code: otpCode,
+      expiry_minutes: '5',
+    });
   } catch (emailErr) {
     logger.warn(`Could not send OTP email to ${user.email}: ${emailErr.message}`);
   }

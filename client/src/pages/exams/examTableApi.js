@@ -59,16 +59,28 @@ export const updateExamRow = async (examId, rowId, values, view = DEFAULT_EXAM_V
  * Mass Edit against the database.
  * - `{ all: true, values }` → every row in the exam table
  * - `{ ids, values }` → only those row ids
+ * - `{ filters, search, searchKeys, values }` → server matches then updates
  */
 export const bulkUpdateExamRows = async (
   examId,
-  { values, ids, all = false, view = DEFAULT_EXAM_VIEW } = {},
+  {
+    values,
+    ids,
+    all = false,
+    filters,
+    search,
+    searchKeys,
+    view = DEFAULT_EXAM_VIEW,
+  } = {},
 ) =>
   unwrap(
     await apiClient.post(`${base(examId)}/rows/bulk-update`, {
       values,
       ids,
       all: Boolean(all),
+      ...(filters && typeof filters === 'object' ? { filters } : {}),
+      ...(typeof search === 'string' ? { search } : {}),
+      ...(Array.isArray(searchKeys) ? { searchKeys } : {}),
       ...withView(view),
     }),
   );
