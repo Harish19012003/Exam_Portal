@@ -40,6 +40,7 @@ import {
 } from './exams/examTableApi';
 import {
   listExamPresets,
+  updateExamPreset,
   findPresetForService,
   presetsForView,
   diffPresetAgainstFields,
@@ -271,7 +272,8 @@ export const ExamExplorePage = () => {
   const layoutTableId = tableInfo ? `exam_table_${tableInfo.id}_${view}_v1` : null;
   const {
     layoutReady,
-    layoutPrefs,
+    layoutPrefs: savedLayoutPrefs,
+    layoutSource,
     hasUserLayoutOverride,
     layoutEpoch,
     canSaveLayoutAsDefault,
@@ -286,6 +288,10 @@ export const ExamExplorePage = () => {
     () => findPresetForService(presets, exam?.values?.service, view),
     [presets, exam?.values?.service, view],
   );
+  // A table nobody has laid out yet starts with the layout saved on its service's preset.
+  const presetLayout = matchedPreset?.layout || null;
+  const layoutPrefs = savedLayoutPrefs || (layoutSource === 'none' ? presetLayout : null);
+
   const uniqueRowKeys = useMemo(() => {
     const fromExam = normalizeUniqueRowKeys(features?.uniqueRowKeys);
     if (fromExam.length) return fromExam;
@@ -639,8 +645,33 @@ export const ExamExplorePage = () => {
     async (prefs) => {
       const result = await onSaveLayoutAsDefault?.(prefs);
       if (result?.message) setMessage(result.message);
+      if (!result?.ok || !matchedPreset) return;
+      const ok = await confirm({
+        title: 'Also save to the preset?',
+        message: `Use this table layout for every new exam list that loads the “${matchedPreset.name}” preset?`,
+        tertiary: 'Lists that already have their own saved layout are not changed.',
+        confirmLabel: 'Save to preset',
+      });
+      if (!ok) return;
+      try {
+        const saved = await updateExamPreset(matchedPreset.id, {
+          name: matchedPreset.name,
+          serviceValue: matchedPreset.serviceValue,
+          view: matchedPreset.view,
+          fields: matchedPreset.fields,
+          features: matchedPreset.features ?? undefined,
+          layout: prefs,
+        });
+        setPresets((list) => list.map((p) => (p.id === matchedPreset.id ? { ...p, ...saved } : p)));
+        queryClient.setQueryData(queryKeys.exams.presets(), (list) =>
+          Array.isArray(list) ? list.map((p) => (p.id === matchedPreset.id ? { ...p, ...saved } : p)) : list,
+        );
+        setMessage(`Layout saved to the “${matchedPreset.name}” preset`);
+      } catch {
+        setMessage('Could not save the layout to the preset');
+      }
     },
-    [onSaveLayoutAsDefault],
+    [onSaveLayoutAsDefault, matchedPreset, confirm, queryClient],
   );
 
   const handleResetLayoutToDefault = useCallback(async () => {
@@ -1569,7 +1600,7 @@ export const ExamExplorePage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exam_table_${layoutEpoch}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              key={`exam_table_${layoutEpoch}_${savedLayoutPrefs || !presetLayout ? 0 : 1}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={layoutTableId}
               shareState={false}
               usePortalFeatures

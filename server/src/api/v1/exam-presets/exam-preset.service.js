@@ -31,7 +31,16 @@ const cleanPayload = (body = {}) => {
     if (JSON.stringify(body.features).length > 200000) throw validationError('Features are too large');
     features = body.features;
   }
-  return { name, serviceValue, view: viewRaw, fields, features };
+  let layout;
+  if (body.layout !== undefined) {
+    if (body.layout === null) layout = null;
+    else {
+      if (typeof body.layout !== 'object' || Array.isArray(body.layout)) throw validationError('layout must be an object');
+      if (JSON.stringify(body.layout).length > 200000) throw validationError('Layout is too large');
+      layout = body.layout;
+    }
+  }
+  return { name, serviceValue, view: viewRaw, fields, features, layout };
 };
 
 export const listPresets = () => withTable(() => repo.listPresets());

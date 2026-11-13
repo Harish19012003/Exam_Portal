@@ -47,6 +47,7 @@ const mapPreset = (row) => {
     fields,
     fieldCount: fields.length,
     features: row.features ?? null,
+    layout: row.layout ?? null,
     updatedAt: row.updated_at,
   };
 };
@@ -103,7 +104,7 @@ export const findByServiceAndView = async (serviceValue, view = DEFAULT_EXAM_VIE
 /** @deprecated use findByServiceAndView — kept for any leftover callers */
 export const findByService = async (serviceValue) => findByServiceAndView(serviceValue, DEFAULT_EXAM_VIEW);
 
-export const insertPreset = async ({ name, serviceValue, view, fields, features, createdBy }) => {
+export const insertPreset = async ({ name, serviceValue, view, fields, features, layout, createdBy }) => {
   const em = getEm();
   const entity = em.create(ExamFieldPreset, {
     name,
@@ -111,13 +112,14 @@ export const insertPreset = async ({ name, serviceValue, view, fields, features,
     view: normalizeView(view),
     fields: fields || [],
     features: features || null,
+    layout: layout || null,
     created_by: createdBy || null,
   });
   await em.persist(entity).flush();
   return String(entity.id ?? entity._id);
 };
 
-export const updatePreset = async (id, { name, serviceValue, view, fields, features }) => {
+export const updatePreset = async (id, { name, serviceValue, view, fields, features, layout }) => {
   const em = getEm();
   const entity = await findPresetEntity(em, id);
   if (!entity) return false;
@@ -127,6 +129,8 @@ export const updatePreset = async (id, { name, serviceValue, view, fields, featu
     view: normalizeView(view),
     fields: fields || [],
     features: features || null,
+    // undefined = caller did not send a layout (e.g. a bulk import): keep the stored one.
+    ...(layout !== undefined ? { layout: layout || null } : {}),
     updated_at: new Date(),
   });
   await em.flush();
