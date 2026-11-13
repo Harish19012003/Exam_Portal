@@ -37,10 +37,20 @@ export const saveExamTableConfig = async (
   );
 
 /** Paginated center rows. Defaults: page=1, limit=100 (server max 500). */
-export const listExamRows = async (examId, { page = 1, limit = 100 } = {}) =>
+export const listExamRows = async (
+  examId,
+  { page = 1, limit = 100, search = '', searchKeys } = {},
+) =>
   unwrap(
     await apiClient.get(`${base(examId)}/rows`, {
-      params: { page, limit },
+      params: {
+        page,
+        limit,
+        ...(String(search || '').trim() ? { search: String(search).trim() } : {}),
+        ...(Array.isArray(searchKeys) && searchKeys.length
+          ? { searchKeys: searchKeys.join(',') }
+          : {}),
+      },
     }),
   );
 export const createExamRow = async (examId, values, view = DEFAULT_EXAM_VIEW) =>

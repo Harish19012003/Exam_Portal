@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { isFieldColumn } from './types';
 import type { FilterComponentProps } from './types';
 import { STATUS_COLORS } from './utils';
@@ -121,10 +121,21 @@ export function NumberFilter({ currentFilter, onFilterChange, onClose, isDarkMod
 
 // ─── Status / Dropdown Filter (multi-checkbox) ─────────────────────────────────
 
-export function SetFilter({ column, currentFilter, onFilterChange, onClose, isDarkMode }: FilterComponentProps) {
+export function SetFilter({
+  column,
+  currentFilter,
+  onFilterChange,
+  onClose,
+  isDarkMode,
+  onDraftSelectionChange,
+}: FilterComponentProps) {
   const options = isFieldColumn(column) ? (column.options ?? []) : [];
   const cf = currentFilter as any;
   const [selected, setSelected] = useState<string[]>(cf?.value ?? []);
+
+  useEffect(() => {
+    onDraftSelectionChange?.(selected.length, options.length);
+  }, [selected, options.length, onDraftSelectionChange]);
 
   const toggle = (opt: string) => {
     setSelected(prev =>

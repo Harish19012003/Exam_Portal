@@ -22,12 +22,17 @@ export const useExamTableConfig = (options = {}) =>
 /**
  * Server-paginated center rows for one exam.
  * Returns `{ rows, total, page, limit, totalPages }`.
+ * `search` is applied on the server across the full exam (not only the current page).
  */
-export const useExamRows = (examId, { page = 1, limit = 100, enabled, ...options } = {}) =>
-  useQuery({
-    queryKey: queryKeys.exams.rows(examId, page, limit),
+export const useExamRows = (
+  examId,
+  { page = 1, limit = 100, search = '', searchKeys, enabled, ...options } = {},
+) => {
+  const q = String(search || '').trim();
+  return useQuery({
+    queryKey: queryKeys.exams.rows(examId, page, limit, q),
     queryFn: async () => {
-      const data = await listExamRows(examId, { page, limit });
+      const data = await listExamRows(examId, { page, limit, search: q, searchKeys });
       if (Array.isArray(data)) {
         return {
           rows: data,
@@ -54,6 +59,7 @@ export const useExamRows = (examId, { page = 1, limit = 100, enabled, ...options
     placeholderData: keepPreviousData,
     ...options,
   });
+};
 
 export const useInvalidateExams = () => {
   const queryClient = useQueryClient();

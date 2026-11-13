@@ -64,12 +64,22 @@ export const listRows = handle(async (req) => {
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const page = req.query?.page;
   const limit = req.query?.limit;
-  const result = await service.listRows(req.params.examId, { page, limit });
+  const search = typeof req.query?.search === 'string' ? req.query.search : '';
+  const searchKeysRaw = req.query?.searchKeys;
+  const searchKeys = Array.isArray(searchKeysRaw)
+    ? searchKeysRaw.map(String)
+    : typeof searchKeysRaw === 'string' && searchKeysRaw
+      ? String(searchKeysRaw)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
+  const result = await service.listRows(req.params.examId, { page, limit, search, searchKeys });
   const fields = allFields || [];
   const rows = (result.rows || [])
     .filter((row) => rowVisible(req, TABLE, ruleValues(req, row), fields))
     .map((row) => forClient(req, row));
-  // Keep DB total for pagination; ACL may hide a few rows on the current page.
+  // When searching, total is already the match count. Otherwise keep DB total for pagination.
   return { ...result, rows };
 });
 

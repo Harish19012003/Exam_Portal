@@ -467,3 +467,6 @@
 .exam-explore-title {
   font-family: var(--font-display);
 }
+
+/* Empty states get a little more room than their content alone. */
+.exam-explore-state { min-height: clamp(380px, 52vh, 520px); }

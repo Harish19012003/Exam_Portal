@@ -1,13 +1,15 @@
 import { useRef, useState, useEffect } from 'react';
 import type { Density, TableFeaturesConfig } from '../types';
 import {
-  X, RefreshCw, PanelRight, Filter, Layers, Plus, Trash2, Settings, RotateCcw, FilterX, Edit2, PinOff, EyeOff, Maximize, Minimize, ArrowLeftRight, AlignJustify, Bookmark, Check, Loader2, FileText, FileSpreadsheet, FileDown, Code2, Copy, Printer
+  X, RefreshCw, PanelRight, Filter, Layers, Plus, Trash2, Settings, RotateCcw, Edit2, PinOff, EyeOff, Maximize, Minimize, ArrowLeftRight, AlignJustify, Bookmark, Check, Loader2, FileText, FileSpreadsheet, FileDown, Code2, Copy, Printer
 } from 'lucide-react';
 
 import { Icon } from '@iconify/react';
 import { GlobalSearchInput } from '../../DynamicData/GlobalSearchInput';
 import { VIEW_TOOLBAR_STACK_CLASS, viewToolbarBorderClass } from '../../DynamicData/viewToolbarChrome';
 import { useQuickFiltersStore } from '../../DynamicData/quickFiltersStore';
+import { QuickFiltersVisibilityToggle } from '../../DynamicData/QuickFiltersBar';
+import { SummaryChipsEyeToggle } from '../../DynamicData/SummaryChipsChrome';
 import { TransposeIcon } from '../icons/TransposeIcon';
 
 
@@ -310,15 +312,29 @@ export function TableToolbar({
           {/* ── Icon-only utilities ── */}
           <div className="flex items-center gap-1">
 
-            {/* Clear all filters + sort — hidden when Quick Filters chrome handles clear */}
+            {/* Quick Filters / Summary Chips show-hide — sits with other toolbar icons */}
+            <QuickFiltersVisibilityToggle
+              isDarkMode={isDarkMode}
+              hasActiveFilters={hasActiveFilters}
+              activeFilterCount={activeFilterCount}
+              onClearAll={onClearAll}
+            />
+            <SummaryChipsEyeToggle isDarkMode={isDarkMode} />
+
+            {/* Clear all filters + sort — when Quick Filters chrome is off */}
             {showToolbarClearFilters && (
               <button
+                type="button"
                 onClick={onClearAll}
-                className={iconBtnCls}
+                className={`rounded-lg px-1.5 py-1 text-[11.5px] font-semibold transition-colors ${
+                  isDarkMode
+                    ? 'text-rose-400 hover:bg-white/5 hover:text-rose-300'
+                    : 'text-rose-600 hover:bg-rose-50 hover:text-rose-700'
+                }`}
                 title="Clear all filters and sort"
                 aria-label="Clear all filters and sort"
               >
-                <FilterX className="w-4 h-4" />
+                Clear
               </button>
             )}
 

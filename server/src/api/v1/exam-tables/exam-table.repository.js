@@ -2,6 +2,7 @@ import { DEFAULT_EXAM_VIEW } from '@exam-view/shared';
 import { getEm } from '../../../database/connection.js';
 import { Exam, ExamTable, ExamRow, User } from '../../../database/entities/index.js';
 import { encodeCellValue, decodeCellValue } from '../exams/exam.repository.js';
+import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
 
 export const SYSTEM_COLUMNS = ['id', 'sys_created_by', 'sys_updated_by', 'sys_created_at', 'sys_updated_at'];
 
@@ -278,6 +279,7 @@ const normalizeLimit = (limit) =>
 /**
  * Paginated center rows for one exam.
  * Pass `{ all: true }` only for rare internal scans (e.g. uniqueness) — not for list APIs.
+ * Optional `search` / `searchKeys` filter across the full exam set, then page.
  */
 export const listRows = async (tableId, fields, options = {}) => {
   const em = getEm();
@@ -285,6 +287,36 @@ export const listRows = async (tableId, fields, options = {}) => {
   if (!examId) {
     return { rows: [], total: 0, page: 1, limit: DEFAULT_PAGE_SIZE, totalPages: 0 };
   }
+
+  const search = typeof options.search === 'string' ? options.search : '';
+  const searchKeys = Array.isArray(options.searchKeys) ? options.searchKeys.map(String) : undefined;
+  const wantsSearch = hasActiveQuery({ search, searchKeys });
+
+  // Search must scan all rows first, then page — otherwise toolbar search only hits the current page.
+  if (wantsSearch && !options.all) {
+    const page = normalizePage(options.page);
+    const limit = normalizeLimit(options.limit);
+    const raw = await em.find(ExamRow, { exam_id: examId }, { orderBy: { sys_created_at: 'DESC' } });
+    const userMap = await loadUsers(
+      em,
+      raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+    );
+    const mapped = raw.map((r) => mapRow(r, fields, userMap));
+    const matched = mapped.filter((r) =>
+      rowMatchesQuery(r.values || {}, { search, searchKeys }),
+    );
+    const total = matched.length;
+    const offset = (page - 1) * limit;
+    const pageRows = matched.slice(offset, offset + limit);
+    return {
+      rows: pageRows,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+    };
+  }
+
   const total = await em.count(ExamRow, { exam_id: examId });
   const findOpts = { orderBy: { sys_created_at: 'DESC' } };
   let page = 1;
