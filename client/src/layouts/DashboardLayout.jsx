@@ -59,6 +59,9 @@ const EXAM_SUB_ITEMS = [
   { tab: 'device-master', label: 'Device Master', icon: Smartphone },
 ];
 
+// Top-level pages whose inner tab/section is restored when re-opened from the sidebar.
+const REMEMBERED_PATHS = ['/settings', '/vendors', '/seq-view', '/tables'];
+
 const NAV_ITEMS = [
   {
     to: '/dashboard',
@@ -127,6 +130,24 @@ export const DashboardLayout = () => {
   const navItems = accessReady ? NAV_ITEMS.filter((item) => canPage(item.page)) : NAV_ITEMS;
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
+
+  // Remember where the user was inside each page (tabs/sections live in the query string) so the
+  // sidebar links return there instead of the first tab. UI preference only (sessionStorage), not data.
+  const [lastUrls, setLastUrls] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('xs:lastUrls') || '{}'); } catch { return {}; }
+  });
+  useEffect(() => {
+    const base = '/' + (location.pathname.split('/')[1] || '');
+    if (!REMEMBERED_PATHS.includes(base)) return;
+    const url = location.pathname + location.search;
+    setLastUrls((prev) => {
+      if (prev[base] === url) return prev;
+      const next = { ...prev, [base]: url };
+      try { sessionStorage.setItem('xs:lastUrls', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, [location.pathname, location.search]);
+  const settingsLink = lastUrls['/settings'] || '/settings';
   // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
   // The label is remembered together with the exam it belongs to, so switching sections of the same
   // exam (which remounts the page) keeps the name on screen instead of flashing "Exam".
@@ -291,7 +312,7 @@ export const DashboardLayout = () => {
             return (
               <React.Fragment key={item.to}>
                 <NavLink
-                  to={item.to}
+                  to={lastUrls[item.to] || item.to}
                   end={item.end}
                   onClick={closeMobile}
                   className={({ isActive }) => `xs-nav-item ${isActive ? 'active' : ''}${item.page === 'exams' && examPageId ? ' xs-parent-open' : ''}`}
@@ -340,7 +361,7 @@ export const DashboardLayout = () => {
               {isDarkMode ? <Sun size={18} strokeWidth={2} /> : <Moon size={18} strokeWidth={2} />}
             </button>
             <NavLink
-              to="/settings"
+              to={settingsLink}
               onClick={closeMobile}
               className={({ isActive }) => `xs-icon-btn ${isActive ? 'active' : ''}`}
               title="Settings"

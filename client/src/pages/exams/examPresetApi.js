@@ -86,6 +86,16 @@ export const diffPresetAgainstFields = (presetFields = [], fields = []) => {
 };
 
 /**
+ * Fresh field defs from a preset (new ids, preset order). Used when reloading a page from scratch.
+ */
+export const fieldsFromPreset = (presetFields = []) =>
+  (Array.isArray(presetFields) ? presetFields : []).map((f, i) => ({
+    ...f,
+    id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${i}`,
+    order: i + 1,
+  }));
+
+/**
  * The list's fields with the preset's settings applied by key, in the preset's order, so fields that
  * sit together in the preset (a column group, say) sit together here. Fields that exist only in the
  * list are kept, after the preset's fields and in their own order.

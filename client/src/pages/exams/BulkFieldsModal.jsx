@@ -26,16 +26,20 @@ import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
 import {
+  focusDateTargetsFromAggregates,
   normalizeUniqueRowAggregates,
   normalizeUniqueRowKeys,
   uniqueRowKeysLabel,
 } from './examUniqueRows';
 import {
+  DATE_SHIFT_ALL_DAY_KEY,
   DATE_SHIFT_ALL_DAY_TYPES,
   DATE_SHIFT_COLUMN_COLORS,
   DATE_SHIFT_COLUMN_WIDTH_MAX,
   DATE_SHIFT_COLUMN_WIDTH_MIN,
   DATE_SHIFT_SUMMARY_TYPES,
+  FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+  FOCUS_TOTAL_CENTER_COLUMN_KEY,
   aggregateShiftValues,
   allDayColumnLabel,
   dateShiftsConfigEqual,
@@ -43,6 +47,7 @@ import {
   emptyDateShiftColumnWidths,
   emptyDateShiftsConfig,
   emptySummaryColumn,
+  ensureFocusDateFields,
   hexWithAlpha,
   newShiftColumn,
   normalizeColumnColor,
@@ -140,7 +145,6 @@ const OPTIONS_SOURCES = [
 
 const BULK_TYPES = EXAM_FIELD_TYPES.filter(
   (t) =>
-    t.value !== 'formula' &&
     t.value !== 'composite' &&
     t.value !== 'linked' &&
     t.value !== 'combined',
@@ -182,6 +186,8 @@ const newRow = (dataType = 'text') => ({
   sharedFromLabel: '',
   combineKeys: [],
   combineSeparator: ', ',
+  focusDateColumn: '',
+  formula: '',
   existingId: null,
   orig: null,
   lockOptions: false,
@@ -190,6 +196,14 @@ const newRow = (dataType = 'text') => ({
 /** A row pre-filled from a saved field, so it can be edited in place. The key stays fixed. */
 const rowFromField = (f) => {
   const pv = f.phoneValidation || {};
+  const focusKind =
+    f.focusDateColumn === 'totalCenter' || f.focusDateColumn === 'maxAllDay'
+      ? f.focusDateColumn
+      : f.key === FOCUS_TOTAL_CENTER_COLUMN_KEY
+        ? 'totalCenter'
+        : f.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY
+          ? 'maxAllDay'
+          : '';
   return {
     ...newRow(f.dataType),
     label: f.label || '',
@@ -224,6 +238,8 @@ const rowFromField = (f) => {
     sharedFromLabel: f.sharedFromLabel || '',
     combineKeys: Array.isArray(f.combine?.keys) ? f.combine.keys.map(String) : [],
     combineSeparator: f.combine?.separator == null ? ', ' : String(f.combine.separator),
+    focusDateColumn: focusKind,
+    formula: f.dataType === 'formula' ? String(f.formula || '') : '',
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
@@ -275,6 +291,10 @@ const rowToItem = (r, allowUnique = false) => ({
   ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
     ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
     : {}),
+  ...(r.focusDateColumn === 'totalCenter' || r.focusDateColumn === 'maxAllDay'
+    ? { focusDateColumn: r.focusDateColumn }
+    : {}),
+  ...(r.dataType === 'formula' ? { formula: String(r.formula || '').trim() } : {}),
 });
 
 /** The saved field with this row's edits applied, or null when nothing changed. */
@@ -315,6 +335,12 @@ const changedField = (r, allowUnique = false) => {
         : { combine: undefined }),
     ...(item.sharedFromView ? { sharedFromView: item.sharedFromView } : {}),
     ...(item.sharedFromLabel ? { sharedFromLabel: item.sharedFromLabel } : {}),
+    ...(item.focusDateColumn === 'totalCenter' || item.focusDateColumn === 'maxAllDay'
+      ? { focusDateColumn: item.focusDateColumn }
+      : { focusDateColumn: undefined }),
+    ...(item.dataType === 'formula'
+      ? { formula: item.formula || '' }
+      : { formula: undefined }),
   };
   const sig = (f) =>
     JSON.stringify([
@@ -336,6 +362,8 @@ const changedField = (r, allowUnique = false) => {
       f.combine || null,
       f.sharedFromView || '',
       f.sharedFromLabel || '',
+      f.focusDateColumn || '',
+      f.formula || '',
     ]);
   return sig(next) === sig(o) ? null : next;
 };
@@ -413,6 +441,10 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
 
     if (row.dataType === 'fromExam' && !row.examFieldKey) {
       errors.optionsText = 'Pick an exam field';
+    }
+
+    if (row.dataType === 'formula' && !String(row.formula || '').trim()) {
+      errors.formula = 'Enter a formula (e.g. {a} / {b} * 100)';
     }
 
     if (row.dataType === 'phone' && row.phoneValidationMode === 'custom') {
@@ -717,15 +749,69 @@ export const BulkFieldsModal = ({
       if (!prev.includes(role)) map.set(k, [...prev, role]);
     };
     activeUniqueKeys.forEach((k, i) => add(k, `unique · ${i + 1}`));
+    let hasCount = false;
+    let hasAllDaySum = false;
     activeUniqueAggregates.forEach((rule) => {
-      if (rule.op === 'count') add(rule.targetKey, 'count');
+      if (rule.op === 'count') {
+        hasCount = true;
+        add(rule.targetKey, 'count');
+      }
       if (rule.op === 'sum') {
         add(rule.targetKey, 'sum');
         if (rule.sourceKey) add(rule.sourceKey, 'sum src');
+        if (
+          rule.sourceKey === DATE_SHIFT_ALL_DAY_KEY ||
+          /allday/i.test(String(rule.sourceKey || ''))
+        ) {
+          hasAllDaySum = true;
+        }
       }
     });
+    if (hasCount) add(FOCUS_TOTAL_CENTER_COLUMN_KEY, 'date count');
+    if (hasAllDaySum) add(FOCUS_MAX_ALL_DAY_COLUMN_KEY, 'date max');
     return map;
   }, [activeUniqueKeys, activeUniqueAggregates]);
+
+  // Presets / pages: show Date Total Center & Date Max All Day in Bulk add when Unique import needs them.
+  useEffect(() => {
+    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(activeUniqueAggregates);
+    if (!countTargetKey && !sumTargetKey) return;
+    setRows((prev) => {
+      const filled = prev.filter((r) => String(r.key || '').trim());
+      const blanks = prev.filter((r) => !String(r.key || '').trim());
+      const stubFields = filled.map((r) => ({
+        key: r.key,
+        label: r.label,
+        dataType: r.dataType || 'text',
+        focusDateColumn: r.focusDateColumn,
+        id: r.existingId || r.rid,
+      }));
+      const { fields: ensured, changed } = ensureFocusDateFields(stubFields, {
+        countTargetKey,
+        sumTargetKey,
+      });
+      if (!changed) return prev;
+      const byKey = new Map(filled.map((r) => [r.key, r]));
+      const nextFilled = ensured.map((f) => {
+        const existing = byKey.get(f.key);
+        if (existing) {
+          return {
+            ...existing,
+            focusDateColumn: f.focusDateColumn || existing.focusDateColumn,
+            label: existing.label || f.label,
+          };
+        }
+        return {
+          ...rowFromField({ ...f, id: undefined }),
+          existingId: null,
+          orig: null,
+          keyTouched: true,
+          focusDateColumn: f.focusDateColumn,
+        };
+      });
+      return [...nextFilled, ...blanks];
+    });
+  }, [activeUniqueAggregates]);
   const uniqueImportSummary = useMemo(() => {
     if (!activeUniqueKeys.length && !activeUniqueAggregates.length) return '';
     const keyPart = activeUniqueKeys.length
@@ -1186,6 +1272,56 @@ export const BulkFieldsModal = ({
           keyTouched: true,
         };
       });
+
+    // Real Date Total Center / Date Max All Day fields (formulas + fixed column order).
+    const countTargetKey =
+      nextUniqueAggregates.find((r) => r.op === 'count')?.targetKey || '';
+    const sumTargetKey =
+      nextUniqueAggregates.find(
+        (r) =>
+          r.op === 'sum' &&
+          (r.sourceKey === DATE_SHIFT_ALL_DAY_KEY || /allday/i.test(String(r.sourceKey || ''))),
+      )?.targetKey || '';
+    if (countTargetKey || sumTargetKey) {
+      const stubFields = [
+        ...rows
+          .filter((r) => r.key)
+          .map((r) => ({
+            key: r.key,
+            label: r.label,
+            dataType: r.dataType || 'text',
+            focusDateColumn: r.focusDateColumn,
+          })),
+        ...additions.map((r) => ({
+          key: r.key,
+          label: r.label,
+          dataType: r.dataType || 'number',
+          focusDateColumn: r.focusDateColumn,
+        })),
+      ];
+      const { fields: ensured } = ensureFocusDateFields(stubFields, {
+        countTargetKey,
+        sumTargetKey,
+      });
+      const haveAdd = new Set([...haveKeys, ...additions.map((a) => a.key)]);
+      for (const f of ensured) {
+        if (
+          (f.key === FOCUS_TOTAL_CENTER_COLUMN_KEY || f.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY) &&
+          !haveAdd.has(f.key)
+        ) {
+          const row = rowFromField({ ...f, id: undefined });
+          additions.push({
+            ...row,
+            rid: newRow().rid,
+            existingId: null,
+            orig: null,
+            keyTouched: true,
+            focusDateColumn: f.focusDateColumn,
+          });
+          haveAdd.add(f.key);
+        }
+      }
+    }
 
     if (!additions.length) {
       if (nextUniqueKeys.length || nextUniqueAggregates.length) {
@@ -2425,6 +2561,7 @@ export const BulkFieldsModal = ({
                                   phoneMessage: '',
                                 }
                               : {}),
+                            ...(next !== 'formula' ? { formula: '' } : {}),
                           })
                         }
                       />
@@ -2524,6 +2661,10 @@ export const BulkFieldsModal = ({
                         >
                           {(row.combineKeys || []).join(row.combineSeparator || ', ') || 'Parts'}
                         </span>
+                      ) : row.dataType === 'formula' ? (
+                        <span className="exams-bulk-static-chip" title="Expression goes in the Options column">
+                          Formula
+                        </span>
                       ) : needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions ? (
                         <SearchableSelect
                           className="exams-bulk-select"
@@ -2622,6 +2763,23 @@ export const BulkFieldsModal = ({
                           ariaLabel={`Row ${i + 1} user tags`}
                           onChange={(next) => update(row.rid, { userTagIds: next })}
                         />
+                      ) : row.dataType === 'formula' ? (
+                        <>
+                          <input
+                            type="text"
+                            data-col="formula"
+                            value={row.formula || ''}
+                            placeholder="e.g. {date_total_center} / {days_total_center} * 100"
+                            className={cellError(i, 'formula') ? 'invalid' : ''}
+                            onChange={(e) => update(row.rid, { formula: e.target.value })}
+                            onKeyDown={(e) => handleKeyDown(e, row, isLast)}
+                            aria-label={`Row ${i + 1} formula`}
+                            spellCheck={false}
+                          />
+                          {cellError(i, 'formula') && (
+                            <span className="exams-bulk-err">{cellError(i, 'formula')}</span>
+                          )}
+                        </>
                       ) : (
                         <input
                           type="text"
@@ -2637,7 +2795,9 @@ export const BulkFieldsModal = ({
                           aria-label={`Row ${i + 1} options`}
                         />
                       )}
-                      {cellError(i, 'optionsText') && effectiveSource(row) !== 'userTags' && (
+                      {cellError(i, 'optionsText') &&
+                        effectiveSource(row) !== 'userTags' &&
+                        row.dataType !== 'formula' && (
                         <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>
                       )}
                     </td>

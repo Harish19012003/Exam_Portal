@@ -1,5 +1,5 @@
 import { useConfirm } from '../feedback';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queryKeys';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -14,6 +14,7 @@ import {
   FilePlus2,
   Loader2,
   Plus,
+  RotateCcw,
   SlidersHorizontal,
   Sparkles,
   Table2,
@@ -45,6 +46,7 @@ import {
   findPresetForService,
   presetsForView,
   diffPresetAgainstFields,
+  fieldsFromPreset,
   mergePresetIntoFields,
 } from './exams/examPresetApi';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
@@ -64,7 +66,13 @@ import {
   applyDateShiftColumnColors,
   applyDateShiftColumnWidths,
   buildDateShiftVisibilityGroups,
+  DATE_SHIFT_ALL_DAY_KEY,
+  FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+  FOCUS_TOTAL_CENTER_COLUMN_KEY,
+  ensureFocusDateFields,
+  focusDateColumnLabels,
   hasDateShiftTemplate,
+  orderFocusDateColumns,
   mergeDateShiftFields,
   normalizeDateShiftsConfig,
   resolveDateShiftsConfig,
@@ -242,6 +250,8 @@ export const ExamExplorePage = () => {
   const [rowsSearch, setRowsSearch] = useState('');
   /** Header filters — server-applied for normal paging; client-applied in unique-import mode. */
   const [rowsFilters, setRowsFilters] = useState({});
+  /** Focus exam date for Unique-import pages (sheet-style Total Center / Max All Day). */
+  const [focusDateId, setFocusDateId] = useState('');
 
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -251,6 +261,9 @@ export const ExamExplorePage = () => {
   const [massEditJob, setMassEditJob] = useState(null);
   // { status: 'running'|'success'|'error', label, detail?, progress? 0–100 }
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  /** Admin: wipe this page’s fields and load a preset from scratch. */
+  const [isReloadPresetOpen, setIsReloadPresetOpen] = useState(false);
+  const [reloadPresetId, setReloadPresetId] = useState('');
   const [isDateShiftsOpen, setIsDateShiftsOpen] = useState(false);
   const [isSavingDateShifts, setIsSavingDateShifts] = useState(false);
   const [shiftVisBarOpen, setShiftVisBarOpen] = useState(false);
@@ -329,6 +342,7 @@ export const ExamExplorePage = () => {
     setRowsFilters({});
     setRowsSearchInput('');
     setRowsSearch('');
+    setFocusDateId('');
   }, [examId]);
 
   const uniqueRowKeysSig = uniqueRowKeys.join('|');
@@ -395,19 +409,103 @@ export const ExamExplorePage = () => {
       ),
     [features?.dateShifts, presetWithDateShifts],
   );
+  // Unique-import tabs consume Center list dates/shifts — load that view's dateShifts.
+  const needsCenterDateShifts = uniqueImportActive && view !== DEFAULT_EXAM_VIEW;
+  const centerTableQuery = useQuery({
+    queryKey: queryKeys.exams.table(examId, DEFAULT_EXAM_VIEW),
+    queryFn: () => getExamTable(examId, DEFAULT_EXAM_VIEW),
+    enabled: Boolean(examId) && needsCenterDateShifts,
+    staleTime: 60_000,
+  });
+  const centerListPreset = useMemo(
+    () => findPresetForService(presets, exam?.values?.service, DEFAULT_EXAM_VIEW),
+    [presets, exam?.values?.service],
+  );
+  const centerListDateShifts = useMemo(() => {
+    if (!needsCenterDateShifts) return effectiveDateShifts;
+    return resolveDateShiftsConfig(
+      centerTableQuery.data?.features?.dateShifts,
+      centerListPreset?.features?.dateShifts ||
+        presetWithDateShifts?.features?.dateShifts ||
+        effectiveDateShifts,
+    );
+  }, [
+    needsCenterDateShifts,
+    centerTableQuery.data?.features?.dateShifts,
+    centerListPreset,
+    presetWithDateShifts,
+    effectiveDateShifts,
+  ]);
+  const focusDateOptions = useMemo(
+    () =>
+      (centerListDateShifts?.dates || []).map((d) => ({
+        value: String(d.id),
+        label: String(d.title || d.id),
+      })),
+    [centerListDateShifts],
+  );
+  const canFocusExamDate =
+    needsCenterDateShifts && focusDateOptions.length > 0 && hasDateShiftTemplate(centerListDateShifts);
+  useEffect(() => {
+    if (!canFocusExamDate) {
+      if (focusDateId) setFocusDateId('');
+      return;
+    }
+    const stillValid = focusDateOptions.some((o) => o.value === focusDateId);
+    if (!stillValid) setFocusDateId(focusDateOptions[0].value);
+  }, [canFocusExamDate, focusDateOptions, focusDateId]);
+  const focusDateTitle =
+    focusDateOptions.find((o) => o.value === focusDateId)?.label || '';
+  const focusLabels = useMemo(
+    () => (focusDateId && focusDateTitle ? focusDateColumnLabels(focusDateTitle) : null),
+    [focusDateId, focusDateTitle],
+  );
+  const focusCountTargetKey = useMemo(() => {
+    const rule = uniqueRowAggregates.find((r) => r.op === 'count');
+    return rule?.targetKey || '';
+  }, [uniqueRowAggregates]);
+  const focusSumTargetKey = useMemo(() => {
+    const rule = uniqueRowAggregates.find(
+      (r) =>
+        r.op === 'sum' &&
+        (r.sourceKey === DATE_SHIFT_ALL_DAY_KEY || /allday/i.test(String(r.sourceKey || ''))),
+    );
+    return rule?.targetKey || '';
+  }, [uniqueRowAggregates]);
   const tableColumns = useMemo(() => {
     const cols = applyColumnAccess(
       buildExamTableColumns(fields, { dateShifts: effectiveDateShifts }),
       'exam_rows',
       access,
     );
-    if (!aggregateTargetKeys.size) return cols;
-    return cols.map((c) =>
-      aggregateTargetKeys.has(c.key) ? { ...c, editable: false } : c,
-    );
+    const mapped = cols.map((c) => {
+      let next = c;
+      if (aggregateTargetKeys.has(c.key)) next = { ...next, editable: false };
+      // Real fields Date Total Center / Date Max All Day → `{date} …` headers.
+      if (focusLabels && c.key === FOCUS_TOTAL_CENTER_COLUMN_KEY) {
+        next = { ...next, label: focusLabels.totalCenter, editable: false };
+      } else if (focusLabels && c.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY) {
+        next = { ...next, label: focusLabels.maxAllDay, editable: false };
+      }
+      return next;
+    });
+    // Always: Days Total Center → All Day Max → date Total Center → date Max All Day.
+    return orderFocusDateColumns(mapped, {
+      countTargetKey: focusCountTargetKey,
+      sumTargetKey: focusSumTargetKey,
+    });
   },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [fields, effectiveDateShifts, access, configVersion, aggregateTargetKeys]);
+  [
+    fields,
+    effectiveDateShifts,
+    access,
+    configVersion,
+    aggregateTargetKeys,
+    focusLabels,
+    focusCountTargetKey,
+    focusSumTargetKey,
+  ]);
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(
     () => creatableFields(fields, 'exam_rows', access).filter((f) => !isCombinedField(f)),
@@ -427,17 +525,24 @@ export const ExamExplorePage = () => {
   const assigneeDisplayRows = useAssigneeDisplayRows(lookupDisplayRows, fields);
   // From-exam fields mirror parent exam.values onto every center row.
   const tableRows = useExamValueDisplayRows(assigneeDisplayRows, fields, exam?.values, examSourceFields);
-  const uniqueAllRows = useMemo(
-    () =>
-      uniqueImportActive
-        ? rollupRowsByUniqueKeys(tableRows, uniqueRowKeys, uniqueRowAggregates, {
-            // Max all day is formula-only — sum from Center shift cells on each row.
-            dateShifts: effectiveDateShifts,
-            fields: fields,
-          })
-        : tableRows,
-    [tableRows, uniqueImportActive, uniqueRowKeys, uniqueRowAggregates, effectiveDateShifts, fields],
-  );
+  const uniqueAllRows = useMemo(() => {
+    if (!uniqueImportActive) return tableRows;
+    return rollupRowsByUniqueKeys(tableRows, uniqueRowKeys, uniqueRowAggregates, {
+      // Prefer Center list dateShifts so focus-date columns use real shift cells.
+      dateShifts: centerListDateShifts,
+      fields,
+      focusDateId: canFocusExamDate ? focusDateId : '',
+    });
+  }, [
+    tableRows,
+    uniqueImportActive,
+    uniqueRowKeys,
+    uniqueRowAggregates,
+    centerListDateShifts,
+    fields,
+    canFocusExamDate,
+    focusDateId,
+  ]);
   // Unique mode: search/filter the full rolled-up set, then page — not only the visible slice.
   const uniqueFilteredRows = useMemo(() => {
     if (!uniqueImportActive) return uniqueAllRows;
@@ -600,6 +705,25 @@ export const ExamExplorePage = () => {
     },
     [saveFields],
   );
+
+  // Persist Date Total Center / Date Max All Day (for formulas) in fixed order after count/sum.
+  useEffect(() => {
+    if (!isAdmin || !uniqueImportActive || !fields.length) return;
+    if (!focusCountTargetKey && !focusSumTargetKey) return;
+    const { fields: next, changed } = ensureFocusDateFields(fields, {
+      countTargetKey: focusCountTargetKey,
+      sumTargetKey: focusSumTargetKey,
+    });
+    if (!changed) return;
+    handleFieldsChange(next);
+  }, [
+    isAdmin,
+    uniqueImportActive,
+    fields,
+    focusCountTargetKey,
+    focusSumTargetKey,
+    handleFieldsChange,
+  ]);
 
   /** Apply selected dates → expand/replace date-shift columns from the Bulk-add template. */
   const handleApplyDateShifts = useCallback(
@@ -1201,6 +1325,64 @@ export const ExamExplorePage = () => {
     }
   };
 
+  const openReloadPreset = (presetId = '') => {
+    const preferred =
+      String(presetId || '').trim() ||
+      matchedPreset?.id ||
+      viewPresets[0]?.id ||
+      '';
+    setReloadPresetId(preferred);
+    setIsReloadPresetOpen(true);
+  };
+
+  /**
+   * Replace this page’s fields + Feature Builder / Unique import with the preset as if loading
+   * from scratch. Extra fields on the page are removed. Center-list exam dates are kept.
+   */
+  const handleReloadFromPreset = async (preset) => {
+    if (!preset) return;
+    const ok = await confirm({
+      title: 'Reload this page from preset?',
+      message: `Replace everything on ${viewTitle} with “${preset.name}”?`,
+      tertiary:
+        'All current fields on this page are removed and replaced with the preset. Unique import and Feature Builder settings reset from the preset. Center rows stay; values for removed fields are no longer shown. Exam dates on Center list are kept.',
+      confirmLabel: 'Reload from start',
+      destructive: true,
+    });
+    if (!ok) return;
+    setCreating(true);
+    setTableError('');
+    setIsReloadPresetOpen(false);
+    try {
+      const nextFeatures = {
+        ...(preset.features && typeof preset.features === 'object' ? { ...preset.features } : {}),
+      };
+      // Keep selected exam dates when reloading Center list (or any tab that already has dates).
+      const keepDates = featuresRef.current?.dateShifts?.dates;
+      if (keepDates?.length || view === DEFAULT_EXAM_VIEW) {
+        nextFeatures.dateShifts = resolveDateShiftsConfig(
+          {
+            ...(preset.features?.dateShifts || {}),
+            dates: keepDates,
+          },
+          preset.features?.dateShifts,
+        );
+      }
+      const snap = await saveExamTableConfig(examId, {
+        fields: fieldsFromPreset(preset.fields),
+        features: nextFeatures,
+        view,
+      });
+      applySnapshot(snap);
+      setMessage(`Reloaded ${viewTitle} from “${preset.name}”`);
+      await loadRows();
+    } catch (err) {
+      setTableError(apiErrorMessage(err, 'Could not reload from the preset'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const importMatchKeys = useMemo(() => {
     const importable = createFields.filter(
       (f) =>
@@ -1512,6 +1694,20 @@ export const ExamExplorePage = () => {
         actions={
           hasTable ? (
             <>
+              {canFocusExamDate && (
+                <label className="exam-explore-focus-date">
+                  <CalendarDays size={16} strokeWidth={2} aria-hidden="true" />
+                  <span className="exam-explore-focus-date-label">Exam date</span>
+                  <SearchableSelect
+                    ariaLabel="Exam date — updates date Total Center and date Max All Day columns"
+                    value={focusDateId}
+                    onChange={setFocusDateId}
+                    options={focusDateOptions}
+                    searchThreshold={8}
+                    placeholder="Select date…"
+                  />
+                </label>
+              )}
               {view === DEFAULT_EXAM_VIEW && canToggleShiftColumns && (
                 <IconButton
                   label={shiftVisBarOpen ? 'Hide shift filters' : 'Show / hide shift columns'}
@@ -1533,6 +1729,15 @@ export const ExamExplorePage = () => {
                       onClick={() => setIsDateShiftsOpen(true)}
                     >
                       <CalendarDays size={16} strokeWidth={2} />
+                    </IconButton>
+                  )}
+                  {viewPresets.length > 0 && (
+                    <IconButton
+                      label="Reload this page from a preset (replace fields)"
+                      onClick={() => openReloadPreset()}
+                      disabled={creating}
+                    >
+                      <RotateCcw size={16} strokeWidth={2} />
                     </IconButton>
                   )}
                   <IconButton label="Field builder (admin)" onClick={() => setIsBuilderOpen(true)}>
@@ -1625,9 +1830,19 @@ export const ExamExplorePage = () => {
             )}
             .
           </span>
-          <button type="button" className="exam-explore-create" onClick={() => handleUpdateFromPreset(matchedPreset)} disabled={creating}>
-            {creating ? 'Updating…' : 'Update from preset'}
-          </button>
+          <div className="exam-explore-preset-banner-actions">
+            <button type="button" className="exam-explore-create" onClick={() => handleUpdateFromPreset(matchedPreset)} disabled={creating}>
+              {creating ? 'Updating…' : 'Update from preset'}
+            </button>
+            <button
+              type="button"
+              className="exam-explore-create secondary"
+              onClick={() => openReloadPreset(matchedPreset.id)}
+              disabled={creating}
+            >
+              Reload from start
+            </button>
+          </div>
         </div>
       )}
 
@@ -1798,6 +2013,81 @@ export const ExamExplorePage = () => {
           </aside>
         </div>
       )}
+
+      {isReloadPresetOpen &&
+        createPortal(
+          <div
+            className="exam-explore-reload-overlay"
+            role="presentation"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !creating) setIsReloadPresetOpen(false);
+            }}
+          >
+            <div
+              className="exam-explore-reload-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="exam-explore-reload-title"
+            >
+              <div className="exam-explore-reload-head">
+                <h2 id="exam-explore-reload-title">
+                  <RotateCcw size={18} strokeWidth={2} aria-hidden="true" />
+                  Reload {viewTitle} from preset
+                </h2>
+                <button
+                  type="button"
+                  className="exams-drawer-close"
+                  onClick={() => setIsReloadPresetOpen(false)}
+                  disabled={creating}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="exam-explore-reload-copy">
+                Removes this page’s current fields and Unique import settings, then loads the
+                chosen preset from scratch. Center rows stay; values for removed columns are
+                hidden. Pick the preset for this page, then confirm.
+              </p>
+              <label className="exam-explore-reload-field">
+                <span>Preset</span>
+                <SearchableSelect
+                  ariaLabel="Preset to reload from"
+                  value={reloadPresetId}
+                  onChange={setReloadPresetId}
+                  options={viewPresets.map((p) => ({
+                    value: p.id,
+                    label: `${p.name || p.serviceValue} · ${p.fieldCount ?? (p.fields || []).length} fields`,
+                  }))}
+                  searchThreshold={6}
+                  placeholder="Choose a preset…"
+                />
+              </label>
+              <div className="exam-explore-reload-actions">
+                <button
+                  type="button"
+                  className="exams-btn secondary"
+                  onClick={() => setIsReloadPresetOpen(false)}
+                  disabled={creating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="exams-btn primary"
+                  disabled={creating || !reloadPresetId}
+                  onClick={() => {
+                    const preset = viewPresets.find((p) => p.id === reloadPresetId);
+                    if (preset) handleReloadFromPreset(preset);
+                  }}
+                >
+                  {creating ? 'Reloading…' : 'Continue…'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       <ExamFieldBuilder
         open={isBuilderOpen}

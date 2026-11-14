@@ -8,6 +8,46 @@
   box-sizing: border-box;
 }
 
+/* Unique-import pages: focus exam date (Total Center / Max All Day for that day). */
+.exam-explore-focus-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(320px, 72vw);
+  min-height: 36px;
+  padding: 0 4px 0 8px;
+  border-radius: 10px;
+  background: var(--primary-light, rgba(92, 67, 250, 0.08));
+  color: var(--text-primary, #030712);
+  box-sizing: border-box;
+}
+
+.exam-explore-focus-date-label {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+  white-space: nowrap;
+}
+
+.exam-explore-focus-date .exams-search-select {
+  flex: 1 1 auto;
+  min-width: 140px;
+}
+
+@media (max-width: 768px) {
+  .exam-explore-focus-date {
+    max-width: 100%;
+    min-height: 44px;
+  }
+  .exam-explore-focus-date-label {
+    display: none;
+  }
+}
+
 /*
  * Desktop: [title] …… [pills] [icons]
  * Small:   [title …… icons] / [pills full width]

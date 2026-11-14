@@ -262,6 +262,192 @@ export const resolveAllDayValueFromRow = (values, dateShiftsConfig = null) => {
   return typeof result === 'number' && Number.isFinite(result) ? result : null;
 };
 
+/** Stable shift cell keys for one exam date (from the Center list template). */
+export const shiftKeysForDate = (dateShiftsConfig, dateId) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  const id = String(dateId || '').trim();
+  if (!id || !cfg.shifts.length) return [];
+  return cfg.shifts.map((shift) => makeKey(id, shift.id));
+};
+
+/**
+ * Live Max/Sum/CountA for one exam date's shifts on a center row
+ * (same math as that day's summary column on Center list).
+ */
+export const resolveDayAggregateFromRow = (values, dateShiftsConfig, dateId) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  const type = cfg.summaryColumn?.enabled ? cfg.summaryColumn.type || 'max' : 'max';
+  if (type === 'custom') return null;
+  const keys = shiftKeysForDate(cfg, dateId);
+  if (!keys.length) return null;
+  const bag = values && typeof values === 'object' ? values : {};
+  const nums = keys.map((k) => toShiftNumber(bag[k])).filter((n) => n != null);
+  const result = aggregateShiftValues(type, nums);
+  return typeof result === 'number' && Number.isFinite(result) ? result : null;
+};
+
+/** True when the center has any filled shift cell on that exam date. */
+export const rowHasActivityOnDate = (values, dateShiftsConfig, dateId) => {
+  const keys = shiftKeysForDate(dateShiftsConfig, dateId);
+  if (!keys.length) return false;
+  const bag = values && typeof values === 'object' ? values : {};
+  return keys.some((k) => toShiftNumber(bag[k]) != null);
+};
+
+/**
+ * Real Unique-import fields (formula-friendly keys). Table headers become
+ * `{date} Total Center` / `{date} Max All Day` when an exam date is selected.
+ * Order with count/sum targets: Days Total Center → All Day Max → these two.
+ */
+export const FOCUS_TOTAL_CENTER_COLUMN_KEY = 'date_total_center';
+export const FOCUS_MAX_ALL_DAY_COLUMN_KEY = 'date_max_all_day';
+/** @deprecated use FOCUS_MAX_ALL_DAY_COLUMN_KEY */
+export const FOCUS_EXAM_DATE_COLUMN_KEY = FOCUS_MAX_ALL_DAY_COLUMN_KEY;
+
+/** Labels for Unique-import focus-date columns (sheet-style, e.g. 26-Oct-26 Total Center). */
+export const focusDateColumnLabels = (dateTitle) => {
+  const title = String(dateTitle || '').trim() || 'Selected date';
+  return {
+    totalCenter: `${title} Total Center`,
+    maxAllDay: `${title} Max All Day`,
+  };
+};
+
+export const isFocusDateField = (field) => {
+  const kind = field?.focusDateColumn;
+  if (kind === 'totalCenter' || kind === 'maxAllDay') return true;
+  const key = String(field?.key || '');
+  return key === FOCUS_TOTAL_CENTER_COLUMN_KEY || key === FOCUS_MAX_ALL_DAY_COLUMN_KEY;
+};
+
+const newFocusDateField = (kind) => {
+  const isTotal = kind === 'totalCenter';
+  return {
+    id: `fld_${isTotal ? FOCUS_TOTAL_CENTER_COLUMN_KEY : FOCUS_MAX_ALL_DAY_COLUMN_KEY}_${Date.now().toString(36).slice(-5)}`,
+    key: isTotal ? FOCUS_TOTAL_CENTER_COLUMN_KEY : FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+    label: isTotal ? 'Date Total Center' : 'Date Max All Day',
+    dataType: 'number',
+    required: false,
+    layout: 'full',
+    autoFill: 'none',
+    focusDateColumn: kind,
+  };
+};
+
+/**
+ * Ensure Date Total Center / Date Max All Day exist and sit in this order:
+ * count target → sum target → date_total_center → date_max_all_day
+ */
+export const ensureFocusDateFields = (
+  fields = [],
+  { countTargetKey = '', sumTargetKey = '' } = {},
+) => {
+  const countKey = String(countTargetKey || '').trim();
+  const sumKey = String(sumTargetKey || '').trim();
+  const wantTotal = Boolean(countKey);
+  const wantMax = Boolean(sumKey);
+  if (!wantTotal && !wantMax) {
+    return { fields: Array.isArray(fields) ? fields : [], changed: false };
+  }
+
+  let list = Array.isArray(fields) ? fields.map((f) => ({ ...f })) : [];
+  let changed = false;
+  const byKey = () => new Map(list.map((f) => [f.key, f]));
+
+  if (wantTotal && !byKey().has(FOCUS_TOTAL_CENTER_COLUMN_KEY)) {
+    list.push(newFocusDateField('totalCenter'));
+    changed = true;
+  } else if (wantTotal) {
+    list = list.map((f) => {
+      if (f.key !== FOCUS_TOTAL_CENTER_COLUMN_KEY) return f;
+      if (f.focusDateColumn === 'totalCenter' && f.dataType === 'number') return f;
+      changed = true;
+      return {
+        ...f,
+        focusDateColumn: 'totalCenter',
+        dataType: f.dataType || 'number',
+        label: f.label || 'Date Total Center',
+      };
+    });
+  }
+
+  if (wantMax && !byKey().has(FOCUS_MAX_ALL_DAY_COLUMN_KEY)) {
+    list.push(newFocusDateField('maxAllDay'));
+    changed = true;
+  } else if (wantMax) {
+    list = list.map((f) => {
+      if (f.key !== FOCUS_MAX_ALL_DAY_COLUMN_KEY) return f;
+      if (f.focusDateColumn === 'maxAllDay' && f.dataType === 'number') return f;
+      changed = true;
+      return {
+        ...f,
+        focusDateColumn: 'maxAllDay',
+        dataType: f.dataType || 'number',
+        label: f.label || 'Date Max All Day',
+      };
+    });
+  }
+
+  const blockKeys = [
+    countKey,
+    sumKey,
+    wantTotal ? FOCUS_TOTAL_CENTER_COLUMN_KEY : '',
+    wantMax ? FOCUS_MAX_ALL_DAY_COLUMN_KEY : '',
+  ].filter(Boolean);
+  // De-dupe while keeping order (count/sum might theoretically collide).
+  const blockKeyList = [...new Set(blockKeys)];
+  const map = new Map(list.map((f) => [f.key, f]));
+  if (!blockKeyList.every((k) => map.has(k))) {
+    return {
+      fields: list.map((f, i) => ({ ...f, order: i + 1 })),
+      changed,
+    };
+  }
+
+  const blockSet = new Set(blockKeyList);
+  let insertAt = 0;
+  for (let i = 0; i < list.length; i += 1) {
+    if (blockSet.has(list[i].key)) break;
+    insertAt += 1;
+  }
+  const without = list.filter((f) => !blockSet.has(f.key));
+  const blockFields = blockKeyList.map((k) => map.get(k));
+  const next = [...without.slice(0, insertAt), ...blockFields, ...without.slice(insertAt)];
+  if (next.some((f, i) => f.key !== list[i]?.key)) changed = true;
+
+  return {
+    fields: next.map((f, i) => ({ ...f, order: i + 1 })),
+    changed,
+  };
+};
+
+/** Force table column order for the Days Total / Max / date-focus block. */
+export const orderFocusDateColumns = (
+  columns = [],
+  { countTargetKey = '', sumTargetKey = '' } = {},
+) => {
+  const blockKeys = [
+    String(countTargetKey || '').trim(),
+    String(sumTargetKey || '').trim(),
+    FOCUS_TOTAL_CENTER_COLUMN_KEY,
+    FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+  ].filter(Boolean);
+  const blockKeyList = [...new Set(blockKeys)];
+  const present = blockKeyList.filter((k) => columns.some((c) => c.key === k));
+  if (present.length < 2) return columns;
+
+  const blockSet = new Set(present);
+  let insertAt = 0;
+  for (let i = 0; i < columns.length; i += 1) {
+    if (blockSet.has(columns[i].key)) break;
+    insertAt += 1;
+  }
+  const byKey = new Map(columns.map((c) => [c.key, c]));
+  const without = columns.filter((c) => !blockSet.has(c.key));
+  const block = present.map((k) => byKey.get(k)).filter(Boolean);
+  return [...without.slice(0, insertAt), ...block, ...without.slice(insertAt)];
+};
+
 /** Normalize persisted / draft date-shifts config. */
 export const normalizeDateShiftsConfig = (input) => {
   const base = emptyDateShiftsConfig();

@@ -5,7 +5,7 @@
  * - Tab also separates columns, so a copy from Excel / Sheets works.
  * - A trailing * on the label marks the field required (e.g. "Roll No*").
  * - A single line with only commas ("Roll No, Name, Marks") is split into one field per item.
- * - Types needing extra setup (formula, composite) are not available in bulk.
+ * - Types needing extra setup (composite) are not available in bulk.
  */
 
 export const TYPE_ALIASES = {
@@ -26,9 +26,15 @@ export const TYPE_ALIASES = {
   'multi select': 'multiselect',
   url: 'link',
   file: 'attachment',
+  percent: 'progress',
+  percentage: 'progress',
+  '%': 'progress',
+  pct: 'progress',
+  calc: 'formula',
+  calculation: 'formula',
 };
 
-const UNSUPPORTED_IN_BULK = new Set(['formula', 'composite']);
+const UNSUPPORTED_IN_BULK = new Set(['composite']);
 const OPTION_TYPES = new Set(['dropdown', 'multiselect', 'status', 'tags']);
 const MAX_LABEL = 120;
 
@@ -161,6 +167,12 @@ export const toFieldDefinition = (item, order) => {
       keys: item.combine.keys.map(String),
       separator: item.combine.separator == null ? ', ' : String(item.combine.separator),
     };
+  }
+  if (item.focusDateColumn === 'totalCenter' || item.focusDateColumn === 'maxAllDay') {
+    def.focusDateColumn = item.focusDateColumn;
+  }
+  if (item.dataType === 'formula' && item.formula) {
+    def.formula = String(item.formula).trim();
   }
   return def;
 };

@@ -58,6 +58,8 @@ import { SearchableSelect } from './SearchableSelect';
 import { BulkFieldsModal } from './BulkFieldsModal';
 import { ColumnGroupsModal } from './ColumnGroupsModal';
 import { humanizeGroup } from './tableLookupApi';
+import { ensureFocusDateFields } from './dateShiftsConfig';
+import { focusDateTargetsFromAggregates } from './examUniqueRows';
 
 const TYPE_ICONS = {
   text: Type,
@@ -215,6 +217,18 @@ export const ExamFieldBuilder = ({
     })),
   ];
 
+  // Keep Date Total Center / Date Max All Day on presets & pages that have Unique count + Max all day.
+  useEffect(() => {
+    if (!open) return;
+    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(uniqueRowAggregates);
+    if (!countTargetKey && !sumTargetKey) return;
+    const { fields: next, changed } = ensureFocusDateFields(fields, {
+      countTargetKey,
+      sumTargetKey,
+    });
+    if (changed) onChange(next);
+  }, [open, uniqueRowAggregates, fields, onChange]);
+
   useEffect(() => {
     if (!open) {
       setEditorOpen(false);
@@ -314,6 +328,8 @@ export const ExamFieldBuilder = ({
     if (field.sameAsFieldKey) parts.push('Same-as');
     if (field.required) parts.push('Required');
     if (field.unique) parts.push('Unique');
+    if (field.focusDateColumn === 'totalCenter') parts.push('Date count');
+    if (field.focusDateColumn === 'maxAllDay') parts.push('Date max');
     if (field.layout === 'half') parts.push('Half');
     return parts.join(' · ');
   };
@@ -422,6 +438,10 @@ export const ExamFieldBuilder = ({
       onDateShiftsChange?.(meta.dateShifts);
     }
     if (meta?.uniqueRowKeys !== undefined || meta?.uniqueRowAggregates !== undefined) {
+      const nextAggregates =
+        meta?.uniqueRowAggregates !== undefined
+          ? meta.uniqueRowAggregates
+          : uniqueRowAggregates;
       onUniqueImportChange?.({
         ...(meta?.uniqueRowKeys !== undefined ? { uniqueRowKeys: meta.uniqueRowKeys } : {}),
         ...(meta?.uniqueRowAggregates !== undefined
@@ -429,6 +449,24 @@ export const ExamFieldBuilder = ({
           : {}),
       });
       if (meta?.uniqueRowKeys !== undefined) onUniqueRowKeysChange?.(meta.uniqueRowKeys);
+      // Preset/page fields: attach date columns when Unique import has count + Max all day.
+      const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(nextAggregates);
+      if (countTargetKey || sumTargetKey) {
+        const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
+        const gone = new Set(removedIds);
+        const listForEnsure = hasFieldEdits
+          ? applyOrder(
+              [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter(
+                (f) => !gone.has(f.id),
+              ),
+            )
+          : fields;
+        const { fields: ensured, changed } = ensureFocusDateFields(listForEnsure, {
+          countTargetKey,
+          sumTargetKey,
+        });
+        if (changed) onChange(ensured.map((f, i) => ({ ...f, order: i + 1 })));
+      }
     }
     closeBulk();
   };

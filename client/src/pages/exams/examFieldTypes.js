@@ -23,7 +23,8 @@ export const EXAM_FIELD_TYPES = [
   { value: 'boolean', label: 'Boolean' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'dot', label: 'Dot' },
-  { value: 'progress', label: 'Progress' },
+  /** Stored as 0–100 number; table shows a bar + `%` (DynamicTable `progress`). */
+  { value: 'progress', label: 'Percentage (%)' },
   { value: 'rating', label: 'Rating' },
   { value: 'link', label: 'Link' },
   { value: 'image', label: 'Image' },

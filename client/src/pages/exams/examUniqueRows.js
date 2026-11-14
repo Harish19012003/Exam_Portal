@@ -7,8 +7,12 @@
 
 import {
   DATE_SHIFT_ALL_DAY_KEY,
+  FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+  FOCUS_TOTAL_CENTER_COLUMN_KEY,
   isAllDayDateShiftField,
   resolveAllDayValueFromRow,
+  resolveDayAggregateFromRow,
+  rowHasActivityOnDate,
 } from './dateShiftsConfig';
 
 export const UNIQUE_ROW_AGGREGATE_OPS = [
@@ -53,6 +57,19 @@ export const normalizeUniqueRowAggregates = (rules) => {
 
 export const uniqueAggregateTargetKeys = (rules) =>
   new Set(normalizeUniqueRowAggregates(rules).map((r) => r.targetKey));
+
+/** Count / Max-all-day sum targets used to attach Date Total Center / Date Max All Day fields. */
+export const focusDateTargetsFromAggregates = (rules) => {
+  const list = normalizeUniqueRowAggregates(rules);
+  const countTargetKey = list.find((r) => r.op === 'count')?.targetKey || '';
+  const sumTargetKey =
+    list.find(
+      (r) =>
+        r.op === 'sum' &&
+        (r.sourceKey === DATE_SHIFT_ALL_DAY_KEY || /allday/i.test(String(r.sourceKey || ''))),
+    )?.targetKey || '';
+  return { countTargetKey, sumTargetKey };
+};
 
 const rowValues = (row) => (row?.values && typeof row.values === 'object' ? row.values : row) || {};
 
@@ -141,6 +158,9 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
   const rules = normalizeUniqueRowAggregates(aggregates);
   if (!keyList.length || !Array.isArray(rows) || rows.length === 0) return rows;
 
+  const focusDateId = String(ctx.focusDateId || '').trim();
+  const focusDateShifts = ctx.dateShifts || null;
+
   const groups = new Map();
   for (const row of rows) {
     const composite = uniqueRowComposite(rowValues(row), keyList);
@@ -158,22 +178,37 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
     const patch = {};
     for (const rule of rules) {
       if (rule.op === 'count') {
+        // Permanent target = all matching centers; date column = activity on focus date.
         patch[rule.targetKey] = members.length;
+        if (focusDateId && focusDateShifts) {
+          patch[FOCUS_TOTAL_CENTER_COLUMN_KEY] = members.filter((m) =>
+            rowHasActivityOnDate(rowValues(m), focusDateShifts, focusDateId),
+          ).length;
+        }
         continue;
       }
       if (rule.op === 'sum') {
-        let sum = 0;
+        let overall = 0;
         for (const member of members) {
           const n = resolveSumSourceNumber(member, rule.sourceKey, ctx);
-          if (n != null) sum += n;
+          if (n != null) overall += n;
         }
-        patch[rule.targetKey] = sum;
+        patch[rule.targetKey] = overall;
         // Write-to may be "All Day Max" while the visible column is "Max All Days" — fill both.
         if (isAllDaySumSource(rule.sourceKey, ctx.fields)) {
           for (const f of Array.isArray(ctx.fields) ? ctx.fields : []) {
             if (!isMaxAllDayResultField(f) || f.key === rule.targetKey) continue;
-            patch[f.key] = sum;
+            patch[f.key] = overall;
           }
+        }
+        // Sheet-style `{date} Max All Day` for the selected exam date.
+        if (focusDateId && focusDateShifts && isAllDaySumSource(rule.sourceKey, ctx.fields)) {
+          let focusSum = 0;
+          for (const member of members) {
+            const n = resolveDayAggregateFromRow(rowValues(member), focusDateShifts, focusDateId);
+            if (n != null) focusSum += n;
+          }
+          patch[FOCUS_MAX_ALL_DAY_COLUMN_KEY] = focusSum;
         }
       }
     }
