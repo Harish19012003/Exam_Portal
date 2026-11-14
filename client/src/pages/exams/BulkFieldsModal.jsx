@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
-import { DEFAULT_EXAM_VIEW, examViewLabel } from '@exam-view/shared';
+import { DEFAULT_EXAM_VIEW, examViewLabel, importedSourceLabel, sourceNameInitials } from '@exam-view/shared';
 import {
   EXAM_FIELD_TYPES,
   AUTO_FILL_OPTIONS,
@@ -179,6 +179,7 @@ const newRow = (dataType = 'text') => ({
   phonePattern: '',
   phoneMessage: '',
   sharedFromView: '',
+  sharedFromLabel: '',
   combineKeys: [],
   combineSeparator: ', ',
   existingId: null,
@@ -220,6 +221,7 @@ const rowFromField = (f) => {
     examFieldKey: f.examFieldKey || '',
     scheduleRole: f.scheduleRole === 'start' || f.scheduleRole === 'end' ? f.scheduleRole : '',
     sharedFromView: f.sharedFromView || '',
+    sharedFromLabel: f.sharedFromLabel || '',
     combineKeys: Array.isArray(f.combine?.keys) ? f.combine.keys.map(String) : [],
     combineSeparator: f.combine?.separator == null ? ', ' : String(f.combine.separator),
     existingId: f.id,
@@ -269,6 +271,7 @@ const rowToItem = (r, allowUnique = false) => ({
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
   ...(r.sharedFromView ? { sharedFromView: r.sharedFromView } : {}),
+  ...(r.sharedFromLabel ? { sharedFromLabel: r.sharedFromLabel } : {}),
   ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
     ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
     : {}),
@@ -310,6 +313,8 @@ const changedField = (r, allowUnique = false) => {
       : item.dataType === 'combined'
         ? {}
         : { combine: undefined }),
+    ...(item.sharedFromView ? { sharedFromView: item.sharedFromView } : {}),
+    ...(item.sharedFromLabel ? { sharedFromLabel: item.sharedFromLabel } : {}),
   };
   const sig = (f) =>
     JSON.stringify([
@@ -330,6 +335,7 @@ const changedField = (r, allowUnique = false) => {
       f.phoneValidation || null,
       f.combine || null,
       f.sharedFromView || '',
+      f.sharedFromLabel || '',
     ]);
   return sig(next) === sig(o) ? null : next;
 };
@@ -569,6 +575,8 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  /** Current preset service — maps sharedFromView → source preset name for badges. */
+  currentServiceValue = '',
   /** Existing unique-import config (features) so Import can re-edit it. */
   uniqueRowKeys = null,
   uniqueRowAggregates = null,
@@ -585,6 +593,10 @@ export const BulkFieldsModal = ({
   const examFieldOptions = (examSourceFields || [])
     .filter((f) => f?.key)
     .map((f) => ({ value: f.key, label: f.label || f.key }));
+  const sourceLabelOpts = {
+    presets: Array.isArray(presetSources) ? presetSources : [],
+    preferredService: currentServiceValue,
+  };
   const initialRows = () => {
     const existing = fields
       .filter(
@@ -593,7 +605,17 @@ export const BulkFieldsModal = ({
           f.dataType === 'combined' ||
           BULK_TYPES.some((t) => t.value === f.dataType),
       )
-      .map(rowFromField);
+      .map((f) => {
+        const row = rowFromField(f);
+        // Backfill preset name for older imports that only stored the view key.
+        if (row.sharedFromView && !row.sharedFromLabel) {
+          const resolved = importedSourceLabel(row, sourceLabelOpts);
+          if (resolved && resolved !== examViewLabel(row.sharedFromView)) {
+            row.sharedFromLabel = resolved;
+          }
+        }
+        return row;
+      });
     // A Linked value points at the row (field) it reads from.
     existing.forEach((r) => {
       if (r.linkedKey) r.linkedRid = existing.find((x) => x.key === r.linkedKey)?.rid || '';
@@ -666,7 +688,64 @@ export const BulkFieldsModal = ({
   const [pendingUniqueRowAggregates, setPendingUniqueRowAggregates] = useState(null);
   const hasUniqueImportConfig =
     (Array.isArray(uniqueRowKeys) && uniqueRowKeys.length > 0) ||
-    (Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0);
+    (Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0) ||
+    (Array.isArray(uniqueRowAggregates) && uniqueRowAggregates.length > 0) ||
+    (Array.isArray(pendingUniqueRowAggregates) && pendingUniqueRowAggregates.length > 0);
+  const activeUniqueKeys = useMemo(
+    () =>
+      normalizeUniqueRowKeys(
+        Array.isArray(pendingUniqueRowKeys) ? pendingUniqueRowKeys : uniqueRowKeys,
+      ),
+    [pendingUniqueRowKeys, uniqueRowKeys],
+  );
+  const activeUniqueAggregates = useMemo(
+    () =>
+      normalizeUniqueRowAggregates(
+        Array.isArray(pendingUniqueRowAggregates)
+          ? pendingUniqueRowAggregates
+          : uniqueRowAggregates,
+      ),
+    [pendingUniqueRowAggregates, uniqueRowAggregates],
+  );
+  /** Per field key → roles in Unique import (unique key / count target / sum target or source). */
+  const uniqueRoleByKey = useMemo(() => {
+    const map = new Map();
+    const add = (key, role) => {
+      const k = String(key || '').trim();
+      if (!k) return;
+      const prev = map.get(k) || [];
+      if (!prev.includes(role)) map.set(k, [...prev, role]);
+    };
+    activeUniqueKeys.forEach((k, i) => add(k, `unique · ${i + 1}`));
+    activeUniqueAggregates.forEach((rule) => {
+      if (rule.op === 'count') add(rule.targetKey, 'count');
+      if (rule.op === 'sum') {
+        add(rule.targetKey, 'sum');
+        if (rule.sourceKey) add(rule.sourceKey, 'sum src');
+      }
+    });
+    return map;
+  }, [activeUniqueKeys, activeUniqueAggregates]);
+  const uniqueImportSummary = useMemo(() => {
+    if (!activeUniqueKeys.length && !activeUniqueAggregates.length) return '';
+    const keyPart = activeUniqueKeys.length
+      ? `Unique key: ${uniqueRowKeysLabel(
+          rows.map((r) => ({ key: r.key, label: r.label })),
+          activeUniqueKeys,
+        ) || activeUniqueKeys.join(' · ')}`
+      : '';
+    const resultPart = activeUniqueAggregates
+      .map((rule) => {
+        const target =
+          rows.find((r) => r.key === rule.targetKey)?.label || rule.targetKey;
+        if (rule.op === 'count') return `Count → ${target}`;
+        const source =
+          rows.find((r) => r.key === rule.sourceKey)?.label || rule.sourceKey || 'source';
+        return `Sum(${source}) → ${target}`;
+      })
+      .join(' · ');
+    return [keyPart, resultPart].filter(Boolean).join(' · ');
+  }, [activeUniqueKeys, activeUniqueAggregates, rows]);
 
   const openImportModal = (focusUnique = false) => {
     setImportFocusUnique(Boolean(focusUnique));
@@ -721,7 +800,21 @@ export const BulkFieldsModal = ({
   const uniqueAggregatesDirty =
     Array.isArray(pendingUniqueRowAggregates) && pendingUniqueRowAggregates.length > 0;
   const uniqueImportDirty = uniqueKeysDirty || uniqueAggregatesDirty;
-  const pending = fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueImportDirty ? 1 : 0);
+  // Drag reorder alone must unlock Save — content signatures do not change.
+  const orderDirty = useMemo(() => {
+    const bulkable = (f) =>
+      f.dataType === 'linked' ||
+      f.dataType === 'combined' ||
+      BULK_TYPES.some((t) => t.value === f.dataType);
+    const original = (fields || []).filter(bulkable).map((f) => `id:${f.id}`).join('\0');
+    const current = rows
+      .filter((r, i) => r.existingId || !validation[i].blank)
+      .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${String(r.key || '').trim()}`))
+      .join('\0');
+    return Boolean(original || current) && original !== current;
+  }, [fields, rows, validation]);
+  const pending =
+    fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueImportDirty ? 1 : 0) + (orderDirty ? 1 : 0);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -1010,6 +1103,9 @@ export const BulkFieldsModal = ({
   /** Pull shared / combined columns from another tab or preset into this bulk grid. */
   const handleImportFromTab = (result) => {
     const home = String(result?.sourceView || '').trim();
+    const sourceLabel =
+      String(result?.sourceLabel || '').trim() || (home ? examViewLabel(home) : '');
+    const sourceNotice = sourceLabel || examViewLabel(home);
     const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
     const nextUniqueKeys = normalizeUniqueRowKeys(result?.uniqueRowKeys);
     const nextUniqueAggregates = normalizeUniqueRowAggregates(result?.uniqueRowAggregates);
@@ -1043,6 +1139,7 @@ export const BulkFieldsModal = ({
         setNotice(`“${f.label || f.key}” is already in this list.`);
         return;
       }
+      const sharedFromLabel = String(f.sharedFromLabel || sourceLabel || '').trim();
       const row = rowFromField({ ...f, id: undefined });
       insertBulkRows(
         [
@@ -1053,27 +1150,39 @@ export const BulkFieldsModal = ({
             orig: null,
             keyTouched: true,
             sharedFromView: f.sharedFromView || home,
+            sharedFromLabel,
             combineKeys: f.combine?.keys || [],
             combineSeparator: f.combine?.separator ?? ', ',
           },
         ],
-        `Added combined column “${f.label}” from ${examViewLabel(home)}. Save to keep it.`,
+        `Added combined column “${f.label}” from ${sourceNotice}. Save to keep it.`,
       );
       return;
     }
 
     const pickedFields = Array.isArray(result?.fields) ? result.fields : Array.isArray(result) ? result : [];
+    const renamedCount = Number(result?.renamedCount) || 0;
     const additions = pickedFields
       .filter((f) => f?.key && !haveKeys.has(f.key))
       .map((f) => {
-        const sharedFromView = String(f.sharedFromView || home || '').trim();
-        const row = rowFromField({ ...f, id: undefined, sharedFromView });
+        const sharedFromLabel = String(f.sharedFromLabel || sourceLabel || '').trim();
+        // Renamed copies are independent columns; same-key imports stay shared.
+        const isCopy = Boolean(f.importRenamedFrom);
+        const sharedFromView = isCopy ? '' : String(f.sharedFromView || home || '').trim();
+        const { importRenamedFrom: _renamed, ...fieldRest } = f;
+        const row = rowFromField({
+          ...fieldRest,
+          id: undefined,
+          sharedFromView: sharedFromView || undefined,
+          sharedFromLabel,
+        });
         return {
           ...row,
           rid: newRow().rid,
           existingId: null,
           orig: null,
           sharedFromView,
+          sharedFromLabel,
           keyTouched: true,
         };
       });
@@ -1092,13 +1201,17 @@ export const BulkFieldsModal = ({
       return;
     }
 
+    const renameNotice =
+      renamedCount > 0
+        ? ` · ${renamedCount} key${renamedCount === 1 ? '' : 's'} prefixed (edit labels as you like)`
+        : '';
     insertBulkRows(
       additions,
       nextUniqueKeys.length
         ? examId
-          ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}.`
-          : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}. Save the preset to keep them.`
-        : `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
+          ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${sourceNotice} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}${renameNotice}.`
+          : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${sourceNotice} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}${renameNotice}. Save the preset to keep them.`
+        : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${sourceNotice}${renameNotice}. Save to keep them.`,
     );
   };
 
@@ -1212,24 +1325,31 @@ export const BulkFieldsModal = ({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!pending) return;
-    // Feature-only saves (date shifts / unique keys) must not be blocked by Fields-tab errors.
-    const metaOnly = fieldPending === 0 && removedIds.length === 0 && (dateShiftsDirty || uniqueImportDirty);
-    if (errorCount && !metaOnly) return;
-    const items = metaOnly
+    // Feature-only / order-only saves must not be blocked by Fields-tab errors.
+    const metaOnly =
+      fieldPending === 0 &&
+      removedIds.length === 0 &&
+      (dateShiftsDirty || uniqueImportDirty) &&
+      !orderDirty;
+    const orderOnly = orderDirty && fieldPending === 0 && removedIds.length === 0;
+    if (errorCount && !metaOnly && !orderOnly) return;
+    const skipFieldPayload = metaOnly || orderOnly;
+    const items = skipFieldPayload
       ? []
       : resolvedRows
           .filter((r, i) => !r.existingId && !validation[i].blank)
           .map((r) => rowToItem(r, allowUnique));
-    const updated = metaOnly
+    const updated = skipFieldPayload
       ? []
       : resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
     const newDefs = items.map((item, i) => toFieldDefinition(item, fields.length + i + 1));
     // Row order = field order: existing fields by id, new ones by key.
-    const order = metaOnly
-      ? []
-      : resolvedRows
-          .filter((r, i) => r.existingId || !validation[i].blank)
-          .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
+    const order =
+      metaOnly && !orderDirty
+        ? []
+        : resolvedRows
+            .filter((r, i) => r.existingId || !validation[i].blank)
+            .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
     const meta = {
       ...(dateShiftsDirty
         ? {
@@ -1252,7 +1372,7 @@ export const BulkFieldsModal = ({
           }
         : {}),
     };
-    onAdd(newDefs, updated, metaOnly ? [] : removedIds, order, meta);
+    onAdd(newDefs, updated, skipFieldPayload ? [] : removedIds, order, meta);
   };
 
   /* ---------- Dependencies: lookup fields and the Linked values that follow them ---------- */
@@ -1470,6 +1590,19 @@ export const BulkFieldsModal = ({
           </span>
         </div>
         )}
+
+        {tab === 'fields' && uniqueImportSummary ? (
+          <button
+            type="button"
+            className="exams-bulk-unique-banner"
+            onClick={() => canImportShared && openImportModal(true)}
+            title="Click to edit Unique import"
+          >
+            <Link2 size={14} aria-hidden="true" />
+            <span>{uniqueImportSummary}</span>
+            <span className="exams-bulk-unique-banner-hint">Edit</span>
+          </button>
+        ) : null}
 
         {tab === 'dateShifts' && (
         <div className="exams-bulk-toolbar">
@@ -2047,11 +2180,11 @@ export const BulkFieldsModal = ({
           <table
             ref={tableRef}
             className="exams-bulk-table"
-            style={{ width: `max(100%, ${(showMore ? 2080 : 1720) + (allowUnique ? 90 : 0)}px)` }}
+            style={{ width: `max(100%, ${(showMore ? 2220 : 1860) + (allowUnique ? 90 : 0)}px)` }}
           >
             <colgroup>
-              <col style={{ width: 92 }} />
-              <col />
+              <col style={{ width: 124 }} />
+              <col style={{ width: 240 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 220 }} />
@@ -2178,36 +2311,70 @@ export const BulkFieldsModal = ({
                         ) : (
                           <CheckCircle2 size={15} className="is-ok" aria-label="Row is valid" />
                         )}
-                        {row.sharedFromView ? (
+                        {row.sharedFromView || row.sharedFromLabel ? (
                           <button
                             type="button"
                             className="exams-bulk-imported-badge"
-                            title={`Imported · shared from ${examViewLabel(row.sharedFromView)}. Click to edit unique import.`}
-                            aria-label={`Imported · shared from ${examViewLabel(row.sharedFromView)}. Edit unique import.`}
+                            title={`Imported · from ${importedSourceLabel(row, sourceLabelOpts)}.${row.sharedFromView ? ' Click to edit unique import.' : ''}`}
+                            aria-label={`Imported · from ${importedSourceLabel(row, sourceLabelOpts)}`}
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              if (canImportShared) openImportModal(true);
+                              if (canImportShared && row.sharedFromView) openImportModal(true);
                             }}
                           >
                             <Link2 size={11} strokeWidth={2.25} aria-hidden="true" />
+                            {sourceNameInitials(importedSourceLabel(row, sourceLabelOpts)) ? (
+                              <span className="exams-bulk-imported-abbr" aria-hidden="true">
+                                {sourceNameInitials(importedSourceLabel(row, sourceLabelOpts))}
+                              </span>
+                            ) : null}
                           </button>
                         ) : null}
                       </span>
                     </td>
                     <td {...pinned(1)} data-label="Label">
-                      <input
-                        type="text"
-                        data-col="label"
-                        value={row.label}
-                        placeholder={labelPlaceholder}
-                        className={cellError(i, 'label') ? 'invalid' : ''}
-                        onChange={(e) => setLabel(row.rid, e.target.value)}
-                        onPaste={(e) => handlePaste(e, row.rid, 'label')}
-                        onKeyDown={(e) => handleKeyDown(e, row, isLast)}
-                        autoFocus={i === existingCount}
-                        aria-label={`Row ${i + 1} label`}
-                      />
+                      <div className="exams-bulk-label-cell">
+                        <input
+                          type="text"
+                          data-col="label"
+                          value={row.label}
+                          placeholder={labelPlaceholder}
+                          className={cellError(i, 'label') ? 'invalid' : ''}
+                          onChange={(e) => setLabel(row.rid, e.target.value)}
+                          onPaste={(e) => handlePaste(e, row.rid, 'label')}
+                          onKeyDown={(e) => handleKeyDown(e, row, isLast)}
+                          autoFocus={i === existingCount}
+                          aria-label={`Row ${i + 1} label`}
+                        />
+                        {uniqueRoleByKey.get(String(row.key || '').trim())?.length ? (
+                          <span className="exams-bulk-unique-roles">
+                            {uniqueRoleByKey.get(String(row.key || '').trim()).map((role) => (
+                              <button
+                                key={role}
+                                type="button"
+                                className={`exams-bulk-unique-role is-${role.startsWith('unique') ? 'unique' : role.replace(/\s+/g, '-')}`}
+                                title={
+                                  role.startsWith('unique')
+                                    ? `Part of Unique import key (${role}). Click to edit.`
+                                    : role === 'count'
+                                      ? 'Count result field for Unique import. Click to edit.'
+                                      : role === 'sum'
+                                        ? 'Sum result field for Unique import. Click to edit.'
+                                        : 'Sum source field for Unique import. Click to edit.'
+                                }
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (canImportShared) openImportModal(true);
+                                }}
+                              >
+                                {role}
+                              </button>
+                            ))}
+                          </span>
+                        ) : null}
+                      </div>
                       {cellError(i, 'label') && <span className="exams-bulk-err">{cellError(i, 'label')}</span>}
                     </td>
                     <td {...pinned(2)} data-label="Key">
@@ -2587,11 +2754,13 @@ export const BulkFieldsModal = ({
             {tab !== 'dateShifts' &&
               (errorCount
                 ? `${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`
-                : fieldPending
+                : fieldPending || orderDirty
                   ? [
                       newCount && `${newCount} new`,
                       updateCount && `${updateCount} to update`,
                       removedIds.length && `${removedIds.length} to remove`,
+                      orderDirty && !fieldPending && 'order changed',
+                      orderDirty && fieldPending && 'reordered',
                       dateShiftsDirty && 'date shifts',
                       uniqueImportDirty && 'unique import',
                     ]
@@ -2618,9 +2787,9 @@ export const BulkFieldsModal = ({
                 saving ||
                 (errorCount > 0 &&
                   !(
-                    (dateShiftsDirty || uniqueImportDirty) &&
-                    fieldPending === 0 &&
-                    removedIds.length === 0
+                    ((dateShiftsDirty || uniqueImportDirty || orderDirty) &&
+                      fieldPending === 0 &&
+                      removedIds.length === 0)
                   ))
               }
             >

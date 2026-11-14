@@ -64,6 +64,11 @@ export const listRows = handle(async (req) => {
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const page = req.query?.page;
   const limit = req.query?.limit;
+  const all =
+    req.query?.all === true ||
+    req.query?.all === 1 ||
+    req.query?.all === '1' ||
+    String(req.query?.all || '').toLowerCase() === 'true';
   const search = typeof req.query?.search === 'string' ? req.query.search : '';
   const searchKeysRaw = req.query?.searchKeys;
   const searchKeys = Array.isArray(searchKeysRaw)
@@ -74,7 +79,27 @@ export const listRows = handle(async (req) => {
           .map((s) => s.trim())
           .filter(Boolean)
       : undefined;
-  const result = await service.listRows(req.params.examId, { page, limit, search, searchKeys });
+  let filters;
+  const filtersRaw = req.query?.filters;
+  if (typeof filtersRaw === 'string' && filtersRaw.trim()) {
+    try {
+      const parsed = JSON.parse(filtersRaw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) filters = parsed;
+    } catch {
+      filters = undefined;
+    }
+  } else if (filtersRaw && typeof filtersRaw === 'object' && !Array.isArray(filtersRaw)) {
+    filters = filtersRaw;
+  }
+  // `all` is for Unique import rollups that must see every center (not capped at page size 500).
+  const result = await service.listRows(req.params.examId, {
+    page,
+    limit,
+    search,
+    searchKeys,
+    filters,
+    ...(all ? { all: true } : {}),
+  });
   const fields = allFields || [];
   const rows = (result.rows || [])
     .filter((row) => rowVisible(req, TABLE, ruleValues(req, row), fields))

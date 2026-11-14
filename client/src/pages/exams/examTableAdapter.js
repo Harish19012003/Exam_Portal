@@ -116,6 +116,10 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
         !isCombinedField(field) &&
         !isSharedImportedField(field),
       sharedFromView: isSharedImportedField(field) || isCombinedField(field) ? field.sharedFromView : undefined,
+      sharedFromLabel:
+        isSharedImportedField(field) || isCombinedField(field)
+          ? field.sharedFromLabel || undefined
+          : undefined,
       combined: isCombinedField(field) ? field.combine : undefined,
       lookup: isTableSourceField(field)
         ? {

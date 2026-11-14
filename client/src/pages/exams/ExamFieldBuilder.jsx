@@ -50,7 +50,7 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { TagMultiPicker } from './TagMultiPicker';
-import { examViewLabel, isSharedImportedField } from '@exam-view/shared';
+import { examViewLabel, importedSourceLabel, isSharedImportedField, sourceNameInitials } from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
@@ -153,13 +153,19 @@ export const ExamFieldBuilder = ({
   currentView = null,
   /** Enables Bulk add → Import from preset (Settings → Field presets). */
   presetSources = null,
+  /** Current preset service — resolves import badges to the matching source preset name. */
+  currentServiceValue = '',
   /** Shown in Bulk add so the user knows which preset / exam page they are editing. */
   bulkWorkingContext = '',
   /** Date × shift template from features.dateShifts (Bulk add → Date shifts). */
   dateShifts = null,
   onDateShiftsChange = null,
   /** Composite unique row keys from Bulk add → Unique import (`features.uniqueRowKeys`). */
+  uniqueRowKeys = null,
+  uniqueRowAggregates = null,
   onUniqueRowKeysChange = null,
+  /** Apply unique keys + count/sum as soon as Import finishes (Field presets). */
+  onUniqueImportChange = null,
   /**
    * Date shifts are for exam Center-list setup only.
    * Field presets pass false. Exam Center list omits this (defaults from currentView).
@@ -287,11 +293,19 @@ export const ExamFieldBuilder = ({
     }
     if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
     if (field.dataType === 'fromExam' && field.examFieldKey) parts.push(`exam.${field.examFieldKey}`);
-    if (isSharedImportedField(field)) parts.push(`Shared from ${examViewLabel(field.sharedFromView)}`);
+    if (isSharedImportedField(field)) {
+      parts.push(
+        `Shared from ${importedSourceLabel(field, { presets: presetSources, preferredService: currentServiceValue })}`,
+      );
+    }
     if (isCombinedField(field)) {
+      const src = importedSourceLabel(field, {
+        presets: presetSources,
+        preferredService: currentServiceValue,
+      });
       parts.push(
         `Combined (${field.combine.keys.join(field.combine.separator ?? ', ')})` +
-        (field.sharedFromView ? ` · ${examViewLabel(field.sharedFromView)}` : ''),
+        (src ? ` · ${src}` : ''),
       );
     }
     if (field.scheduleRole === 'start') parts.push('Schedule start');
@@ -385,23 +399,36 @@ export const ExamFieldBuilder = ({
       (Array.isArray(newFields) && newFields.length > 0) ||
       (Array.isArray(updatedFields) && updatedFields.length > 0) ||
       (Array.isArray(removedIds) && removedIds.length > 0);
+    const applyOrder = (list) => {
+      if (!Array.isArray(order) || !order.length) return list;
+      // The bulk grid's row order is the field order (`id:<id>` for existing, `key:<key>` for new).
+      const rank = new Map(order.map((token, i) => [token, i]));
+      const rankOf = (f, i) => rank.get(`id:${f.id}`) ?? rank.get(`key:${f.key}`) ?? order.length + i;
+      return list
+        .map((f, i) => ({ f, r: rankOf(f, i) }))
+        .sort((a, b) => a.r - b.r)
+        .map((x) => x.f);
+    };
     if (hasFieldEdits) {
       const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
       const gone = new Set(removedIds);
       const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter((f) => !gone.has(f.id));
-      // The bulk grid's row order is the field order (`id:<id>` for existing, `key:<key>` for new).
-      const rank = new Map(order.map((token, i) => [token, i]));
-      const rankOf = (f, i) => rank.get(`id:${f.id}`) ?? rank.get(`key:${f.key}`) ?? order.length + i;
-      const ordered = order.length
-        ? merged.map((f, i) => ({ f, r: rankOf(f, i) })).sort((a, b) => a.r - b.r).map((x) => x.f)
-        : merged;
-      onChange(ordered.map((f, i) => ({ ...f, order: i + 1 })));
+      onChange(applyOrder(merged).map((f, i) => ({ ...f, order: i + 1 })));
+    } else if (Array.isArray(order) && order.length) {
+      // Reorder-only save from Bulk add.
+      onChange(applyOrder([...fields]).map((f, i) => ({ ...f, order: i + 1 })));
     }
     if (meta?.dateShifts !== undefined) {
       onDateShiftsChange?.(meta.dateShifts);
     }
-    if (meta?.uniqueRowKeys !== undefined) {
-      onUniqueRowKeysChange?.(meta.uniqueRowKeys);
+    if (meta?.uniqueRowKeys !== undefined || meta?.uniqueRowAggregates !== undefined) {
+      onUniqueImportChange?.({
+        ...(meta?.uniqueRowKeys !== undefined ? { uniqueRowKeys: meta.uniqueRowKeys } : {}),
+        ...(meta?.uniqueRowAggregates !== undefined
+          ? { uniqueRowAggregates: meta.uniqueRowAggregates }
+          : {}),
+      });
+      if (meta?.uniqueRowKeys !== undefined) onUniqueRowKeysChange?.(meta.uniqueRowKeys);
     }
     closeBulk();
   };
@@ -811,23 +838,29 @@ export const ExamFieldBuilder = ({
                                 <span className="exams-field-text">
                                   <span className="exams-field-row-label">
                                     {field.label}
-                                    {(isSharedImportedField(field) || isCombinedField(field)) && (
-                                      <span
-                                        className="exams-field-imported-badge"
-                                        title={
-                                          field.sharedFromView
-                                            ? `Imported · shared from ${examViewLabel(field.sharedFromView)}`
-                                            : 'Imported'
-                                        }
-                                        aria-label={
-                                          field.sharedFromView
-                                            ? `Imported · shared from ${examViewLabel(field.sharedFromView)}`
-                                            : 'Imported'
-                                        }
-                                      >
-                                        <Link2 size={12} strokeWidth={2.25} aria-hidden="true" />
-                                      </span>
-                                    )}
+                                    {(isSharedImportedField(field) ||
+                                      isCombinedField(field) ||
+                                      field.sharedFromLabel) && (() => {
+                                      const src = importedSourceLabel(field, {
+                                        presets: presetSources,
+                                        preferredService: currentServiceValue,
+                                      });
+                                      const abbr = sourceNameInitials(src);
+                                      return (
+                                        <span
+                                          className="exams-field-imported-badge"
+                                          title={src ? `Imported · from ${src}` : 'Imported'}
+                                          aria-label={src ? `Imported · from ${src}` : 'Imported'}
+                                        >
+                                          <Link2 size={12} strokeWidth={2.25} aria-hidden="true" />
+                                          {abbr ? (
+                                            <span className="exams-field-imported-abbr" aria-hidden="true">
+                                              {abbr}
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                      );
+                                    })()}
                                   </span>
                                   <span className="exams-field-row-meta">{fieldMeta(field)}</span>
                                 </span>
@@ -1504,8 +1537,12 @@ export const ExamFieldBuilder = ({
           examId={examId}
           currentView={currentView}
           presetSources={presetSources}
+          currentServiceValue={currentServiceValue}
           dateShifts={dateShifts}
           enableDateShifts={enableDateShifts}
+          uniqueRowKeys={uniqueRowKeys}
+          uniqueRowAggregates={uniqueRowAggregates}
+          onUniqueImportChange={onUniqueImportChange}
           workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
           onClose={closeBulk}
           onAdd={handleBulkAdd}

@@ -153,8 +153,9 @@ export const toFieldDefinition = (item, order) => {
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }
-  // Imported from another exam tab — same key/value, read-only on this page.
+  // Imported from another exam tab / preset — same key/value, read-only on this page.
   if (item.sharedFromView) def.sharedFromView = item.sharedFromView;
+  if (item.sharedFromLabel) def.sharedFromLabel = item.sharedFromLabel;
   if (item.dataType === 'combined' && item.combine?.keys?.length >= 2) {
     def.combine = {
       keys: item.combine.keys.map(String),

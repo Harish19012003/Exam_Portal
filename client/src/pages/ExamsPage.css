@@ -1209,24 +1209,132 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   flex-shrink: 0;
-  width: 20px;
+  min-width: 20px;
   height: 20px;
+  padding: 0 5px;
   border-radius: 999px;
   color: var(--primary-color, #5c43fa);
   background: var(--primary-light, rgba(92, 67, 250, 0.12));
 }
 
+.exams-field-imported-abbr,
+.exams-bulk-imported-abbr {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .exams-bulk-rownum .exams-bulk-imported-badge {
-  width: 16px;
-  height: 16px;
-  padding: 0;
+  min-width: 28px;
+  height: 18px;
+  padding: 0 5px;
   border: none;
   cursor: pointer;
+  gap: 3px;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.exams-bulk-rownum .exams-bulk-imported-abbr {
+  font-size: 9px;
 }
 
 .exams-bulk-rownum .exams-bulk-imported-badge:hover {
   filter: brightness(0.95);
+}
+
+.exams-bulk-unique-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px clamp(12px, 2vw, 18px);
+  border: none;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: var(--primary-light, rgba(92, 67, 250, 0.08));
+  color: var(--text-primary, #030712);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.exams-bulk-unique-banner:hover {
+  background: var(--primary-light, rgba(92, 67, 250, 0.14));
+}
+
+.exams-bulk-unique-banner > span:first-of-type {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.exams-bulk-unique-banner-hint {
+  flex: 0 0 auto;
+  font-weight: 650;
+  color: var(--primary-color, #5c43fa);
+}
+
+.exams-bulk-label-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.exams-bulk-unique-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.exams-bulk-unique-role {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  line-height: 1.2;
+  cursor: pointer;
+  color: var(--primary-color, #5c43fa);
+  background: var(--primary-light, rgba(92, 67, 250, 0.12));
+}
+
+.exams-bulk-unique-role.is-count {
+  color: #0f766e;
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.exams-bulk-unique-role.is-sum,
+.exams-bulk-unique-role.is-sum-src {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.12);
+}
+
+.exams-bulk-unique-role:hover {
+  filter: brightness(0.96);
+}
+
+@media (max-width: 480px) {
+  .exams-bulk-unique-banner {
+    min-height: 44px;
+    align-items: center;
+  }
+  .exams-bulk-unique-role {
+    min-height: 22px;
+  }
 }
 
 .exams-field-row-meta {
@@ -2173,7 +2281,8 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 }
 
 .exams-bulk-table .col-num {
-  width: 64px;
+  width: 118px;
+  min-width: 118px;
   padding-top: 11px;
   color: var(--text-secondary, #6b7280);
   font-size: 0.78rem;
@@ -2406,10 +2515,11 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 .exams-bulk-rownum {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 20px;
+  justify-content: flex-start;
+  gap: 5px;
+  min-width: 52px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .exams-bulk-rownum .is-ok {
@@ -3750,6 +3860,11 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
 
 /* Bulk grid: drag handle for reordering rows */
 .exams-bulk-table .col-num { white-space: nowrap; }
+.exams-bulk-table th:nth-child(2),
+.exams-bulk-table td[data-label='Label'] {
+  min-width: 240px;
+  width: 240px;
+}
 .exams-bulk-grip {
   display: inline-flex;
   align-items: center;
@@ -3822,7 +3937,7 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   /* No left padding on the scroller: pinned cells stick to its edge, so any gap would show scrolled content. */
   .exams-bulk-body { padding-left: 0; }
   .exams-bulk-table .col-num,
-  .exams-bulk-table th.col-num { padding: 2px 6px 2px clamp(10px, 2vw, 16px); width: 92px; }
+  .exams-bulk-table th.col-num { padding: 2px 6px 2px clamp(10px, 2vw, 16px); width: 124px; min-width: 124px; }
   .exams-bulk-table th.col-num { padding-top: 10px; padding-bottom: 10px; }
   .exams-bulk-table input[type='checkbox'] { margin-top: 0; vertical-align: middle; }
 
@@ -3841,10 +3956,11 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   .exams-bulk-rownum {
     display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
-    min-width: 20px;
+    justify-content: flex-start;
+    gap: 5px;
+    min-width: 52px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 }
 

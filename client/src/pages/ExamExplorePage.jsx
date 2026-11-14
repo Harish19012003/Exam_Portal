@@ -22,7 +22,7 @@ import {
 import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
-import { applySearch } from '../components/DynamicData/dataProcessing';
+import { applyFilters, applySearch } from '../components/DynamicData/dataProcessing';
 import { useExamRows, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
 import { useTableLayoutPrefs } from '../hooks/useTableLayoutPrefs';
 import { useAccess, applyColumnAccess, creatableFields, tablePermissions } from '../hooks/useAccess';
@@ -240,6 +240,8 @@ export const ExamExplorePage = () => {
   /** Toolbar search (immediate). Debounced value drives API / unique-row filtering. */
   const [rowsSearchInput, setRowsSearchInput] = useState('');
   const [rowsSearch, setRowsSearch] = useState('');
+  /** Header filters — server-applied for normal paging; client-applied in unique-import mode. */
+  const [rowsFilters, setRowsFilters] = useState({});
 
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -324,6 +326,9 @@ export const ExamExplorePage = () => {
 
   useEffect(() => {
     setRowsPage(1);
+    setRowsFilters({});
+    setRowsSearchInput('');
+    setRowsSearch('');
   }, [examId]);
 
   const uniqueRowKeysSig = uniqueRowKeys.join('|');
@@ -355,13 +360,18 @@ export const ExamExplorePage = () => {
     [fields],
   );
 
-  // Unique import needs the full center set to dedupe; page after collapsing duplicates.
-  // Non-unique: server search scans every center, then returns the requested page.
+  // Unique import: load every center (no page-size cap), roll up, then page in the UI.
+  // Normal mode: server search/filters scan the full exam, then return the requested page.
   const rowsQuery = useExamRows(examId, {
-    page: uniqueImportActive ? 1 : rowsPage,
-    limit: uniqueImportActive ? 500 : rowsPageSize,
-    search: uniqueImportActive ? '' : rowsSearch,
-    searchKeys: uniqueImportActive ? undefined : rowSearchKeys,
+    ...(uniqueImportActive
+      ? { all: true }
+      : {
+          page: rowsPage,
+          limit: rowsPageSize,
+          search: rowsSearch,
+          searchKeys: rowSearchKeys,
+          filters: rowsFilters,
+        }),
     enabled: Boolean(examId) && Boolean(tableInfo),
   });
   const rows = rowsQuery.data?.rows || [];
@@ -369,7 +379,7 @@ export const ExamExplorePage = () => {
   const rowsLoading =
     Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
   const rowsPageKey = uniqueImportActive
-    ? { page: 1, limit: 500 }
+    ? { all: true }
     : { page: rowsPage, limit: rowsPageSize };
   const presetWithDateShifts = useMemo(() => {
     if (matchedPreset && hasDateShiftTemplate(matchedPreset.features?.dateShifts)) {
@@ -428,12 +438,16 @@ export const ExamExplorePage = () => {
         : tableRows,
     [tableRows, uniqueImportActive, uniqueRowKeys, uniqueRowAggregates, effectiveDateShifts, fields],
   );
-  // Unique mode: search the full rolled-up set, then page — not only the visible slice.
+  // Unique mode: search/filter the full rolled-up set, then page — not only the visible slice.
   const uniqueFilteredRows = useMemo(() => {
     if (!uniqueImportActive) return uniqueAllRows;
-    if (!rowsSearch) return uniqueAllRows;
-    return applySearch(uniqueAllRows, rowsSearch, tableColumns, {});
-  }, [uniqueImportActive, uniqueAllRows, rowsSearch, tableColumns]);
+    let next = uniqueAllRows;
+    if (rowsSearch) next = applySearch(next, rowsSearch, tableColumns, {});
+    if (rowsFilters && Object.keys(rowsFilters).length) {
+      next = applyFilters(next, rowsFilters, tableColumns);
+    }
+    return next;
+  }, [uniqueImportActive, uniqueAllRows, rowsSearch, rowsFilters, tableColumns]);
   const displayTableRows = useMemo(() => {
     if (!uniqueImportActive) return tableRows;
     const start = (rowsPage - 1) * rowsPageSize;
@@ -1732,6 +1746,11 @@ export const ExamExplorePage = () => {
                 },
                 search: rowsSearchInput,
                 onSearchChange: setRowsSearchInput,
+                filters: rowsFilters,
+                onFiltersChange: (next) => {
+                  setRowsFilters(next && typeof next === 'object' ? next : {});
+                  setRowsPage(1);
+                },
               }}
             />
           </div>

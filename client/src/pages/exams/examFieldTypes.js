@@ -163,6 +163,42 @@ export const normalizeFieldKey = (raw) => {
 /** Valid persisted key: starts with a letter, then letters/digits/underscore */
 export const isValidFieldKey = (key) => /^[a-z][a-z0-9_]{0,39}$/.test(String(key || ''));
 
+/**
+ * Short key prefix from a source preset/tab name — first word, lowercase.
+ * e.g. "Frisking Center List" → "frisking", "CSO Exam" → "cso".
+ */
+export const sourceKeyPrefix = (sourceLabel) => {
+  const first = String(sourceLabel || '')
+    .trim()
+    .split(/\s*·\s*/)[0]
+    .trim()
+    .split(/[\s/_\-–—]+/)
+    .map((w) => w.replace(/[^A-Za-z0-9]/g, ''))
+    .find(Boolean);
+  const slug = normalizeFieldKey(first || 'src') || 'src';
+  return slug.slice(0, 16);
+};
+
+/**
+ * Unique key when importing a field whose original key is already on the page.
+ * e.g. vendor_name + "Frisking Center List" → frisking_vendor_name
+ */
+export const uniquePrefixedImportKey = (baseKey, sourceLabel, takenKeys = []) => {
+  const taken = new Set([...(takenKeys || [])].map(String));
+  const raw = normalizeFieldKey(baseKey) || 'field';
+  const prefix = sourceKeyPrefix(sourceLabel);
+  let core = raw.startsWith(`${prefix}_`) ? raw : `${prefix}_${raw}`;
+  core = core.slice(0, 40);
+  if (!isValidFieldKey(core)) core = `${prefix}_field`.slice(0, 40);
+  if (!taken.has(core) && isValidFieldKey(core)) return core;
+  for (let n = 2; n < 1000; n += 1) {
+    const suffix = `_${n}`;
+    const key = `${core.slice(0, 40 - suffix.length)}${suffix}`;
+    if (isValidFieldKey(key) && !taken.has(key)) return key;
+  }
+  return `${prefix}_${Date.now().toString(36)}`.slice(0, 40);
+};
+
 /** ISO date (yyyy-mm-dd) — safe for DynamicTable date/datetime columns */
 export const formatISODate = (date = new Date()) => {
   const d = date instanceof Date ? date : new Date(date);

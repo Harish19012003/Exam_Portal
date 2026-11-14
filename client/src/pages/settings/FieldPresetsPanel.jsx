@@ -497,6 +497,7 @@ export const FieldPresetsPanel = ({
         enableFromExam
         currentView={form?.view}
         presetSources={presets.filter((p) => p.id !== form?.id)}
+        currentServiceValue={form?.serviceValue || ''}
         bulkWorkingContext={
           form
             ? [

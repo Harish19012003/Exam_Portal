@@ -25,20 +25,27 @@ export function useProcessedRows(
    * filtered the full dataset / current page from the API.
    */
   serverSearchActive?: boolean,
+  /**
+   * When true (server-driven header filters), skip local applyFilters — the parent
+   * already matched across the full exam, then returned this page.
+   */
+  serverFiltersActive?: boolean,
 ) {
   const serverSide = typeof serverTotalCount === 'number' && serverTotalCount >= 0;
 
   const filteredRows = useMemo(() => {
     let result = rows;
-    // Client-paginated tables: search all loaded rows, then page.
-    // Server-paginated: parent searches the full DB — do not re-filter the page slice.
+    // Client-paginated tables: search/filter all loaded rows, then page.
+    // Server-paginated: parent searches/filters the full DB — do not re-filter the page slice.
     if (!serverSearchActive) {
       result = applySearch(result, search, columns, columnVisibility);
     }
-    result = applyFilters(result, filters, columns);
+    if (!serverFiltersActive) {
+      result = applyFilters(result, filters, columns);
+    }
     result = applySort(result, sort, columns);
     return result;
-  }, [rows, columns, filters, sort, search, columnVisibility, serverSearchActive]);
+  }, [rows, columns, filters, sort, search, columnVisibility, serverSearchActive, serverFiltersActive]);
 
   const paginatedRows = useMemo(() => {
     if (serverSide) return filteredRows;

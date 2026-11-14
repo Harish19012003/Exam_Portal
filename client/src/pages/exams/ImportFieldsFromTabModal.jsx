@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { InfoTip } from '../../components/PageHeading';
 import { ArrowDown, ArrowUp, Plus, Search, Trash2, X } from 'lucide-react';
 import { CENTER_CODE_KEY, DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
+import { uniquePrefixedImportKey } from './examFieldTypes';
 import { buildCombinedField, COMBINE_SEPARATORS, DEFAULT_COMBINE_SEPARATOR, separatorForLabel } from './examCombinedFields';
 import {
   normalizeUniqueRowAggregates,
@@ -246,10 +247,9 @@ export const ImportFieldsFromTabModal = ({
     });
   };
 
-  // Normal import skips keys already on this page; combine / unique can use any source field.
-  const baseFields = combineMode || uniqueMode
-    ? sourceFields
-    : sourceFields.filter((f) => !currentKeys.has(f.key));
+  // Normal import lists every source field (clashing keys are renamed on import).
+  // Combine / unique can also use fields already on this page.
+  const baseFields = sourceFields;
   const q = query.trim().toLowerCase();
   const filteredFields = q
     ? baseFields.filter((f) => `${f.label || ''} ${f.key}`.toLowerCase().includes(q))
@@ -269,6 +269,14 @@ export const ImportFieldsFromTabModal = ({
   const sourceHomeView = presetMode
     ? (presetSources || []).find((p) => String(p.id) === String(sourcePresetId))?.view || DEFAULT_EXAM_VIEW
     : sourceView;
+  const resolveSourceLabel = () => {
+    if (!presetMode) return examViewLabel(sourceHomeView);
+    const sourcePreset = (presetSources || []).find((p) => String(p.id) === String(sourcePresetId));
+    return (
+      String(sourcePreset?.name || sourcePreset?.serviceValue || '').trim() ||
+      examViewLabel(sourceHomeView)
+    );
+  };
 
   const patchAggregateRule = (id, patch) => {
     setAggregateRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -290,6 +298,7 @@ export const ImportFieldsFromTabModal = ({
         return;
       }
       try {
+        const sourceLabel = resolveSourceLabel();
         const combinedField = buildCombinedField({
           label: combineLabel,
           keys: selectedOrder,
@@ -298,7 +307,11 @@ export const ImportFieldsFromTabModal = ({
           takenKeys: [...currentKeys],
           sourceFields,
         });
-        onImport?.({ combinedField, sourceView: sourceHomeView });
+        onImport?.({
+          combinedField: { ...combinedField, sharedFromLabel: sourceLabel },
+          sourceView: sourceHomeView,
+          sourceLabel,
+        });
         onClose?.();
       } catch (err) {
         setError(err?.message || 'Could not build the combined column.');
@@ -320,10 +333,37 @@ export const ImportFieldsFromTabModal = ({
       setError('Each result needs a target field; Sum also needs a source field.');
       return;
     }
+    const sourceLabel = resolveSourceLabel();
     const pickedByKey = new Map();
+    const taken = new Set(currentKeys);
+    let renamedCount = 0;
     for (const key of selectedOrder) {
       const f = sourceFields.find((x) => x.key === key);
-      if (f && !currentKeys.has(f.key)) pickedByKey.set(f.key, f);
+      if (!f) continue;
+      // Unique import only pulls in keys that are not already on this page.
+      if (uniqueMode) {
+        if (!currentKeys.has(f.key)) pickedByKey.set(f.key, f);
+        continue;
+      }
+      // Never duplicate the shared center identity column.
+      if (f.key === CENTER_CODE_KEY && currentKeys.has(f.key)) continue;
+      if (!taken.has(f.key)) {
+        pickedByKey.set(f.key, f);
+        taken.add(f.key);
+        continue;
+      }
+      // Same key already on page → independent copy with a source-prefixed key.
+      const newKey = uniquePrefixedImportKey(f.key, sourceLabel, taken);
+      const { sharedFromView: _priorHome, ...rest } = f;
+      pickedByKey.set(newKey, {
+        ...rest,
+        key: newKey,
+        sharedFromView: undefined,
+        sharedFromLabel: sourceLabel,
+        importRenamedFrom: f.key,
+      });
+      taken.add(newKey);
+      renamedCount += 1;
     }
     // Sum sources from Center date-shifts (e.g. Max all day) should travel with the import.
     if (uniqueMode) {
@@ -343,7 +383,11 @@ export const ImportFieldsFromTabModal = ({
     }
     const picked = Array.from(pickedByKey.values());
     if (!picked.length && !uniqueRowKeys.length) {
-      setError('Select at least one field that is not already on this page.');
+      setError(
+        uniqueMode
+          ? 'Select at least one field that is not already on this page.'
+          : 'Select at least one field to import.',
+      );
       return;
     }
     if (uniqueMode && uniqueRowKeys.length < 1) {
@@ -353,6 +397,8 @@ export const ImportFieldsFromTabModal = ({
     onImport?.({
       fields: picked,
       sourceView: sourceHomeView,
+      sourceLabel,
+      renamedCount,
       ...(uniqueRowKeys.length ? { uniqueRowKeys } : {}),
       ...(uniqueRowAggregates.length ? { uniqueRowAggregates } : {}),
     });
@@ -447,20 +493,30 @@ export const ImportFieldsFromTabModal = ({
             </p>
           ) : !listFields.length ? (
             <p className="import-fields-empty">
-              {q ? 'No fields match your search.' : 'Every field from the source is already in this list.'}
+              {q ? 'No fields match your search.' : 'No fields to show.'}
             </p>
           ) : (
-            listFields.map((f) => (
+            listFields.map((f) => {
+              const onPage = currentKeys.has(f.key);
+              const willRename =
+                !combineMode && !uniqueMode && onPage && f.key !== CENTER_CODE_KEY;
+              return (
               <label key={f.key} className={`import-fields-row${uniqueMode && selected.has(f.key) ? ' is-unique' : ''}`}>
                 <input
                   type="checkbox"
                   checked={selected.has(f.key)}
                   onChange={() => toggle(f.key)}
+                  disabled={!combineMode && !uniqueMode && onPage && f.key === CENTER_CODE_KEY}
                 />
                 <span className="import-fields-label">{f.label || f.key}</span>
                 <code className="import-fields-key">{f.key}</code>
                 {f.key === CENTER_CODE_KEY && <span className="import-fields-badge">shared key</span>}
-                {uniqueMode && currentKeys.has(f.key) && !selected.has(f.key) && (
+                {willRename && (
+                  <span className="import-fields-badge on-page" title="Key already used — import will prefix the key from the source name">
+                    rename key
+                  </span>
+                )}
+                {uniqueMode && onPage && !selected.has(f.key) && (
                   <span className="import-fields-badge on-page">on page</span>
                 )}
                 {uniqueMode && selected.has(f.key) && (
@@ -472,16 +528,14 @@ export const ImportFieldsFromTabModal = ({
                   <span className="import-fields-ord">#{selectedOrder.indexOf(f.key) + 1}</span>
                 )}
               </label>
-            ))
+              );
+            })
           )}
           {!combineMode && !uniqueMode && alreadyHere.length > 0 && (
-            <details className="import-fields-skipped" open={listFields.length === 0}>
-              <summary>{alreadyHere.length} already on this page</summary>
-              <p className="import-fields-skip">{alreadyHere.map((f) => f.label || f.key).join(', ')}</p>
-              <p className="import-fields-skip">
-                Turn on <strong>Unique import</strong> below to pick these again for unique key / count / sum.
-              </p>
-            </details>
+            <p className="import-fields-skip">
+              Fields marked <strong>rename key</strong> keep your label; the key gets a source prefix
+              (e.g. <code>frisking_vendor_name</code>).
+            </p>
           )}
         </div>
 
