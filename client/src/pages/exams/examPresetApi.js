@@ -86,6 +86,16 @@ export const diffPresetAgainstFields = (presetFields = [], fields = []) => {
 };
 
 /**
+ * Fresh field defs from a preset (new ids, preset order). Used when reloading a page from scratch.
+ */
+export const fieldsFromPreset = (presetFields = []) =>
+  (Array.isArray(presetFields) ? presetFields : []).map((f, i) => ({
+    ...f,
+    id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${i}`,
+    order: i + 1,
+  }));
+
+/**
  * The list's fields with the preset's settings applied by key, in the preset's order, so fields that
  * sit together in the preset (a column group, say) sit together here. Fields that exist only in the
  * list are kept, after the preset's fields and in their own order.
@@ -113,18 +123,21 @@ export const mergePresetIntoFields = (presetFields = [], fields = []) => {
  * Same keys share one stored value; additions are tagged `sharedFromView` so this tab shows
  * them read-only while the home tab remains editable.
  */
-export const importFieldsIntoView = (selectedFields = [], fields = [], sourceView) => {
+export const importFieldsIntoView = (selectedFields = [], fields = [], sourceView, sourceLabel = '') => {
   const have = new Set(fields.map((f) => f.key));
   const homeView = String(sourceView || '').trim();
+  const homeLabel = String(sourceLabel || '').trim();
   const additions = selectedFields
     .filter((f) => f?.key && !have.has(f.key))
     .map((f) => {
-      const { sharedFromView: priorHome, ...rest } = f;
+      const { sharedFromView: priorHome, sharedFromLabel: priorLabel, ...rest } = f;
+      const label = String(priorLabel || homeLabel || '').trim();
       return {
         ...rest,
         id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         // Prefer the ultimate home tab if the source field was itself an import.
         sharedFromView: String(priorHome || homeView || '').trim() || undefined,
+        ...(label ? { sharedFromLabel: label } : {}),
       };
     });
   return [...fields, ...additions].map((f, i) => ({ ...f, order: i + 1 }));

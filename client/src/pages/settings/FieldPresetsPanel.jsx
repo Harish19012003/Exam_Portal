@@ -23,6 +23,8 @@ import {
   listExamPresets,
   updateExamPreset,
 } from '../exams/examPresetApi';
+import { ensureFocusDateFields } from '../exams/dateShiftsConfig';
+import { focusDateTargetsFromAggregates } from '../exams/examUniqueRows';
 import { apiErrorMessage } from '../exams/examTableApi';
 import './FieldPresetsPanel.css';
 
@@ -216,16 +218,24 @@ export const FieldPresetsPanel = ({
   }, [exportTick, handleExport]);
 
   const openEdit = (preset) => {
+    const features =
+      preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
+        ? { ...preset.features }
+        : {};
+    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
+      features.uniqueRowAggregates,
+    );
+    const { fields: nextFields } = ensureFocusDateFields(preset.fields || [], {
+      countTargetKey,
+      sumTargetKey,
+    });
     setForm({
       id: preset.id,
       name: preset.name,
       serviceValue: preset.serviceValue,
       view: preset.view || DEFAULT_EXAM_VIEW,
-      fields: preset.fields,
-      features:
-        preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
-          ? { ...preset.features }
-          : {},
+      fields: nextFields,
+      features,
     });
     setFormError('');
   };
@@ -497,6 +507,7 @@ export const FieldPresetsPanel = ({
         enableFromExam
         currentView={form?.view}
         presetSources={presets.filter((p) => p.id !== form?.id)}
+        currentServiceValue={form?.serviceValue || ''}
         bulkWorkingContext={
           form
             ? [
@@ -516,19 +527,28 @@ export const FieldPresetsPanel = ({
         onDateShiftsChange={null}
         uniqueRowKeys={form?.features?.uniqueRowKeys}
         uniqueRowAggregates={form?.features?.uniqueRowAggregates}
-        onUniqueImportChange={(payload) =>
+        onUniqueImportChange={(payload) => {
+          const nextFeatures = {
+            ...(form?.features && typeof form.features === 'object' ? form.features : {}),
+            ...(payload?.uniqueRowKeys !== undefined
+              ? { uniqueRowKeys: payload.uniqueRowKeys }
+              : {}),
+            ...(payload?.uniqueRowAggregates !== undefined
+              ? { uniqueRowAggregates: payload.uniqueRowAggregates }
+              : {}),
+          };
+          const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
+            nextFeatures.uniqueRowAggregates,
+          );
+          const { fields: nextFields, changed } = ensureFocusDateFields(form?.fields || [], {
+            countTargetKey,
+            sumTargetKey,
+          });
           patchForm({
-            features: {
-              ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-              ...(payload?.uniqueRowKeys !== undefined
-                ? { uniqueRowKeys: payload.uniqueRowKeys }
-                : {}),
-              ...(payload?.uniqueRowAggregates !== undefined
-                ? { uniqueRowAggregates: payload.uniqueRowAggregates }
-                : {}),
-            },
-          })
-        }
+            features: nextFeatures,
+            ...(changed ? { fields: nextFields } : {}),
+          });
+        }}
         topSlot={
           form && (
             <div className="fpp-meta">

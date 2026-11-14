@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InfoTip } from '../../components/PageHeading';
-import { ArrowDown, ArrowUp, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, Plus, Search, Trash2, X } from 'lucide-react';
 import { CENTER_CODE_KEY, DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
+import { uniquePrefixedImportKey } from './examFieldTypes';
 import { buildCombinedField, COMBINE_SEPARATORS, DEFAULT_COMBINE_SEPARATOR, separatorForLabel } from './examCombinedFields';
 import {
   normalizeUniqueRowAggregates,
@@ -71,6 +72,8 @@ export const ImportFieldsFromTabModal = ({
   const [combineMode, setCombineMode] = useState(false);
   /** Selected fields also define a composite unique row key (e.g. State + City + Vendor). */
   const [uniqueMode, setUniqueMode] = useState(false);
+  /** Collapse Unique import details (keys / count / sum) while keeping the feature on. */
+  const [uniqueDetailsOpen, setUniqueDetailsOpen] = useState(true);
   /** Count / sum results written onto this page’s fields for each unique group. */
   const [aggregateRules, setAggregateRules] = useState([]);
   const [combineLabel, setCombineLabel] = useState('');
@@ -106,6 +109,7 @@ export const ImportFieldsFromTabModal = ({
     // Re-open existing unique import for editing, or when opened via “Unique import”.
     if (seedUniqueKeys.length || focusUnique) {
       setUniqueMode(true);
+      setUniqueDetailsOpen(true);
       setSelectedOrder(seedUniqueKeys);
       setAggregateRules(
         seedAggregates.map((r) => ({
@@ -117,6 +121,7 @@ export const ImportFieldsFromTabModal = ({
       );
     } else {
       setUniqueMode(false);
+      setUniqueDetailsOpen(true);
       setSelectedOrder([]);
       setAggregateRules([]);
     }
@@ -246,10 +251,9 @@ export const ImportFieldsFromTabModal = ({
     });
   };
 
-  // Normal import skips keys already on this page; combine / unique can use any source field.
-  const baseFields = combineMode || uniqueMode
-    ? sourceFields
-    : sourceFields.filter((f) => !currentKeys.has(f.key));
+  // Normal import lists every source field (clashing keys are renamed on import).
+  // Combine / unique can also use fields already on this page.
+  const baseFields = sourceFields;
   const q = query.trim().toLowerCase();
   const filteredFields = q
     ? baseFields.filter((f) => `${f.label || ''} ${f.key}`.toLowerCase().includes(q))
@@ -257,18 +261,26 @@ export const ImportFieldsFromTabModal = ({
   // Unique edit: already-imported fields first so State / City / Vendor are easy to find.
   const listFields = uniqueMode
     ? [...filteredFields].sort((a, b) => {
-        const aHere = currentKeys.has(a.key) ? 0 : 1;
-        const bHere = currentKeys.has(b.key) ? 0 : 1;
-        if (aHere !== bHere) return aHere - bHere;
-        const aSel = selected.has(a.key) ? 0 : 1;
-        const bSel = selected.has(b.key) ? 0 : 1;
-        return aSel - bSel;
-      })
+      const aHere = currentKeys.has(a.key) ? 0 : 1;
+      const bHere = currentKeys.has(b.key) ? 0 : 1;
+      if (aHere !== bHere) return aHere - bHere;
+      const aSel = selected.has(a.key) ? 0 : 1;
+      const bSel = selected.has(b.key) ? 0 : 1;
+      return aSel - bSel;
+    })
     : filteredFields;
   const alreadyHere = sourceFields.filter((f) => currentKeys.has(f.key));
   const sourceHomeView = presetMode
     ? (presetSources || []).find((p) => String(p.id) === String(sourcePresetId))?.view || DEFAULT_EXAM_VIEW
     : sourceView;
+  const resolveSourceLabel = () => {
+    if (!presetMode) return examViewLabel(sourceHomeView);
+    const sourcePreset = (presetSources || []).find((p) => String(p.id) === String(sourcePresetId));
+    return (
+      String(sourcePreset?.name || sourcePreset?.serviceValue || '').trim() ||
+      examViewLabel(sourceHomeView)
+    );
+  };
 
   const patchAggregateRule = (id, patch) => {
     setAggregateRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -290,6 +302,7 @@ export const ImportFieldsFromTabModal = ({
         return;
       }
       try {
+        const sourceLabel = resolveSourceLabel();
         const combinedField = buildCombinedField({
           label: combineLabel,
           keys: selectedOrder,
@@ -298,7 +311,11 @@ export const ImportFieldsFromTabModal = ({
           takenKeys: [...currentKeys],
           sourceFields,
         });
-        onImport?.({ combinedField, sourceView: sourceHomeView });
+        onImport?.({
+          combinedField: { ...combinedField, sharedFromLabel: sourceLabel },
+          sourceView: sourceHomeView,
+          sourceLabel,
+        });
         onClose?.();
       } catch (err) {
         setError(err?.message || 'Could not build the combined column.');
@@ -309,21 +326,48 @@ export const ImportFieldsFromTabModal = ({
     const uniqueRowKeys = uniqueMode ? normalizeUniqueRowKeys(selectedOrder) : [];
     const uniqueRowAggregates = uniqueMode
       ? normalizeUniqueRowAggregates(
-          aggregateRules.map((r) => ({
-            op: r.op,
-            targetKey: r.targetKey,
-            sourceKey: r.sourceKey,
-          })),
-        )
+        aggregateRules.map((r) => ({
+          op: r.op,
+          targetKey: r.targetKey,
+          sourceKey: r.sourceKey,
+        })),
+      )
       : [];
     if (uniqueMode && aggregateRules.length && uniqueRowAggregates.length !== aggregateRules.length) {
       setError('Each result needs a target field; Sum also needs a source field.');
       return;
     }
+    const sourceLabel = resolveSourceLabel();
     const pickedByKey = new Map();
+    const taken = new Set(currentKeys);
+    let renamedCount = 0;
     for (const key of selectedOrder) {
       const f = sourceFields.find((x) => x.key === key);
-      if (f && !currentKeys.has(f.key)) pickedByKey.set(f.key, f);
+      if (!f) continue;
+      // Unique import only pulls in keys that are not already on this page.
+      if (uniqueMode) {
+        if (!currentKeys.has(f.key)) pickedByKey.set(f.key, f);
+        continue;
+      }
+      // Never duplicate the shared center identity column.
+      if (f.key === CENTER_CODE_KEY && currentKeys.has(f.key)) continue;
+      if (!taken.has(f.key)) {
+        pickedByKey.set(f.key, f);
+        taken.add(f.key);
+        continue;
+      }
+      // Same key already on page → independent copy with a source-prefixed key.
+      const newKey = uniquePrefixedImportKey(f.key, sourceLabel, taken);
+      const { sharedFromView: _priorHome, ...rest } = f;
+      pickedByKey.set(newKey, {
+        ...rest,
+        key: newKey,
+        sharedFromView: undefined,
+        sharedFromLabel: sourceLabel,
+        importRenamedFrom: f.key,
+      });
+      taken.add(newKey);
+      renamedCount += 1;
     }
     // Sum sources from Center date-shifts (e.g. Max all day) should travel with the import.
     if (uniqueMode) {
@@ -343,7 +387,11 @@ export const ImportFieldsFromTabModal = ({
     }
     const picked = Array.from(pickedByKey.values());
     if (!picked.length && !uniqueRowKeys.length) {
-      setError('Select at least one field that is not already on this page.');
+      setError(
+        uniqueMode
+          ? 'Select at least one field that is not already on this page.'
+          : 'Select at least one field to import.',
+      );
       return;
     }
     if (uniqueMode && uniqueRowKeys.length < 1) {
@@ -353,6 +401,8 @@ export const ImportFieldsFromTabModal = ({
     onImport?.({
       fields: picked,
       sourceView: sourceHomeView,
+      sourceLabel,
+      renamedCount,
       ...(uniqueRowKeys.length ? { uniqueRowKeys } : {}),
       ...(uniqueRowAggregates.length ? { uniqueRowAggregates } : {}),
     });
@@ -385,50 +435,50 @@ export const ImportFieldsFromTabModal = ({
         </header>
 
         <div className="import-fields-controls">
-        {presetMode ? (
-          (presetSources || []).length === 0 ? (
-            <p className="import-fields-empty">
-              Create at least one other preset first (e.g. Center list for this service), then import its columns here.
-            </p>
+          {presetMode ? (
+            (presetSources || []).length === 0 ? (
+              <p className="import-fields-empty">
+                Create at least one other preset first (e.g. Center list for this service), then import its columns here.
+              </p>
+            ) : (
+              <div className="import-fields-source">
+                <span>From</span>
+                <SearchableSelect
+                  ariaLabel="Source preset"
+                  value={String(sourcePresetId)}
+                  onChange={(v) => setSourcePresetId(v)}
+                  options={(presetSources || []).map((p) => ({
+                    value: String(p.id),
+                    label: `${presetLabel(p)} (${p.fieldCount ?? p.fields?.length ?? 0} fields)`,
+                  }))}
+                  searchPlaceholder="Search presets…"
+                />
+              </div>
+            )
           ) : (
             <div className="import-fields-source">
               <span>From</span>
               <SearchableSelect
-                ariaLabel="Source preset"
-                value={String(sourcePresetId)}
-                onChange={(v) => setSourcePresetId(v)}
-                options={(presetSources || []).map((p) => ({
-                  value: String(p.id),
-                  label: `${presetLabel(p)} (${p.fieldCount ?? p.fields?.length ?? 0} fields)`,
-                }))}
-                searchPlaceholder="Search presets…"
+                ariaLabel="Source tab"
+                value={sourceView}
+                onChange={(v) => setSourceView(v)}
+                options={tabOptions.map((v) => ({ value: v.key, label: v.label }))}
               />
             </div>
-          )
-        ) : (
-          <div className="import-fields-source">
-            <span>From</span>
-            <SearchableSelect
-              ariaLabel="Source tab"
-              value={sourceView}
-              onChange={(v) => setSourceView(v)}
-              options={tabOptions.map((v) => ({ value: v.key, label: v.label }))}
-            />
-          </div>
-        )}
+          )}
 
-        {sourceFields.length > 6 && (
-          <label className="import-fields-search">
-            <Search size={14} aria-hidden="true" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search fields…"
-              aria-label="Search fields"
-            />
-          </label>
-        )}
+          {sourceFields.length > 6 && (
+            <label className="import-fields-search">
+              <Search size={14} aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search fields…"
+                aria-label="Search fields"
+              />
+            </label>
+          )}
 
         </div>
 
@@ -447,60 +497,106 @@ export const ImportFieldsFromTabModal = ({
             </p>
           ) : !listFields.length ? (
             <p className="import-fields-empty">
-              {q ? 'No fields match your search.' : 'Every field from the source is already in this list.'}
+              {q ? 'No fields match your search.' : 'No fields to show.'}
             </p>
           ) : (
-            listFields.map((f) => (
-              <label key={f.key} className={`import-fields-row${uniqueMode && selected.has(f.key) ? ' is-unique' : ''}`}>
-                <input
-                  type="checkbox"
-                  checked={selected.has(f.key)}
-                  onChange={() => toggle(f.key)}
-                />
-                <span className="import-fields-label">{f.label || f.key}</span>
-                <code className="import-fields-key">{f.key}</code>
-                {f.key === CENTER_CODE_KEY && <span className="import-fields-badge">shared key</span>}
-                {uniqueMode && currentKeys.has(f.key) && !selected.has(f.key) && (
-                  <span className="import-fields-badge on-page">on page</span>
-                )}
-                {uniqueMode && selected.has(f.key) && (
-                  <span className="import-fields-badge unique">
-                    unique · {selectedOrder.indexOf(f.key) + 1}
-                  </span>
-                )}
-                {combineMode && !uniqueMode && selected.has(f.key) && (
-                  <span className="import-fields-ord">#{selectedOrder.indexOf(f.key) + 1}</span>
-                )}
-              </label>
-            ))
+            listFields.map((f) => {
+              const onPage = currentKeys.has(f.key);
+              const willRename =
+                !combineMode && !uniqueMode && onPage && f.key !== CENTER_CODE_KEY;
+              return (
+                <label key={f.key} className={`import-fields-row${uniqueMode && selected.has(f.key) ? ' is-unique' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(f.key)}
+                    onChange={() => toggle(f.key)}
+                    disabled={!combineMode && !uniqueMode && onPage && f.key === CENTER_CODE_KEY}
+                  />
+                  <span className="import-fields-label">{f.label || f.key}</span>
+                  <code className="import-fields-key">{f.key}</code>
+                  {f.key === CENTER_CODE_KEY && <span className="import-fields-badge">shared key</span>}
+                  {willRename && (
+                    <span className="import-fields-badge on-page" title="Key already used — import will prefix the key from the source name">
+                      rename key
+                    </span>
+                  )}
+                  {uniqueMode && onPage && !selected.has(f.key) && (
+                    <span className="import-fields-badge on-page">on page</span>
+                  )}
+                  {uniqueMode && selected.has(f.key) && (
+                    <span className="import-fields-badge unique">
+                      unique · {selectedOrder.indexOf(f.key) + 1}
+                    </span>
+                  )}
+                  {combineMode && !uniqueMode && selected.has(f.key) && (
+                    <span className="import-fields-ord">#{selectedOrder.indexOf(f.key) + 1}</span>
+                  )}
+                </label>
+              );
+            })
           )}
           {!combineMode && !uniqueMode && alreadyHere.length > 0 && (
-            <details className="import-fields-skipped" open={listFields.length === 0}>
-              <summary>{alreadyHere.length} already on this page</summary>
-              <p className="import-fields-skip">{alreadyHere.map((f) => f.label || f.key).join(', ')}</p>
-              <p className="import-fields-skip">
-                Turn on <strong>Unique import</strong> below to pick these again for unique key / count / sum.
-              </p>
-            </details>
+            <p className="import-fields-skip">
+              Fields marked <strong>rename key</strong> keep your label; the key gets a source prefix
+              (e.g. <code>frisking_vendor_name</code>).
+            </p>
           )}
         </div>
 
         {(selectedOrder.length >= 1 || alreadyHere.length > 0 || uniqueMode || focusUnique) && (
           <div className="import-fields-combine" ref={uniquePanelRef}>
-            <label className="import-fields-combine-toggle">
-              <input
-                type="checkbox"
-                checked={uniqueMode}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setUniqueMode(on);
-                  if (on) setCombineMode(false);
-                }}
-              />
-              <span>Unique import</span>
-            </label>
-            {uniqueMode && (
-              <>
+            <div className="import-fields-unique-head">
+              <label className="import-fields-combine-toggle">
+                <input
+                  type="checkbox"
+                  checked={uniqueMode}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setUniqueMode(on);
+                    if (on) {
+                      setCombineMode(false);
+                      setUniqueDetailsOpen(true);
+                    }
+                  }}
+                />
+                <span>Unique import</span>
+              </label>
+              {uniqueMode ? (
+                <button
+                  type="button"
+                  className="import-fields-unique-collapse"
+                  onClick={() => setUniqueDetailsOpen((v) => !v)}
+                  aria-expanded={uniqueDetailsOpen}
+                  aria-controls="import-fields-unique-details"
+                  title={uniqueDetailsOpen ? 'Collapse Unique import details' : 'Expand Unique import details'}
+                >
+                  <ChevronDown
+                    size={16}
+                    className={`import-fields-unique-chevron${uniqueDetailsOpen ? ' is-open' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span className="import-fields-unique-collapse-text">
+                    {uniqueDetailsOpen ? 'Hide' : 'Show'}
+                  </span>
+                </button>
+              ) : null}
+            </div>
+            {uniqueMode && !uniqueDetailsOpen && (
+              <p className="import-fields-skip import-fields-unique-summary">
+                {uniqueKeysPreview ? (
+                  <>
+                    Key <strong>{uniqueKeysPreview}</strong>
+                    {aggregateRules.length
+                      ? ` · ${aggregateRules.length} result field${aggregateRules.length === 1 ? '' : 's'}`
+                      : ''}
+                  </>
+                ) : (
+                  'Unique import is on — expand to edit keys and count / sum.'
+                )}
+              </p>
+            )}
+            {uniqueMode && uniqueDetailsOpen && (
+              <div id="import-fields-unique-details" className="import-fields-unique-details">
                 <p className="import-fields-skip">
                   Only one row per combination of the selected fields will show on this page
                   {uniqueKeysPreview ? (
@@ -622,7 +718,7 @@ export const ImportFieldsFromTabModal = ({
                     </p>
                   ) : null}
                 </div>
-              </>
+              </div>
             )}
             {selectedOrder.length >= 2 && (
               <label className="import-fields-combine-toggle">

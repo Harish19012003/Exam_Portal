@@ -278,8 +278,9 @@ const normalizeLimit = (limit) =>
 
 /**
  * Paginated center rows for one exam.
- * Pass `{ all: true }` only for rare internal scans (e.g. uniqueness) — not for list APIs.
- * Optional `search` / `searchKeys` filter across the full exam set, then page.
+ * Pass `{ all: true }` for Unique import (and similar) — every center, no page-size cap.
+ * Optional `search` / `searchKeys` / `filters` match across the full exam set, then page
+ * (or return every match when `all: true`).
  */
 export const listRows = async (tableId, fields, options = {}) => {
   const em = getEm();
@@ -290,26 +291,40 @@ export const listRows = async (tableId, fields, options = {}) => {
 
   const search = typeof options.search === 'string' ? options.search : '';
   const searchKeys = Array.isArray(options.searchKeys) ? options.searchKeys.map(String) : undefined;
-  const wantsSearch = hasActiveQuery({ search, searchKeys });
+  const filters =
+    options.filters && typeof options.filters === 'object' && !Array.isArray(options.filters)
+      ? options.filters
+      : undefined;
+  const query = { search, searchKeys, filters };
+  const wantsQuery = hasActiveQuery(query);
+  const fetchAll = Boolean(options.all);
 
-  // Search must scan all rows first, then page — otherwise toolbar search only hits the current page.
-  if (wantsSearch && !options.all) {
-    const page = normalizePage(options.page);
-    const limit = normalizeLimit(options.limit);
+  // Search/filters (and Unique import `all`) must scan every row — never a 500-row page slice.
+  if (wantsQuery || fetchAll) {
     const raw = await em.find(ExamRow, { exam_id: examId }, { orderBy: { sys_created_at: 'DESC' } });
     const userMap = await loadUsers(
       em,
       raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
     );
     const mapped = raw.map((r) => mapRow(r, fields, userMap));
-    const matched = mapped.filter((r) =>
-      rowMatchesQuery(r.values || {}, { search, searchKeys }),
-    );
+    const matched = wantsQuery
+      ? mapped.filter((r) => rowMatchesQuery(r.values || {}, query))
+      : mapped;
     const total = matched.length;
+    if (fetchAll) {
+      return {
+        rows: matched,
+        total,
+        page: 1,
+        limit: total,
+        totalPages: 1,
+      };
+    }
+    const page = normalizePage(options.page);
+    const limit = normalizeLimit(options.limit);
     const offset = (page - 1) * limit;
-    const pageRows = matched.slice(offset, offset + limit);
     return {
-      rows: pageRows,
+      rows: matched.slice(offset, offset + limit),
       total,
       page,
       limit,
@@ -318,29 +333,27 @@ export const listRows = async (tableId, fields, options = {}) => {
   }
 
   const total = await em.count(ExamRow, { exam_id: examId });
-  const findOpts = { orderBy: { sys_created_at: 'DESC' } };
-  let page = 1;
-  let limit = total;
-
-  if (!options.all) {
-    page = normalizePage(options.page);
-    limit = normalizeLimit(options.limit);
-    findOpts.limit = limit;
-    findOpts.offset = (page - 1) * limit;
-  }
-
-  const rows = await em.find(ExamRow, { exam_id: examId }, findOpts);
+  const page = normalizePage(options.page);
+  const limit = normalizeLimit(options.limit);
+  const rows = await em.find(
+    ExamRow,
+    { exam_id: examId },
+    {
+      orderBy: { sys_created_at: 'DESC' },
+      limit,
+      offset: (page - 1) * limit,
+    },
+  );
   const userMap = await loadUsers(
     em,
     rows.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
   );
-  const totalPages = options.all ? 1 : Math.max(1, Math.ceil(total / limit) || 1);
   return {
     rows: rows.map((r) => mapRow(r, fields, userMap)),
     total,
     page,
-    limit: options.all ? total : limit,
-    totalPages,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit) || 1),
   };
 };
 

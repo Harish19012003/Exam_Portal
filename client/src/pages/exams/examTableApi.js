@@ -36,20 +36,37 @@ export const saveExamTableConfig = async (
     }),
   );
 
-/** Paginated center rows. Defaults: page=1, limit=100 (server max 500). */
+/** Stable query-key / cache signature for header filters. */
+export const examRowsFiltersSig = (filters) => {
+  if (!filters || typeof filters !== 'object') return '';
+  const keys = Object.keys(filters).filter((k) => filters[k] != null && filters[k] !== '').sort();
+  if (!keys.length) return '';
+  const slim = {};
+  keys.forEach((k) => {
+    slim[k] = filters[k];
+  });
+  return JSON.stringify(slim);
+};
+
+/** Paginated center rows. Defaults: page=1, limit=100 (server max 500). Pass `all: true` for Unique import. */
 export const listExamRows = async (
   examId,
-  { page = 1, limit = 100, search = '', searchKeys } = {},
+  { page = 1, limit = 100, search = '', searchKeys, filters, all = false } = {},
 ) =>
   unwrap(
     await apiClient.get(`${base(examId)}/rows`, {
       params: {
-        page,
-        limit,
+        ...(all
+          ? { all: 1 }
+          : {
+              page,
+              limit,
+            }),
         ...(String(search || '').trim() ? { search: String(search).trim() } : {}),
         ...(Array.isArray(searchKeys) && searchKeys.length
           ? { searchKeys: searchKeys.join(',') }
           : {}),
+        ...(examRowsFiltersSig(filters) ? { filters: JSON.stringify(filters) } : {}),
       },
     }),
   );

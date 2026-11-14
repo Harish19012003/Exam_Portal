@@ -190,6 +190,10 @@ interface DynamicTableProps {
     search?: string;
     /** Parent applies search across all records (API or full in-memory set). */
     onSearchChange?: (search: string) => void;
+    /** Controlled header filters when the page owns fetching. */
+    filters?: Record<string, FilterValue>;
+    /** Parent applies filters across all records (API), then returns the page. */
+    onFiltersChange?: (filters: Record<string, FilterValue>) => void;
   };
   /**
    * Optional handle for pages that bulk-toggle column visibility
@@ -354,14 +358,42 @@ export function DynamicTable({
   /** One filter value per field: quick-bar fields are owned by the quick-filters store. */
   const handleSyncedFilterChange = useCallback(
     (colKey: string, filter: FilterValue | null) => {
+      let nextHeaderFilters: Record<string, FilterValue> = { ...state.filters };
       if (quickFieldKeySet.has(colKey)) {
         quickFiltersStore.setValue(colKey, filter);
-        if (state.filters[colKey]) state.handleFilterChange(colKey, null);
+        if (state.filters[colKey]) {
+          state.handleFilterChange(colKey, null);
+          delete nextHeaderFilters[colKey];
+        }
       } else {
         state.handleFilterChange(colKey, filter);
+        if (filter === null) delete nextHeaderFilters[colKey];
+        else nextHeaderFilters[colKey] = filter;
+      }
+      // Server-paginated exams: filters must hit the API (full dataset), not only this page.
+      if (serverPagination?.onFiltersChange) {
+        const forServer = { ...nextHeaderFilters };
+        if (quickFiltersStore.enabled) {
+          quickFiltersStore.fieldKeys.forEach((key) => {
+            delete forServer[key];
+          });
+          Object.assign(forServer, quickFiltersStore.activeFilters);
+          if (quickFieldKeySet.has(colKey)) {
+            if (filter === null) delete forServer[colKey];
+            else forServer[colKey] = filter;
+          }
+        }
+        serverPagination.onFiltersChange(forServer);
+        serverPagination.onPageChange?.(1);
       }
     },
-    [quickFieldKeySet, quickFiltersStore, state.filters, state.handleFilterChange],
+    [
+      quickFieldKeySet,
+      quickFiltersStore,
+      state.filters,
+      state.handleFilterChange,
+      serverPagination,
+    ],
   );
 
   const handleFilterColumn = useCallback(
@@ -591,6 +623,10 @@ export function DynamicTable({
   const handleClearAllSynced = useCallback(() => {
     state.handleClearAll();
     if (serverPagination?.onSearchChange) serverPagination.onSearchChange('');
+    if (serverPagination?.onFiltersChange) {
+      serverPagination.onFiltersChange({});
+      serverPagination.onPageChange?.(1);
+    }
     if (quickFiltersStore.enabled) quickFiltersStore.clearValues();
   }, [state.handleClearAll, quickFiltersStore, serverPagination]);
 
@@ -599,6 +635,7 @@ export function DynamicTable({
   const handlePageChange = serverPagination?.onPageChange ?? state.setPage;
   const handlePageSizeChange = serverPagination?.onPageSizeChange ?? state.setPageSize;
   const serverSearchActive = Boolean(serverPagination?.onSearchChange);
+  const serverFiltersActive = Boolean(serverPagination?.onFiltersChange);
   const toolbarSearch = serverSearchActive
     ? String(serverPagination?.search ?? '')
     : state.search;
@@ -625,6 +662,7 @@ export function DynamicTable({
       state.columnVisibility,
       serverPagination ? serverPagination.totalRowCount : null,
       serverSearchActive,
+      serverFiltersActive,
     );
 
   const customRowHeight = Number(activeFeatures.rowHeight) || 0;

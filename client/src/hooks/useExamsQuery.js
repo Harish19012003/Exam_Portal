@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queryKeys';
 import { listExams } from '../pages/exams/examApi';
-import { listExamRows } from '../pages/exams/examTableApi';
+import { examRowsFiltersSig, listExamRows } from '../pages/exams/examTableApi';
 import { fetchExamTableConfig } from '../pages/exams/examTableConfig';
 
 export const useExamsList = (options = {}) =>
@@ -22,37 +22,47 @@ export const useExamTableConfig = (options = {}) =>
 /**
  * Server-paginated center rows for one exam.
  * Returns `{ rows, total, page, limit, totalPages }`.
- * `search` is applied on the server across the full exam (not only the current page).
+ * `search` / `filters` are applied on the server across the full exam (not only the current page).
  */
 export const useExamRows = (
   examId,
-  { page = 1, limit = 100, search = '', searchKeys, enabled, ...options } = {},
+  { page = 1, limit = 100, search = '', searchKeys, filters, all = false, enabled, ...options } = {},
 ) => {
   const q = String(search || '').trim();
+  const filtersSig = examRowsFiltersSig(filters);
+  const fetchAll = Boolean(all);
   return useQuery({
-    queryKey: queryKeys.exams.rows(examId, page, limit, q),
+    queryKey: queryKeys.exams.rows(examId, page, limit, q, filtersSig, fetchAll),
     queryFn: async () => {
-      const data = await listExamRows(examId, { page, limit, search: q, searchKeys });
+      const data = await listExamRows(examId, {
+        page,
+        limit,
+        search: q,
+        searchKeys,
+        filters: filtersSig ? filters : undefined,
+        all: fetchAll,
+      });
       if (Array.isArray(data)) {
         return {
           rows: data,
           total: data.length,
-          page,
-          limit,
-          totalPages: Math.max(1, Math.ceil(data.length / limit) || 1),
+          page: 1,
+          limit: data.length,
+          totalPages: 1,
         };
       }
       const rows = Array.isArray(data?.rows) ? data.rows : [];
       const total = Number(data?.total) || rows.length;
-      const resolvedLimit = Number(data?.limit) || limit;
-      const resolvedPage = Number(data?.page) || page;
+      const resolvedLimit = fetchAll ? total || rows.length : Number(data?.limit) || limit;
+      const resolvedPage = fetchAll ? 1 : Number(data?.page) || page;
       return {
         rows,
         total,
         page: resolvedPage,
         limit: resolvedLimit,
-        totalPages:
-          Number(data?.totalPages) || Math.max(1, Math.ceil(total / resolvedLimit) || 1),
+        totalPages: fetchAll
+          ? 1
+          : Number(data?.totalPages) || Math.max(1, Math.ceil(total / resolvedLimit) || 1),
       };
     },
     enabled: enabled !== undefined ? enabled : Boolean(examId),

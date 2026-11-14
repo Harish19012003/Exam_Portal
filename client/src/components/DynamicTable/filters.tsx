@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { isFieldColumn } from './types';
 import type { FilterComponentProps } from './types';
 import { STATUS_COLORS } from './utils';
+
+/** Show search in multi-checkbox filters once the list is this long (same idea as SearchableSelect). */
+const SET_FILTER_SEARCH_THRESHOLD = 8;
 
 // ─── Shared panel styles ───────────────────────────────────────────────────────
 
@@ -132,6 +135,13 @@ export function SetFilter({
   const options = isFieldColumn(column) ? (column.options ?? []) : [];
   const cf = currentFilter as any;
   const [selected, setSelected] = useState<string[]>(cf?.value ?? []);
+  const [query, setQuery] = useState('');
+  const showSearch = options.length >= SET_FILTER_SEARCH_THRESHOLD;
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((opt) => String(opt).toLowerCase().includes(q));
+  }, [options, query]);
 
   useEffect(() => {
     onDraftSelectionChange?.(selected.length, options.length);
@@ -151,35 +161,62 @@ export function SetFilter({
 
   return (
     <div className="flex flex-col gap-1">
+      {showSearch && (
+        <input
+          type="search"
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              if (query) {
+                e.stopPropagation();
+                setQuery('');
+              } else {
+                onClose();
+              }
+            }
+          }}
+          placeholder="Search options…"
+          aria-label={`Search ${column.label} options`}
+          className={inputCls(isDarkMode)}
+        />
+      )}
       <div className="max-h-[160px] overflow-y-auto flex flex-col gap-0.5">
-        {options.map(opt => {
-          const colors = STATUS_COLORS[opt];
-          const isChecked = selected.includes(opt);
-          return (
-            <label
-              key={opt}
-              className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors
-                ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}`}
-            >
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={() => toggle(opt)}
-                className="w-3.5 h-3.5 accent-[#13C296] rounded cursor-pointer"
-                aria-label={opt}
-              />
-              {colors ? (
-                <span className={`flex items-center gap-1.5 text-[12px] font-semibold
-                  ${isDarkMode ? colors.dark : colors.light} px-2 py-0.5 rounded-full`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
-                  {opt}
-                </span>
-              ) : (
-                <span className={`text-[13px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{opt}</span>
-              )}
-            </label>
-          );
-        })}
+        {filteredOptions.length === 0 ? (
+          <p className={`px-2 py-2 text-[12px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+            {query.trim() ? 'No options match.' : 'No options.'}
+          </p>
+        ) : (
+          filteredOptions.map(opt => {
+            const colors = STATUS_COLORS[opt];
+            const isChecked = selected.includes(opt);
+            return (
+              <label
+                key={opt}
+                className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors
+                  ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggle(opt)}
+                  className="w-3.5 h-3.5 accent-[#13C296] rounded cursor-pointer"
+                  aria-label={opt}
+                />
+                {colors ? (
+                  <span className={`flex items-center gap-1.5 text-[12px] font-semibold
+                    ${isDarkMode ? colors.dark : colors.light} px-2 py-0.5 rounded-full`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
+                    {opt}
+                  </span>
+                ) : (
+                  <span className={`text-[13px] ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{opt}</span>
+                )}
+              </label>
+            );
+          })
+        )}
       </div>
       <div className="flex gap-2 mt-2">
         <BtnClear onClick={() => { onFilterChange(null); onClose(); }} />
