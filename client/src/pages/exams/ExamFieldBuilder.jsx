@@ -186,6 +186,9 @@ export const ExamFieldBuilder = ({
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [lookupSources, setLookupSources] = useState([]);
   const [fieldSearch, setFieldSearch] = useState('');
+  // Multi-select mode for deleting several fields with one confirmation.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -694,6 +697,46 @@ export const ExamFieldBuilder = ({
     );
   };
 
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+  const toggleSelected = (id) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleDeleteSelected = async () => {
+    const targets = fields.filter((f) => selectedIds.has(f.id));
+    if (targets.length === 0) return;
+    const notes = [...new Set(targets.map((t) => (deleteConfirm ? deleteConfirm(t) : '')).filter(Boolean))];
+    const names = targets.slice(0, 5).map((t) => `"${t.label}"`).join(', ') + (targets.length > 5 ? ` and ${targets.length - 5} more` : '');
+    const message = deleteConfirm && notes.length
+      ? `Delete ${targets.length} fields (${names})?\n\n${notes.slice(0, 3).join('\n\n')}`
+      : `Delete ${targets.length} field${targets.length === 1 ? '' : 's'}: ${names}?`;
+    const ok = await confirm({
+      title: `Delete ${targets.length} field${targets.length === 1 ? '' : 's'}?`,
+      message,
+      confirmLabel: `Delete ${targets.length}`,
+      destructive: true,
+    });
+    if (!ok) return;
+    const removedKeys = new Set(targets.map((t) => t.key));
+    onChange(
+      fields
+        .filter((f) => !selectedIds.has(f.id) && !(isLinkedField(f) && removedKeys.has(f.linkedFrom.fieldKey)))
+        .map((f, i) => ({
+          ...f,
+          order: i + 1,
+          sameAsFieldKey: removedKeys.has(f.sameAsFieldKey) ? '' : f.sameAsFieldKey,
+        })),
+    );
+    exitSelectMode();
+  };
+
   const reorderFields = (fromId, toId) => {
     if (!fromId || !toId || fromId === toId) return;
     const fromIndex = fields.findIndex((f) => f.id === fromId);
@@ -755,6 +798,15 @@ export const ExamFieldBuilder = ({
                           : fields.length}
                       </span>
                       <span className="exams-field-section-actions">
+                        <button
+                          type="button"
+                          className="exams-text-add-btn"
+                          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                          aria-pressed={selectMode}
+                        >
+                          <SquareCheck size={13} />
+                          {selectMode ? 'Cancel' : 'Select'}
+                        </button>
                         <button type="button" className="exams-text-add-btn" onClick={openBulk}>
                           <ListPlus size={13} />
                           Bulk add
@@ -798,6 +850,34 @@ export const ExamFieldBuilder = ({
                       )}
                     </div>
 
+                    {selectMode && (
+                      <div className="exams-field-select-bar" role="toolbar" aria-label="Bulk field actions">
+                        <label className="exams-field-select-all">
+                          <input
+                            type="checkbox"
+                            checked={visibleFields.length > 0 && visibleFields.every((f) => selectedIds.has(f.id))}
+                            onChange={(e) =>
+                              setSelectedIds((prev) => {
+                                const next = new Set(prev);
+                                visibleFields.forEach((f) => (e.target.checked ? next.add(f.id) : next.delete(f.id)));
+                                return next;
+                              })
+                            }
+                          />
+                          <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}</span>
+                        </label>
+                        <button
+                          type="button"
+                          className="exams-field-select-delete"
+                          disabled={selectedIds.size === 0}
+                          onClick={handleDeleteSelected}
+                        >
+                          <Trash2 size={13} />
+                          Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                        </button>
+                      </div>
+                    )}
+
                     {visibleFields.length === 0 ? (
                       <p className="exams-field-list-empty">No fields match “{fieldSearch.trim()}”.</p>
                     ) : (
@@ -810,7 +890,7 @@ export const ExamFieldBuilder = ({
                           return (
                             <li
                               key={field.id}
-                              className={`exams-field-row${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
+                              className={`exams-field-row${selectMode && selectedIds.has(field.id) ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
                               onDragOver={
                                 canReorder
                                   ? (e) => {
@@ -839,6 +919,15 @@ export const ExamFieldBuilder = ({
                                   : undefined
                               }
                             >
+                              {selectMode && (
+                                <input
+                                  type="checkbox"
+                                  className="exams-field-row-check"
+                                  checked={selectedIds.has(field.id)}
+                                  onChange={() => toggleSelected(field.id)}
+                                  aria-label={`Select ${field.label}`}
+                                />
+                              )}
                               <button
                                 type="button"
                                 className="exams-field-drag-handle"
@@ -867,7 +956,7 @@ export const ExamFieldBuilder = ({
                               <button
                                 type="button"
                                 className="exams-field-row-main"
-                                onClick={() => openEdit(field)}
+                                onClick={() => (selectMode ? toggleSelected(field.id) : openEdit(field))}
                                 title={`Edit ${field.label}`}
                               >
                                 <span className="exams-field-icon-wrap" aria-hidden="true">
@@ -904,7 +993,7 @@ export const ExamFieldBuilder = ({
                                 </span>
                               </button>
 
-                              <div className="exams-field-row-actions">
+                              <div className="exams-field-row-actions" hidden={selectMode}>
                                 <button
                                   type="button"
                                   className="exams-icon-btn"

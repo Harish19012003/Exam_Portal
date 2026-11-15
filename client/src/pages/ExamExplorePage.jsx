@@ -1919,6 +1919,7 @@ export const ExamExplorePage = () => {
               isDarkMode={isDarkMode}
               initialColumns={tableColumns}
               initialRows={displayTableRows}
+              onRefresh={loadRows}
               layoutPrefs={layoutPrefs}
               defaultDensity="compact"
               visibilityApiRef={view === DEFAULT_EXAM_VIEW ? tableVisibilityApiRef : undefined}
