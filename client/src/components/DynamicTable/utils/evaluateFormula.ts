@@ -74,8 +74,13 @@ export function evaluateFormulaHelper(
       });
     }
 
-    expr = expr.replace(/TODAY\(\)/g, String(Math.floor(Date.now() / 86400000)));
-    expr = expr.replace(/NOW\(\)/g, String(Date.now() / 86400000));
+    expr = expr.replace(/TODAY\(\)/gi, String(Math.floor(Date.now() / 86400000)));
+    expr = expr.replace(/NOW\(\)/gi, String(Date.now() / 86400000));
+
+    // Allow if(…) / max(…) etc. — lowercase `if` is a JS keyword and would throw.
+    expr = expr.replace(/\b(if|ifs|round|max|min|abs)\s*\(/gi, (_, name: string) => {
+      return `${String(name).toUpperCase()}(`;
+    });
 
     const IF = (condition: unknown, trueVal: unknown, falseVal: unknown) =>
       condition ? trueVal : falseVal;

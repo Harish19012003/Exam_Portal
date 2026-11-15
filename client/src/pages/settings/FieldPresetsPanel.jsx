@@ -522,9 +522,20 @@ export const FieldPresetsPanel = ({
         }
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
-        enableDateShifts={false}
-        dateShifts={null}
-        onDateShiftsChange={null}
+        // Center list presets: Bulk add → Date shifts (shift format for exams).
+        enableDateShifts={form?.view === DEFAULT_EXAM_VIEW}
+        dateShifts={form?.view === DEFAULT_EXAM_VIEW ? form?.features?.dateShifts || null : null}
+        onDateShiftsChange={
+          form?.view === DEFAULT_EXAM_VIEW
+            ? (dateShifts) =>
+                patchForm({
+                  features: {
+                    ...(form?.features && typeof form.features === 'object' ? form.features : {}),
+                    dateShifts,
+                  },
+                })
+            : null
+        }
         uniqueRowKeys={form?.features?.uniqueRowKeys}
         uniqueRowAggregates={form?.features?.uniqueRowAggregates}
         onUniqueImportChange={(payload) => {
