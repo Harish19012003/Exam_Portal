@@ -937,8 +937,15 @@ export function DynamicTable({
           hasActiveFilters={hasActiveFilters}
           activeFilterCount={activeFilterCount}
           onClearAll={handleClearAllSynced}
-          // Pages that load from the API pass onRefresh to reload; only the demo table falls back to its sample rows.
-          onRefresh={() => (onRefresh ? void onRefresh() : state.setRows([...MOCK_ROWS]))}
+          // API pages pass onRefresh. Never inject MOCK_ROWS into server-backed tables.
+          onRefresh={() => {
+            if (onRefresh) {
+              void onRefresh();
+              return;
+            }
+            if (serverPagination) return;
+            state.setRows([...MOCK_ROWS]);
+          }}
           onOpenSidebar={() => {
             state.setActiveSidebar('columns');
             state.setOpenFilterKey(null);

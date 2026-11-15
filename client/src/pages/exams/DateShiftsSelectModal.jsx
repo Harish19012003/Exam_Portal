@@ -13,6 +13,7 @@ import {
   normalizeColumnColor,
   normalizeDateShiftsConfig,
   resolveDateShiftsConfig,
+  shiftMaxColumnLabel,
   summaryColumnLabel,
 } from './dateShiftsConfig';
 
@@ -166,14 +167,19 @@ export const DateShiftsSelectModal = ({
     },
     [applyKeyVisibility, isKeyShown],
   );
-  // One row per date (plus the all-day column), with labels shortened to the shift name.
+  // Lead columns (shift Max + all day), then one row per date — labels shortened to the shift name.
   const previewGroups = useMemo(() => {
     const groups = [];
     const byDate = new Map();
+    let acrossGroup = null;
     previewFields.forEach((f) => {
       const kind = f.dateShift?.kind;
-      if (kind === 'allDay') {
-        groups.unshift({ key: '__all', title: 'All days', items: [{ ...f, shortLabel: f.label }] });
+      if (kind === 'shiftMax' || kind === 'allDay') {
+        if (!acrossGroup) {
+          acrossGroup = { key: '__all', title: 'Across dates', items: [] };
+          groups.unshift(acrossGroup);
+        }
+        acrossGroup.items.push({ ...f, shortLabel: f.label });
         return;
       }
       const id = f.dateShift?.dateId || f.key;
@@ -199,6 +205,17 @@ export const DateShiftsSelectModal = ({
 
   const formatChips = useMemo(() => {
     const chips = [];
+    template.shifts.forEach((s) => {
+      if (!s?.maxEnabled) return;
+      const shiftId = String(s?.id || '');
+      chips.push({
+        key: `smax:${shiftId || s.label}`,
+        groupId: shiftId ? `shiftMax:${shiftId}` : null,
+        label: shiftMaxColumnLabel(s),
+        kind: 'max',
+        color: normalizeColumnColor(s.color),
+      });
+    });
     if (template.allDayColumn?.enabled) {
       chips.push({
         key: 'allDay',

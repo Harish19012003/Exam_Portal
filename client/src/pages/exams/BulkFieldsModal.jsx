@@ -54,6 +54,7 @@ import {
   normalizeDateShiftColumnWidths,
   normalizeDateShiftsConfig,
   resolveDateShiftColumnWidth,
+  shiftMaxColumnLabel,
   summaryColumnLabel,
 } from './dateShiftsConfig';
 
@@ -705,6 +706,9 @@ export const BulkFieldsModal = ({
   }, [shiftDraft, initialDateShifts, showDateShifts]);
   const columnWidths = normalizeDateShiftColumnWidths(shiftDraft.columnWidths);
   const filledShiftCount = shiftDraft.shifts.filter((s) => String(s.label || '').trim()).length;
+  const shiftMaxCount = shiftDraft.shifts.filter(
+    (s) => String(s.label || '').trim() && s.maxEnabled,
+  ).length;
   const summaryOn = Boolean(shiftDraft.summaryColumn?.enabled);
   const allDayOn = Boolean(shiftDraft.allDayColumn?.enabled);
   const summaryHeader = summaryColumnLabel(shiftDraft.summaryColumn);
@@ -1396,6 +1400,12 @@ export const BulkFieldsModal = ({
       ),
     }));
 
+  const updateShiftMaxEnabled = (id, maxEnabled) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      shifts: prev.shifts.map((s) => (s.id === id ? { ...s, maxEnabled: Boolean(maxEnabled) } : s)),
+    }));
+
   const removeShiftRow = (id) =>
     setShiftDraft((prev) => {
       const next = prev.shifts.filter((s) => s.id !== id);
@@ -1770,6 +1780,8 @@ export const BulkFieldsModal = ({
             <div className="exams-date-shifts-layout">
               <section className="exams-date-shifts-panel" aria-label="Date shift columns">
                 <p className="exams-date-shifts-flow" aria-hidden="true">
+                  <span>Shift Max</span>
+                  <span aria-hidden="true">→</span>
                   <span>All day</span>
                   <span aria-hidden="true">→</span>
                   <span>Shifts</span>
@@ -1867,7 +1879,7 @@ export const BulkFieldsModal = ({
                       <button
                         type="button"
                         className="exams-bulk-info-btn"
-                        title="Type each column name. The same set repeats under every exam date on Center list."
+                        title="Type each column name. The same set repeats under every exam date on Center list. Turn on Max to also add a Max column for that shift across all dates."
                         aria-label="About shift columns"
                       >
                         <Info size={13} />
@@ -1884,10 +1896,12 @@ export const BulkFieldsModal = ({
                       const dragging = dragShiftId === shift.id;
                       const dragOver =
                         dragOverShiftId === shift.id && dragShiftId && dragShiftId !== shift.id;
+                      const maxOn = Boolean(shift.maxEnabled);
+                      const shiftLabel = String(shift.label || '').trim() || `Shift ${index + 1}`;
                       return (
                         <div
                           key={shift.id}
-                          className={`exams-date-shifts-row${dragging ? ' is-dragging' : ''}${dragOver ? ' is-drag-over' : ''}`}
+                          className={`exams-date-shifts-row${dragging ? ' is-dragging' : ''}${dragOver ? ' is-drag-over' : ''}${maxOn ? ' has-max' : ''}`}
                           role="listitem"
                           onDragOver={(e) => {
                             if (!dragShiftId) return;
@@ -1953,6 +1967,18 @@ export const BulkFieldsModal = ({
                               shiftDraft.shifts.length === 1
                             }
                           />
+                          <label
+                            className={`exams-date-shifts-max-toggle${maxOn ? ' is-on' : ''}`}
+                            title={`Add ${shiftMaxColumnLabel({ label: shiftLabel })} — max of this shift across all exam dates`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={maxOn}
+                              onChange={(e) => updateShiftMaxEnabled(shift.id, e.target.checked)}
+                              aria-label={`Enable Max column for ${shiftLabel}`}
+                            />
+                            <span>Max</span>
+                          </label>
                           <DateShiftPxInput
                             label={`Shift ${index + 1} width`}
                             value={shift.width ?? columnWidths.shift}
@@ -2062,7 +2088,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title={`Each selected date gets this group. Renaming a date later keeps the values. Dates are chosen later on the Center list. ${filledShiftCount} shift${filledShiftCount === 1 ? '' : 's'}${summaryOn ? ` + ${summaryHeader}` : ''} per date.${allDayOn ? ` ${allDayHeader} sits before all date columns.` : ''}`}
+                      title={`Each selected date gets this group. Renaming a date later keeps the values. Dates are chosen later on the Center list. ${filledShiftCount} shift${filledShiftCount === 1 ? '' : 's'}${summaryOn ? ` + ${summaryHeader}` : ''} per date.${shiftMaxCount ? ` ${shiftMaxCount} shift Max column${shiftMaxCount === 1 ? '' : 's'} before date groups.` : ''}${allDayOn ? ` ${allDayHeader} sits before all date columns.` : ''}`}
                       aria-label="About preview"
                     >
                       <Info size={13} />
@@ -2076,6 +2102,7 @@ export const BulkFieldsModal = ({
                       const filledShifts = shiftDraft.shifts.filter((s) =>
                         String(s.label || '').trim(),
                       );
+                      const maxShifts = filledShifts.filter((s) => s.maxEnabled);
                       const labels = filledShifts.map((s) => String(s.label).trim());
                       const days = [
                         { key: 'd1', title: '10-Nov-2026', dayIndex: 1 },
@@ -2098,17 +2125,17 @@ export const BulkFieldsModal = ({
                               backgroundColor: hexWithAlpha(hex, 0.12),
                             }
                           : undefined;
+                      const leadColSpan = maxShifts.length + (allDayOn ? 1 : 0);
                       return (
                         <table className="exams-date-shifts-sheet-table">
                           <thead>
                             <tr>
-                              {allDayOn && (
+                              {leadColSpan > 0 && (
                                 <th
-                                  rowSpan={2}
-                                  className="is-max exams-date-shifts-all-day"
-                                  style={tintStyle(allDayColor)}
+                                  colSpan={leadColSpan}
+                                  className="exams-date-shifts-lead-group"
                                 >
-                                  {allDayHeader}
+                                  Across dates
                                 </th>
                               )}
                               {days.map((d) => (
@@ -2118,6 +2145,23 @@ export const BulkFieldsModal = ({
                               ))}
                             </tr>
                             <tr>
+                              {maxShifts.map((shift) => (
+                                <th
+                                  key={`smax-${shift.id}`}
+                                  className="is-max exams-date-shifts-shift-max"
+                                  style={tintStyle(normalizeColumnColor(shift.color))}
+                                >
+                                  {shiftMaxColumnLabel(shift)}
+                                </th>
+                              ))}
+                              {allDayOn && (
+                                <th
+                                  className="is-max exams-date-shifts-all-day"
+                                  style={tintStyle(allDayColor)}
+                                >
+                                  {allDayHeader}
+                                </th>
+                              )}
                               {days.flatMap((d) =>
                                 emptyDay
                                   ? [
@@ -2149,6 +2193,19 @@ export const BulkFieldsModal = ({
                           </thead>
                           <tbody>
                             <tr>
+                              {maxShifts.map((shift) => {
+                                const shiftIndex = filledShifts.findIndex((s) => s.id === shift.id);
+                                const acrossDates = days.map((_, di) => sampleVals(di)[shiftIndex]);
+                                return (
+                                  <td
+                                    key={`smax-v-${shift.id}`}
+                                    className="is-max exams-date-shifts-shift-max"
+                                    style={tintStyle(normalizeColumnColor(shift.color))}
+                                  >
+                                    {aggregateShiftValues('max', acrossDates)}
+                                  </td>
+                                );
+                              })}
                               {allDayOn && (
                                 <td
                                   className="is-max exams-date-shifts-all-day"
@@ -2908,8 +2965,12 @@ export const BulkFieldsModal = ({
             {error ? `${error} ` : ''}
             {tab === 'dateShifts'
               ? `${filledShiftCount} shift column${filledShiftCount === 1 ? '' : 's'}${
-                  allDayOn ? ` · ${allDayHeader}` : ''
-                }${summaryOn ? ` · ${summaryHeader}` : ''}${dateShiftsDirty ? ' · unsaved' : ''}`
+                  shiftMaxCount
+                    ? ` · ${shiftMaxCount} Max`
+                    : ''
+                }${allDayOn ? ` · ${allDayHeader}` : ''}${
+                  summaryOn ? ` · ${summaryHeader}` : ''
+                }${dateShiftsDirty ? ' · unsaved' : ''}`
               : `${rows.length} rows · `}
             {tab !== 'dateShifts' &&
               (errorCount

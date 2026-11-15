@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel, isExamViewKey } from '@exam-view/shared';
 import { apiClient } from '../../api/client';
+import { useUrlState } from '../../hooks/useUrlState';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
 import {
@@ -41,6 +42,8 @@ const pairKey = (serviceValue, view) =>
   `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
 
 /** Stable JSON payload for Export / Import round-trips. */
+const SORT_KEYS = ['default', 'name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'fields-desc', 'fields-asc', 'service-asc'];
+
 export const buildFieldPresetsExportPayload = (presets) =>
   (Array.isArray(presets) ? presets : [])
     .map((p) => {
@@ -132,6 +135,7 @@ export const FieldPresetsPanel = ({
   const [query, setQuery] = useState('');
   const [serviceFilter, setServiceFilter] = useState('');
   const [viewFilter, setViewFilter] = useState('');
+  const [sortBy, setSortBy] = useUrlState('psort', 'default', SORT_KEYS);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
@@ -351,6 +355,19 @@ export const FieldPresetsPanel = ({
   );
   const visiblePresets = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const time = (v) => (v ? new Date(v).getTime() || 0 : 0);
+    const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const sorters = {
+      'name-asc': byName,
+      'name-desc': (a, b) => byName(b, a),
+      'created-desc': (a, b) => time(b.createdAt) - time(a.createdAt),
+      'created-asc': (a, b) => time(a.createdAt) - time(b.createdAt),
+      'updated-desc': (a, b) => time(b.updatedAt) - time(a.updatedAt),
+      'fields-desc': (a, b) => (b.fieldCount ?? 0) - (a.fieldCount ?? 0),
+      'fields-asc': (a, b) => (a.fieldCount ?? 0) - (b.fieldCount ?? 0),
+      'service-asc': (a, b) => String(a.serviceValue || '').localeCompare(String(b.serviceValue || '')) || byName(a, b),
+    };
+    sorters.default = () => 0;
     return presets.filter((p) => {
       const view = p.view || DEFAULT_EXAM_VIEW;
       if (serviceFilter && p.serviceValue !== serviceFilter) return false;
@@ -358,8 +375,8 @@ export const FieldPresetsPanel = ({
       if (!q) return true;
       return [p.name, p.serviceValue, examViewLabel(view), ...(p.fields || []).map((f) => f.label)]
         .some((t) => String(t || '').toLowerCase().includes(q));
-    });
-  }, [presets, query, serviceFilter, viewFilter]);
+    }).sort(sorters[sortBy] || sorters.default);
+  }, [presets, query, serviceFilter, viewFilter, sortBy]);
   const filtersActive = Boolean(query || serviceFilter || viewFilter);
   const clearFilters = () => {
     setQuery('');
@@ -419,6 +436,17 @@ export const FieldPresetsPanel = ({
           <select className="fpp-filter-select" value={viewFilter} onChange={(e) => setViewFilter(e.target.value)} aria-label="Filter by exam page">
             <option value="">All pages</option>
             {EXAM_VIEWS.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+          </select>
+          <select className="fpp-filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort presets">
+            <option value="default">Sort: Default</option>
+            <option value="name-asc">Name (A → Z)</option>
+            <option value="name-desc">Name (Z → A)</option>
+            <option value="created-desc">Newest created</option>
+            <option value="created-asc">Oldest created</option>
+            <option value="updated-desc">Recently updated</option>
+            <option value="fields-desc">Most fields</option>
+            <option value="fields-asc">Fewest fields</option>
+            <option value="service-asc">Service (A → Z)</option>
           </select>
           <span className="fpp-filter-count" aria-live="polite">
             {visiblePresets.length} of {presets.length}
