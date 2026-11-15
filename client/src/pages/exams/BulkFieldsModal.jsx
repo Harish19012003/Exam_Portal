@@ -770,6 +770,7 @@ export const BulkFieldsModal = ({
           hasAllDaySum = true;
         }
       }
+      if (rule.whereKey) add(rule.whereKey, 'where');
     });
     if (hasCount) add(FOCUS_TOTAL_CENTER_COLUMN_KEY, 'date count');
     if (hasAllDaySum) add(FOCUS_MAX_ALL_DAY_COLUMN_KEY, 'date max');
@@ -828,10 +829,26 @@ export const BulkFieldsModal = ({
       .map((rule) => {
         const target =
           rows.find((r) => r.key === rule.targetKey)?.label || rule.targetKey;
-        if (rule.op === 'count') return `Count → ${target}`;
+        const whereField =
+          rule.whereKey &&
+          (rows.find((r) => r.key === rule.whereKey)?.label || rule.whereKey);
+        const whereOpLabel =
+          rule.whereOp === 'neq'
+            ? '≠'
+            : rule.whereOp === 'filled'
+              ? 'filled'
+              : rule.whereOp === 'empty'
+                ? 'empty'
+                : '=';
+        const wherePart = whereField
+          ? rule.whereOp === 'filled' || rule.whereOp === 'empty'
+            ? ` where ${whereField} ${whereOpLabel}`
+            : ` where ${whereField} ${whereOpLabel} ${rule.whereValue || ''}`
+          : '';
+        if (rule.op === 'count') return `Count${wherePart} → ${target}`;
         const source =
           rows.find((r) => r.key === rule.sourceKey)?.label || rule.sourceKey || 'source';
-        return `Sum(${source}) → ${target}`;
+        return `Sum(${source})${wherePart} → ${target}`;
       })
       .join(' · ');
     return [keyPart, resultPart].filter(Boolean).join(' · ');
@@ -1198,16 +1215,23 @@ export const BulkFieldsModal = ({
     const sourceNotice = sourceLabel || examViewLabel(home);
     const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
     const nextUniqueKeys = normalizeUniqueRowKeys(result?.uniqueRowKeys);
-    const nextUniqueAggregates = normalizeUniqueRowAggregates(result?.uniqueRowAggregates);
+    const aggregatesProvided = Object.prototype.hasOwnProperty.call(
+      result || {},
+      'uniqueRowAggregates',
+    );
+    const nextUniqueAggregates = aggregatesProvided
+      ? normalizeUniqueRowAggregates(result.uniqueRowAggregates)
+      : null;
     if (nextUniqueKeys.length) setPendingUniqueRowKeys(nextUniqueKeys);
-    if (nextUniqueAggregates.length || nextUniqueKeys.length) {
+    // Only replace aggregates when the modal explicitly sent them (never wipe on keys-only).
+    if (aggregatesProvided) {
       setPendingUniqueRowAggregates(nextUniqueAggregates);
     }
     // Count / sum must hit features immediately — waiting for Bulk Save left Days Total Center at 0.
-    if (nextUniqueKeys.length || nextUniqueAggregates.length) {
+    if (nextUniqueKeys.length || aggregatesProvided) {
       onUniqueImportChange?.({
-        uniqueRowKeys: nextUniqueKeys,
-        uniqueRowAggregates: nextUniqueAggregates,
+        ...(nextUniqueKeys.length ? { uniqueRowKeys: nextUniqueKeys } : {}),
+        ...(aggregatesProvided ? { uniqueRowAggregates: nextUniqueAggregates } : {}),
       });
     }
     const uniqueLabel = nextUniqueKeys.length
@@ -1219,9 +1243,16 @@ export const BulkFieldsModal = ({
           nextUniqueKeys,
         )
       : '';
-    const aggNotice = nextUniqueAggregates.length
-      ? ` · ${nextUniqueAggregates.length} result field${nextUniqueAggregates.length === 1 ? '' : 's'}`
-      : '';
+    const skippedIncomplete = Number(result?.skippedIncompleteAggregates) || 0;
+    const aggNotice = Array.isArray(nextUniqueAggregates) && nextUniqueAggregates.length
+      ? ` · ${nextUniqueAggregates.length} result field${nextUniqueAggregates.length === 1 ? '' : 's'}${
+          skippedIncomplete
+            ? ` (skipped ${skippedIncomplete} incomplete)`
+            : ''
+        }`
+      : skippedIncomplete
+        ? ` · skipped ${skippedIncomplete} incomplete calculation${skippedIncomplete === 1 ? '' : 's'}`
+        : '';
 
     if (result?.combinedField) {
       const f = result.combinedField;
@@ -1278,10 +1309,11 @@ export const BulkFieldsModal = ({
       });
 
     // Real Date Total Center / Date Max All Day fields (formulas + fixed column order).
+    const aggregatesForFocus = Array.isArray(nextUniqueAggregates) ? nextUniqueAggregates : [];
     const countTargetKey =
-      nextUniqueAggregates.find((r) => r.op === 'count')?.targetKey || '';
+      aggregatesForFocus.find((r) => r.op === 'count')?.targetKey || '';
     const sumTargetKey =
-      nextUniqueAggregates.find(
+      aggregatesForFocus.find(
         (r) =>
           r.op === 'sum' &&
           (r.sourceKey === DATE_SHIFT_ALL_DAY_KEY || /allday/i.test(String(r.sourceKey || ''))),
@@ -1328,7 +1360,7 @@ export const BulkFieldsModal = ({
     }
 
     if (!additions.length) {
-      if (nextUniqueKeys.length || nextUniqueAggregates.length) {
+      if (nextUniqueKeys.length || aggregatesForFocus.length || skippedIncomplete) {
         setNotice(
           examId
             ? `Unique import active: ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}.`
@@ -1614,6 +1646,31 @@ export const BulkFieldsModal = ({
 
   const cellError = (i, col) => validation[i].errors[col];
 
+  const jumpToFirstError = () => {
+    const idx = validation.findIndex((v) => !v.blank && Object.keys(v.errors).length);
+    if (idx < 0) return;
+    const rid = rows[idx]?.rid;
+    const errKeys = Object.keys(validation[idx].errors);
+    setTab('fields');
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector(`tr[data-rid="${rid}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input =
+        (errKeys[0] && el?.querySelector(`[data-col="${errKeys[0]}"]`)) ||
+        el?.querySelector('input, select, textarea');
+      if (input && typeof input.focus === 'function') input.focus();
+    });
+  };
+
+  const firstErrorSummary = useMemo(() => {
+    const idx = validation.findIndex((v) => !v.blank && Object.keys(v.errors).length);
+    if (idx < 0) return '';
+    const errs = validation[idx].errors;
+    const msg = Object.values(errs)[0] || 'needs fixing';
+    const label = String(rows[idx]?.label || rows[idx]?.key || `Row ${idx + 1}`).trim();
+    return `${label}: ${msg}`;
+  }, [validation, rows]);
+
   return createPortal(
     <div className="exams-bulk-overlay" onClick={onClose}>
       <form
@@ -1813,7 +1870,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title="Aggregate across every date’s shifts. Placed before all date columns."
+                      title="Aggregates each date’s Summary (Max Day N) only — not individual shifts or shift Max. Turn Summary on. Placed before all date columns."
                       aria-label="About all-day column"
                     >
                       <Info size={13} />
@@ -2110,11 +2167,19 @@ export const BulkFieldsModal = ({
                       ];
                       const colCount = Math.max(labels.length + (summaryOn ? 1 : 0), 1);
                       const sampleVals = (di) => labels.map((_, i) => 8 + ((di + i) % 3));
-                      const allShiftVals = days.flatMap((_, di) => sampleVals(di));
-                      const allDaySample = aggregateShiftValues(
-                        shiftDraft.allDayColumn?.type || 'max',
-                        allShiftVals,
-                      );
+                      const summaryType = shiftDraft.summaryColumn?.type || 'max';
+                      // All day looks up Summary (Max Day N) only — not shifts / shift Max.
+                      const daySummaryVals = summaryOn
+                        ? days.map((_, di) =>
+                            aggregateShiftValues(summaryType, sampleVals(di)),
+                          )
+                        : [];
+                      const allDaySample = summaryOn
+                        ? aggregateShiftValues(
+                            shiftDraft.allDayColumn?.type || 'max',
+                            daySummaryVals.filter((v) => typeof v === 'number'),
+                          )
+                        : '—';
                       const emptyDay = labels.length === 0 && !summaryOn;
                       const allDayColor = normalizeColumnColor(shiftDraft.allDayColumn?.color);
                       const summaryColor = normalizeColumnColor(shiftDraft.summaryColumn?.color);
@@ -2973,9 +3038,20 @@ export const BulkFieldsModal = ({
                 }${dateShiftsDirty ? ' · unsaved' : ''}`
               : `${rows.length} rows · `}
             {tab !== 'dateShifts' &&
-              (errorCount
-                ? `${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`
-                : fieldPending || orderDirty
+              (errorCount ? (
+                <>
+                  {`${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`}
+                  {firstErrorSummary ? ` · ${firstErrorSummary}` : ''}
+                  {' · '}
+                  <button
+                    type="button"
+                    className="exams-bulk-status-link"
+                    onClick={jumpToFirstError}
+                  >
+                    Go to row
+                  </button>
+                </>
+              ) : fieldPending || orderDirty
                   ? [
                       newCount && `${newCount} new`,
                       updateCount && `${updateCount} to update`,

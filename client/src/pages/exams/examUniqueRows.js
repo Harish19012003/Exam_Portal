@@ -2,9 +2,14 @@
  * Composite uniqueness for imported / shared columns (e.g. State + City + Vendor Name).
  * Stored on view/preset features as:
  *   uniqueRowKeys: string[]
- *   uniqueRowAggregates: [{ targetKey, op: 'count'|'sum', sourceKey? }]
+ *   uniqueRowAggregates: [{
+ *     targetKey, op: 'count'|'sum', sourceKey?,
+ *     whereKey?, whereOp?: 'eq'|'neq'|'filled'|'empty', whereValue?,
+ *     whereFormula? // snapshot when Where targets a formula field (survives missing schema)
+ *   }]
  */
 
+import { getAggregatableValue } from '../../components/DynamicTable/utils/evaluateFormula';
 import {
   DATE_SHIFT_ALL_DAY_KEY,
   FOCUS_MAX_ALL_DAY_COLUMN_KEY,
@@ -19,6 +24,15 @@ export const UNIQUE_ROW_AGGREGATE_OPS = [
   { value: 'count', label: 'Count rows' },
   { value: 'sum', label: 'Sum values' },
 ];
+
+export const UNIQUE_ROW_WHERE_OPS = [
+  { value: 'eq', label: 'equals' },
+  { value: 'neq', label: 'not equals' },
+  { value: 'filled', label: 'is filled' },
+  { value: 'empty', label: 'is empty' },
+];
+
+const WHERE_OP_SET = new Set(UNIQUE_ROW_WHERE_OPS.map((o) => o.value));
 
 export const normalizeUniqueRowKeys = (keys) =>
   Array.from(
@@ -37,6 +51,20 @@ export const uniqueRowComposite = (values, keys) => {
   return keyList.map((k) => String(bag[k] ?? '').trim().toLowerCase()).join('\0');
 };
 
+const normalizeWhereClause = (raw = {}) => {
+  const whereKey = String(raw.whereKey || '').trim();
+  if (!whereKey) return null;
+  const whereOp = WHERE_OP_SET.has(String(raw.whereOp || '').trim().toLowerCase())
+    ? String(raw.whereOp).trim().toLowerCase()
+    : 'eq';
+  const whereValue = String(raw.whereValue ?? '').trim();
+  if ((whereOp === 'eq' || whereOp === 'neq') && !whereValue) return null;
+  const whereFormula = String(raw.whereFormula || '').trim();
+  return whereFormula
+    ? { whereKey, whereOp, whereValue, whereFormula }
+    : { whereKey, whereOp, whereValue };
+};
+
 export const normalizeUniqueRowAggregates = (rules) => {
   if (!Array.isArray(rules)) return [];
   const out = [];
@@ -50,9 +78,178 @@ export const normalizeUniqueRowAggregates = (rules) => {
     const sourceKey = String(raw.sourceKey || '').trim();
     if (op === 'sum' && !sourceKey) continue;
     seenTargets.add(targetKey);
-    out.push(op === 'sum' ? { targetKey, op, sourceKey } : { targetKey, op });
+    const where = normalizeWhereClause(raw);
+    const base = op === 'sum' ? { targetKey, op, sourceKey } : { targetKey, op };
+    out.push(where ? { ...base, ...where } : base);
   }
   return out;
+};
+
+const rowValues = (row) => (row?.values && typeof row.values === 'object' ? row.values : row) || {};
+
+const YES_VALUES = new Set(['yes', 'y', 'true', '1']);
+const NO_VALUES = new Set(['no', 'n', 'false', '0']);
+
+const normalizeCompareToken = (value) => {
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value === 1) return 'yes';
+    if (value === 0) return 'no';
+  }
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
+};
+
+/** Case-insensitive equality with Yes/No ↔ true/false/1/0 aliases. */
+const valuesEqualLoose = (leftRaw, rightRaw) => {
+  const left = normalizeCompareToken(leftRaw);
+  const right = normalizeCompareToken(rightRaw);
+  if (left === right) return true;
+  if (YES_VALUES.has(left) && YES_VALUES.has(right)) return true;
+  if (NO_VALUES.has(left) && NO_VALUES.has(right)) return true;
+  return false;
+};
+
+/** Minimal FieldColumn list so formula Where clauses resolve like the grid. */
+const columnsForWhere = (ctx = {}) => {
+  if (Array.isArray(ctx.columns) && ctx.columns.length) return ctx.columns;
+  return (Array.isArray(ctx.fields) ? ctx.fields : [])
+    .filter((f) => f?.key)
+    .map((f) => ({
+      key: f.key,
+      label: f.label || f.key,
+      dataType: f.dataType || 'text',
+      formula: f.formula,
+      resultType: f.resultType || (f.dataType === 'formula' ? 'text' : undefined),
+    }));
+};
+
+/**
+ * Formula refs like {mock_attendance} may live on another tab and not be in this page's
+ * column schema. Without a column stub, evaluateFormulaHelper replaces them with 0 and
+ * Final Mock never equals "Yes" during Count Where — Mock Done stays 0.
+ */
+const columnsForFormulaWhere = (formulaCol, bag, ctx = {}) => {
+  const base = columnsForWhere(ctx);
+  const byKey = new Map(base.map((c) => [c.key, c]));
+  if (formulaCol?.key) byKey.set(formulaCol.key, formulaCol);
+  const expr = String(formulaCol?.formula || '');
+  for (const m of expr.matchAll(/\{([a-zA-Z0-9_]+)\}/g)) {
+    const ref = m[1];
+    if (byKey.has(ref)) continue;
+    // Prefer text so "Yes" compares as a string, not a number 0.
+    const sample = bag?.[ref];
+    const dataType =
+      typeof sample === 'boolean'
+        ? 'boolean'
+        : typeof sample === 'number'
+          ? 'number'
+          : 'text';
+    byKey.set(ref, { key: ref, label: ref, dataType });
+  }
+  // Also stub any other keys present on the row (linked / shared values).
+  Object.keys(bag || {}).forEach((ref) => {
+    if (byKey.has(ref)) return;
+    const sample = bag[ref];
+    const dataType =
+      typeof sample === 'boolean'
+        ? 'boolean'
+        : typeof sample === 'number'
+          ? 'number'
+          : 'text';
+    byKey.set(ref, { key: ref, label: ref, dataType });
+  });
+  return Array.from(byKey.values());
+};
+
+const findWhereFieldCol = (whereKey, ctx = {}) => {
+  const key = String(whereKey || '').trim();
+  if (!key) return null;
+  const columns = columnsForWhere(ctx);
+  const fromCols = columns.find((c) => c.key === key);
+  if (fromCols) return fromCols;
+  const field = (Array.isArray(ctx.fields) ? ctx.fields : []).find((f) => f?.key === key);
+  if (!field) return null;
+  return {
+    key: field.key,
+    label: field.label || field.key,
+    dataType: field.dataType || 'text',
+    formula: field.formula,
+    resultType: field.resultType || (field.dataType === 'formula' ? 'text' : undefined),
+  };
+};
+
+/**
+ * Value used for Where matching — stored cell, or live formula result (same as grid display).
+ * `rule.whereFormula` is a snapshot so Count still works when the formula field is missing
+ * from this page's schema (UI shows "final_mock (saved)").
+ */
+export const resolveAggregateWhereValue = (row, whereKey, ctx = {}, rule = {}) => {
+  const key = String(whereKey || '').trim();
+  if (!key) return undefined;
+  const bag = rowValues(row);
+  const snapFormula = String(rule?.whereFormula || '').trim();
+  let col = findWhereFieldCol(key, ctx);
+  if ((!col || col.dataType !== 'formula' || !col.formula) && snapFormula) {
+    col = {
+      key,
+      label: key,
+      dataType: 'formula',
+      formula: snapFormula,
+      resultType: 'text',
+    };
+  }
+  if (col?.dataType === 'formula' && col.formula) {
+    const formulaColumns = columnsForFormulaWhere(col, bag, ctx);
+    const computed = getAggregatableValue(col, { values: bag }, formulaColumns);
+    // Empty string is a real formula result (Final Mock → blank when not Yes).
+    if (computed !== undefined && computed !== null) return computed;
+  }
+  if (bag[key] !== undefined && bag[key] !== null && bag[key] !== '') return bag[key];
+  const rawBag = row?.rawValues && typeof row.rawValues === 'object' ? row.rawValues : null;
+  if (rawBag && rawBag[key] !== undefined && rawBag[key] !== null && rawBag[key] !== '') {
+    return rawBag[key];
+  }
+  // Last resort for Final Mock–style formulas: any referenced field equals the target.
+  if (col?.dataType === 'formula' && col.formula && (!rule?.whereOp || rule.whereOp === 'eq')) {
+    const refs = [...String(col.formula).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => m[1]);
+    for (const ref of refs) {
+      if (valuesEqualLoose(bag[ref], rule.whereValue)) return rule.whereValue;
+    }
+  }
+  // Known Final Mock shape when formula schema is missing from this page ("final_mock (saved)").
+  if (
+    (key === 'final_mock' || /final_?mock/i.test(key)) &&
+    (!rule?.whereOp || rule.whereOp === 'eq') &&
+    rule?.whereValue != null &&
+    String(rule.whereValue).trim() !== ''
+  ) {
+    for (const ref of ['mock_attendance', 'mock_report', 'final_mock']) {
+      if (valuesEqualLoose(bag[ref], rule.whereValue)) return rule.whereValue;
+    }
+  }
+  return bag[key];
+};
+
+/** True when a center row matches an aggregate where-clause (case-insensitive). */
+export const rowMatchesAggregateWhere = (row, rule, ctx = {}) => {
+  const whereKey = String(rule?.whereKey || '').trim();
+  if (!whereKey) return true;
+  const whereOp = WHERE_OP_SET.has(String(rule?.whereOp || '').trim().toLowerCase())
+    ? String(rule.whereOp).trim().toLowerCase()
+    : 'eq';
+  const raw = resolveAggregateWhereValue(row, whereKey, ctx, rule);
+  const filled =
+    raw != null &&
+    !(typeof raw === 'string' && !String(raw).trim()) &&
+    !(Array.isArray(raw) && raw.length === 0) &&
+    raw !== false;
+  if (whereOp === 'filled') return filled;
+  if (whereOp === 'empty') return !filled;
+  const equal = valuesEqualLoose(raw, rule?.whereValue);
+  if (whereOp === 'neq') return !equal;
+  return equal;
 };
 
 export const uniqueAggregateTargetKeys = (rules) =>
@@ -70,8 +267,6 @@ export const focusDateTargetsFromAggregates = (rules) => {
     )?.targetKey || '';
   return { countTargetKey, sumTargetKey };
 };
-
-const rowValues = (row) => (row?.values && typeof row.values === 'object' ? row.values : row) || {};
 
 const toFiniteNumber = (value) => {
   if (value == null || value === '') return null;
@@ -177,10 +372,12 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
     if (!rules.length) return first;
     const patch = {};
     for (const rule of rules) {
+      const matched = members.filter((m) => rowMatchesAggregateWhere(m, rule, ctx));
       if (rule.op === 'count') {
-        // Permanent target = all matching centers; date column = activity on focus date.
-        patch[rule.targetKey] = members.length;
-        if (focusDateId && focusDateShifts) {
+        // Permanent target = matching centers (optionally filtered by where-clause).
+        patch[rule.targetKey] = matched.length;
+        // Focus-date Total Center stays unconditioned (activity on selected exam date).
+        if (focusDateId && focusDateShifts && !rule.whereKey) {
           patch[FOCUS_TOTAL_CENTER_COLUMN_KEY] = members.filter((m) =>
             rowHasActivityOnDate(rowValues(m), focusDateShifts, focusDateId),
           ).length;
@@ -189,7 +386,7 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
       }
       if (rule.op === 'sum') {
         let overall = 0;
-        for (const member of members) {
+        for (const member of matched) {
           const n = resolveSumSourceNumber(member, rule.sourceKey, ctx);
           if (n != null) overall += n;
         }
@@ -204,7 +401,7 @@ export const rollupRowsByUniqueKeys = (rows = [], keys = [], aggregates = [], ct
         // Sheet-style `{date} Max All Day` for the selected exam date.
         if (focusDateId && focusDateShifts && isAllDaySumSource(rule.sourceKey, ctx.fields)) {
           let focusSum = 0;
-          for (const member of members) {
+          for (const member of matched) {
             const n = resolveDayAggregateFromRow(rowValues(member), focusDateShifts, focusDateId);
             if (n != null) focusSum += n;
           }
