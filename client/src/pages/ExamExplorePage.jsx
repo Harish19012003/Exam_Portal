@@ -531,6 +531,8 @@ export const ExamExplorePage = () => {
       // Prefer Center list dateShifts so focus-date columns use real shift cells.
       dateShifts: centerListDateShifts,
       fields,
+      // Full table columns so Where can evaluate formula cells the same way the grid does.
+      columns: tableColumns,
       focusDateId: canFocusExamDate ? focusDateId : '',
     });
   }, [
@@ -540,6 +542,7 @@ export const ExamExplorePage = () => {
     uniqueRowAggregates,
     centerListDateShifts,
     fields,
+    tableColumns,
     canFocusExamDate,
     focusDateId,
   ]);

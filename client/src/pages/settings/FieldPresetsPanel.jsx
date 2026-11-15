@@ -132,9 +132,9 @@ export const FieldPresetsPanel = ({
   const [form, setForm] = useState(null); // null = editor closed
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [query, setQuery] = useState('');
-  const [serviceFilter, setServiceFilter] = useState('');
-  const [viewFilter, setViewFilter] = useState('');
+  const [query, setQuery] = useUrlState('pq', '');
+  const [serviceFilter, setServiceFilter] = useUrlState('psvc', '');
+  const [viewFilter, setViewFilter] = useUrlState('pview', '');
   const [sortBy, setSortBy] = useUrlState('psort', 'default', SORT_KEYS);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState('');

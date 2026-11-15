@@ -2433,6 +2433,19 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
   color: #dc2626;
 }
 
+.exams-bulk-status-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: 44px;
+}
+
 @media (max-width: 768px) {
   .exams-bulk-footer-actions,
   .exams-bulk-footer-actions .exams-btn {
