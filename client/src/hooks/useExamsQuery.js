@@ -26,13 +26,24 @@ export const useExamTableConfig = (options = {}) =>
  */
 export const useExamRows = (
   examId,
-  { page = 1, limit = 100, search = '', searchKeys, filters, all = false, enabled, ...options } = {},
+  {
+    page = 1,
+    limit = 100,
+    search = '',
+    searchKeys,
+    filters,
+    all = false,
+    view = 'center-list',
+    enabled,
+    ...options
+  } = {},
 ) => {
   const q = String(search || '').trim();
   const filtersSig = examRowsFiltersSig(filters);
   const fetchAll = Boolean(all);
+  const viewKey = String(view || 'center-list');
   return useQuery({
-    queryKey: queryKeys.exams.rows(examId, page, limit, q, filtersSig, fetchAll),
+    queryKey: queryKeys.exams.rows(examId, page, limit, q, filtersSig, fetchAll, viewKey),
     queryFn: async () => {
       const data = await listExamRows(examId, {
         page,
@@ -41,6 +52,7 @@ export const useExamRows = (
         searchKeys,
         filters: filtersSig ? filters : undefined,
         all: fetchAll,
+        view: viewKey,
       });
       if (Array.isArray(data)) {
         return {

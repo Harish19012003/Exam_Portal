@@ -11,8 +11,8 @@ export const ExamIndexRedirect = () => {
 
 /**
  * Route element for /exams/:examId/:subTab.
- * Every operational tab shares the same center rows (keyed by center_code)
- * and shows its own column projection.
+ * All tabs share the same Center list rows (keyed by center_code).
+ * Exam Day shows an expanded center×date view of that same spreadsheet.
  */
 export const ExamSubRoute = () => {
   const { examId: urlExamId, subTab } = useParams();

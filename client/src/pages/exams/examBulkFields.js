@@ -174,5 +174,7 @@ export const toFieldDefinition = (item, order) => {
   if (item.dataType === 'formula' && item.formula) {
     def.formula = String(item.formula).trim();
   }
+  if (item.examDayShiftId) def.examDayShiftId = String(item.examDayShiftId).trim();
+  if (item.examDayImportRole) def.examDayImportRole = String(item.examDayImportRole).trim();
   return def;
 };

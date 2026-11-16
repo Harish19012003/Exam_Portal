@@ -92,12 +92,14 @@ export const listRows = handle(async (req) => {
     filters = filtersRaw;
   }
   // `all` is for Unique import rollups that must see every center (not capped at page size 500).
+  // `view` scopes Exam Day rows vs shared center rows.
   const result = await service.listRows(req.params.examId, {
     page,
     limit,
     search,
     searchKeys,
     filters,
+    view: viewOf(req),
     ...(all ? { all: true } : {}),
   });
   const fields = allFields || [];

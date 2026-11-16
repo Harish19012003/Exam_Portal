@@ -1,5 +1,5 @@
 import { useConfirm } from '../../feedback';
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
   Settings2,
   Plus,
@@ -220,17 +220,20 @@ export const ExamFieldBuilder = ({
     })),
   ];
 
-  // Keep Date Total Center / Date Max All Day on presets & pages that have Unique count + Max all day.
+  // Add Date Total Center / Date Max All Day when Unique import gains count / Max-all-day.
+  // Do not depend on `fields` — re-running after a delete was undeleting those columns.
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
   useEffect(() => {
     if (!open) return;
     const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(uniqueRowAggregates);
     if (!countTargetKey && !sumTargetKey) return;
-    const { fields: next, changed } = ensureFocusDateFields(fields, {
+    const { fields: next, changed } = ensureFocusDateFields(fieldsRef.current, {
       countTargetKey,
       sumTargetKey,
     });
     if (changed) onChange(next);
-  }, [open, uniqueRowAggregates, fields, onChange]);
+  }, [open, uniqueRowAggregates, onChange]);
 
   useEffect(() => {
     if (!open) {
@@ -431,8 +434,27 @@ export const ExamFieldBuilder = ({
     if (hasFieldEdits) {
       const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
       const gone = new Set(removedIds);
-      const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter((f) => !gone.has(f.id));
-      onChange(applyOrder(merged).map((f, i) => ({ ...f, order: i + 1 })));
+      const existingKeys = new Set(
+        fields.map((f) => String(f?.key || '').trim()).filter(Boolean),
+      );
+      // Skip "new" rows whose key already exists on the parent (Unique-import ensure race).
+      const safeNew = (Array.isArray(newFields) ? newFields : []).filter((f) => {
+        const k = String(f?.key || '').trim();
+        return k && !existingKeys.has(k);
+      });
+      const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...safeNew].filter(
+        (f) => !gone.has(f.id),
+      );
+      // Prefer existing id when the same key appears twice.
+      const byKey = new Map();
+      for (const f of merged) {
+        const k = String(f?.key || '').trim();
+        if (!k) continue;
+        const prev = byKey.get(k);
+        if (!prev || (f.id && !prev.id)) byKey.set(k, f);
+      }
+      const deduped = Array.from(byKey.values());
+      onChange(applyOrder(deduped).map((f, i) => ({ ...f, order: i + 1 })));
     } else if (Array.isArray(order) && order.length) {
       // Reorder-only save from Bulk add.
       onChange(applyOrder([...fields]).map((f, i) => ({ ...f, order: i + 1 })));
@@ -1673,6 +1695,15 @@ export const ExamFieldBuilder = ({
           workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
           onClose={closeBulk}
           onAdd={handleBulkAdd}
+          onFieldRemoved={(fieldId) => {
+            const id = String(fieldId || '').trim();
+            if (!id) return;
+            onChange(
+              fields
+                .filter((f) => String(f.id) !== id)
+                .map((f, i) => ({ ...f, order: i + 1 })),
+            );
+          }}
         />
       )}
     </>

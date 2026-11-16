@@ -2,11 +2,15 @@
 
 let shiftSeq = 0;
 
+/** Per-date Summary (Max Day N) — always formula / read-only from that day’s shifts. */
 export const DATE_SHIFT_SUMMARY_TYPES = [
-  { value: 'max', label: 'Max', hint: 'Highest value across that day’s shifts' },
-  { value: 'sum', label: 'Sum', hint: 'Total of that day’s shifts' },
-  { value: 'counta', label: 'CountA', hint: 'Count of filled shift cells that day' },
-  { value: 'custom', label: 'Custom', hint: 'Type your own column name (manual entry)' },
+  {
+    value: 'max',
+    label: 'Max',
+    hint: 'Highest value across that day’s shifts (read-only · Max Day N)',
+  },
+  { value: 'sum', label: 'Sum', hint: 'Total of that day’s shifts (read-only)' },
+  { value: 'counta', label: 'CountA', hint: 'Count of filled shift cells that day (read-only)' },
 ];
 
 /** Same types as per-day summary; All day aggregates Summary (Max Day N) only — not shifts / shift Max. */
@@ -168,11 +172,18 @@ const formulaFor = (type, keys) => {
 
 const SUMMARY_TYPE_SET = new Set(DATE_SHIFT_SUMMARY_TYPES.map((t) => t.value));
 
-/** Normalize summary / all-day column shape. */
+/** Normalize Summary (Max Day N) — never editable; legacy `custom` → max. */
 export const normalizeSummaryColumn = (input, { includeMaxDay } = {}) => {
   const base = emptySummaryColumn();
   if (input && typeof input === 'object' && !Array.isArray(input)) {
-    const type = SUMMARY_TYPE_SET.has(input.type) ? input.type : 'max';
+    const rawType = String(input.type || '').trim().toLowerCase();
+    // Custom used to be a manual number column — coerce to Max (formula).
+    const type =
+      rawType === 'custom'
+        ? 'max'
+        : SUMMARY_TYPE_SET.has(rawType)
+          ? rawType
+          : 'max';
     const enabled =
       typeof input.enabled === 'boolean'
         ? input.enabled
@@ -180,7 +191,7 @@ export const normalizeSummaryColumn = (input, { includeMaxDay } = {}) => {
     return {
       enabled,
       type,
-      customLabel: String(input.customLabel || '').trim(),
+      customLabel: '',
       color: normalizeColumnColor(input.color),
     };
   }
@@ -191,10 +202,23 @@ export const normalizeSummaryColumn = (input, { includeMaxDay } = {}) => {
   return base;
 };
 
+const ALL_DAY_TYPE_SET = new Set(DATE_SHIFT_ALL_DAY_TYPES.map((t) => t.value));
+
 /** Normalize all-day column; migrates legacy `maxAllDay: true`. */
 export const normalizeAllDayColumn = (input, { maxAllDay } = {}) => {
   if (input && typeof input === 'object' && !Array.isArray(input)) {
-    return normalizeSummaryColumn(input);
+    const base = emptyAllDayColumn();
+    const type = ALL_DAY_TYPE_SET.has(input.type) ? input.type : 'max';
+    const enabled =
+      typeof input.enabled === 'boolean'
+        ? input.enabled
+        : Boolean(input.type) || Boolean(String(input.customLabel || '').trim());
+    return {
+      enabled,
+      type,
+      customLabel: String(input.customLabel || '').trim(),
+      color: normalizeColumnColor(input.color),
+    };
   }
   if (maxAllDay === true) {
     return { ...emptyAllDayColumn(), enabled: true, type: 'max' };
@@ -301,8 +325,8 @@ export const resolveAllDayValueFromRow = (values, dateShiftsConfig = null) => {
  */
 export const resolveDayAggregateFromRow = (values, dateShiftsConfig, dateId) => {
   const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
-  const type = cfg.summaryColumn?.enabled ? cfg.summaryColumn.type || 'max' : 'max';
-  if (type === 'custom') return null;
+  // Always compute from shifts (Max Day N is read-only; legacy custom → max via normalize).
+  const type = cfg.summaryColumn?.type || 'max';
   const keys = shiftKeysForDate(cfg, dateId);
   if (!keys.length) return null;
   const bag = values && typeof values === 'object' ? values : {};
@@ -377,6 +401,21 @@ export const ensureFocusDateFields = (
 
   let list = Array.isArray(fields) ? fields.map((f) => ({ ...f })) : [];
   let changed = false;
+  // Drop duplicate keys (Unique import + ensure can race and insert twice).
+  {
+    const seen = new Set();
+    const deduped = [];
+    for (const f of list) {
+      const k = String(f?.key || '').trim();
+      if (k && seen.has(k)) {
+        changed = true;
+        continue;
+      }
+      if (k) seen.add(k);
+      deduped.push(f);
+    }
+    list = deduped;
+  }
   const byKey = () => new Map(list.map((f) => [f.key, f]));
 
   if (wantTotal && !byKey().has(FOCUS_TOTAL_CENTER_COLUMN_KEY)) {
@@ -593,12 +632,13 @@ export const buildDateShiftFields = (input) => {
       const key = makeKey(date.id, 'smry');
       summaryKeys.push(key);
       const summaryColor = normalizeColumnColor(cfg.summaryColumn.color);
+      // Summary (Max Day N) is always a formula over that day’s shifts — never editable.
       dateFields.push({
         id: fieldId(),
         key,
         label: `${date.title} · ${summaryColumnLabel(cfg.summaryColumn, dayIndex + 1)}`,
-        dataType: type === 'custom' ? 'number' : 'formula',
-        formula: type === 'custom' ? undefined : formulaFor(type, dayKeys),
+        dataType: 'formula',
+        formula: formulaFor(type, dayKeys),
         required: false,
         layout: 'full',
         autoFill: 'none',
@@ -611,6 +651,7 @@ export const buildDateShiftFields = (input) => {
           dateTitle: date.title,
           type,
           dayIndex: dayIndex + 1,
+          readOnly: true,
         },
       });
     }
