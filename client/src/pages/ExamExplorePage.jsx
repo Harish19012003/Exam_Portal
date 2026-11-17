@@ -14,13 +14,22 @@ import {
   FilePlus2,
   Loader2,
   Plus,
+  RefreshCw,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
   Table2,
   X,
 } from 'lucide-react';
-import { DEFAULT_EXAM_VIEW, examViewLabel, isExamViewKey, isSharedImportedField } from '@exam-view/shared';
+import {
+  DEFAULT_EXAM_VIEW,
+  EXAM_DAY_META_KEY,
+  EXAM_DAY_VIEW,
+  examViewLabel,
+  isExamDayView,
+  isExamViewKey,
+  isSharedImportedField,
+} from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { applyFilters, applySearch } from '../components/DynamicData/dataProcessing';
@@ -40,6 +49,12 @@ import {
   saveExamTableConfig,
   updateExamRow,
 } from './exams/examTableApi';
+import {
+  expandCenterRowsToExamDay,
+  isExamDayLiveCountRole,
+  parseExamDayRowId,
+  splitExamDayPersistPatch,
+} from './exams/examDayExpand';
 import {
   listExamPresets,
   updateExamPreset,
@@ -266,11 +281,14 @@ export const ExamExplorePage = () => {
   const [reloadPresetId, setReloadPresetId] = useState('');
   const [isDateShiftsOpen, setIsDateShiftsOpen] = useState(false);
   const [isSavingDateShifts, setIsSavingDateShifts] = useState(false);
+  const [importingExamDay, setImportingExamDay] = useState(false);
   const [shiftVisBarOpen, setShiftVisBarOpen] = useState(false);
   const [shiftVisApiEpoch, setShiftVisApiEpoch] = useState(0);
   /** Bumped when date×shift template widths/colors save — forces table remount. */
   const [dateShiftLayoutEpoch, setDateShiftLayoutEpoch] = useState(0);
   const tableVisibilityApiRef = useRef(null);
+  const examDayPersistRef = useRef(null);
+  const examDayTargetsRef = useRef({ all: [], filtered: [] });
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [form, setForm] = useState({});
   const [sameAsFlags, setSameAsFlags] = useState({});
@@ -374,10 +392,12 @@ export const ExamExplorePage = () => {
     [fields],
   );
 
-  // Unique import: load every center (no page-size cap), roll up, then page in the UI.
-  // Normal mode: server search/filters scan the full exam, then return the requested page.
+  const examDayLive = isExamDayView(view);
+  // Unique import / Exam Day: load every shared center (no page-size cap), then page in the UI.
+  // Exam Day expands Center list → center×date (same spreadsheet, different view).
   const rowsQuery = useExamRows(examId, {
-    ...(uniqueImportActive
+    view: examDayLive ? DEFAULT_EXAM_VIEW : view,
+    ...(uniqueImportActive || examDayLive
       ? { all: true }
       : {
           page: rowsPage,
@@ -392,9 +412,10 @@ export const ExamExplorePage = () => {
   const rowsTotal = Number(rowsQuery.data?.total) || 0;
   const rowsLoading =
     Boolean(tableInfo) && rowsQuery.isPending && !rowsQuery.data;
-  const rowsPageKey = uniqueImportActive
-    ? { all: true }
-    : { page: rowsPage, limit: rowsPageSize };
+  const rowsPageKey =
+    uniqueImportActive || examDayLive
+      ? { all: true, view: examDayLive ? DEFAULT_EXAM_VIEW : view }
+      : { page: rowsPage, limit: rowsPageSize, view };
   const presetWithDateShifts = useMemo(() => {
     if (matchedPreset && hasDateShiftTemplate(matchedPreset.features?.dateShifts)) {
       return matchedPreset;
@@ -409,8 +430,9 @@ export const ExamExplorePage = () => {
       ),
     [features?.dateShifts, presetWithDateShifts],
   );
-  // Unique-import tabs consume Center list dates/shifts — load that view's dateShifts.
-  const needsCenterDateShifts = uniqueImportActive && view !== DEFAULT_EXAM_VIEW;
+  // Unique-import + Exam Day consume Center list dates/shifts.
+  const needsCenterDateShifts =
+    (uniqueImportActive && view !== DEFAULT_EXAM_VIEW) || examDayLive;
   const centerTableQuery = useQuery({
     queryKey: queryKeys.exams.table(examId, DEFAULT_EXAM_VIEW),
     queryFn: () => getExamTable(examId, DEFAULT_EXAM_VIEW),
@@ -444,8 +466,11 @@ export const ExamExplorePage = () => {
       })),
     [centerListDateShifts],
   );
+  // Focus-date picker is Unique-import only — not Exam Day (Exam Day shows every date as rows).
   const canFocusExamDate =
-    needsCenterDateShifts && focusDateOptions.length > 0 && hasDateShiftTemplate(centerListDateShifts);
+    uniqueImportActive &&
+    focusDateOptions.length > 0 &&
+    hasDateShiftTemplate(centerListDateShifts);
   useEffect(() => {
     if (!canFocusExamDate) {
       if (focusDateId) setFocusDateId('');
@@ -478,9 +503,15 @@ export const ExamExplorePage = () => {
       'exam_rows',
       access,
     );
+    const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
     const mapped = cols.map((c) => {
       let next = c;
       if (aggregateTargetKeys.has(c.key)) next = { ...next, editable: false };
+      // Exam Day live counts / exam date / max day come from Center list — read-only here.
+      if (examDayLive) {
+        const role = String(fieldByKey.get(c.key)?.examDayImportRole || '');
+        if (isExamDayLiveCountRole(role)) next = { ...next, editable: false };
+      }
       // Real fields Date Total Center / Date Max All Day → `{date} …` headers.
       if (focusLabels && c.key === FOCUS_TOTAL_CENTER_COLUMN_KEY) {
         next = { ...next, label: focusLabels.totalCenter, editable: false };
@@ -505,6 +536,7 @@ export const ExamExplorePage = () => {
     focusLabels,
     focusCountTargetKey,
     focusSumTargetKey,
+    examDayLive,
   ]);
   const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
   const createFields = useMemo(
@@ -546,22 +578,48 @@ export const ExamExplorePage = () => {
     canFocusExamDate,
     focusDateId,
   ]);
-  // Unique mode: search/filter the full rolled-up set, then page — not only the visible slice.
-  const uniqueFilteredRows = useMemo(() => {
-    if (!uniqueImportActive) return uniqueAllRows;
-    let next = uniqueAllRows;
+  // Exam Day: same Center list rows, expanded to one row per center × date.
+  const examDayAllRows = useMemo(() => {
+    if (!examDayLive) return tableRows;
+    const { rows: expanded } = expandCenterRowsToExamDay({
+      centerRows: tableRows,
+      dateShiftsConfig: centerListDateShifts,
+      targetFields: fields,
+    });
+    return expanded;
+  }, [examDayLive, tableRows, centerListDateShifts, fields]);
+  // Unique / Exam Day: search/filter the full derived set, then page — not only the visible slice.
+  const derivedFilteredRows = useMemo(() => {
+    if (!uniqueImportActive && !examDayLive) return uniqueAllRows;
+    let next = examDayLive ? examDayAllRows : uniqueAllRows;
     if (rowsSearch) next = applySearch(next, rowsSearch, tableColumns, {});
     if (rowsFilters && Object.keys(rowsFilters).length) {
       next = applyFilters(next, rowsFilters, tableColumns);
     }
     return next;
-  }, [uniqueImportActive, uniqueAllRows, rowsSearch, rowsFilters, tableColumns]);
+  }, [
+    uniqueImportActive,
+    examDayLive,
+    uniqueAllRows,
+    examDayAllRows,
+    rowsSearch,
+    rowsFilters,
+    tableColumns,
+  ]);
   const displayTableRows = useMemo(() => {
-    if (!uniqueImportActive) return tableRows;
+    if (!uniqueImportActive && !examDayLive) return tableRows;
     const start = (rowsPage - 1) * rowsPageSize;
-    return uniqueFilteredRows.slice(start, start + rowsPageSize);
-  }, [uniqueImportActive, tableRows, uniqueFilteredRows, rowsPage, rowsPageSize]);
-  const displayTotal = uniqueImportActive ? uniqueFilteredRows.length : rowsTotal;
+    return derivedFilteredRows.slice(start, start + rowsPageSize);
+  }, [
+    uniqueImportActive,
+    examDayLive,
+    tableRows,
+    derivedFilteredRows,
+    rowsPage,
+    rowsPageSize,
+  ]);
+  const displayTotal =
+    uniqueImportActive || examDayLive ? derivedFilteredRows.length : rowsTotal;
 
   const applySnapshot = useCallback((snap) => {
     const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
@@ -864,8 +922,86 @@ export const ExamExplorePage = () => {
   /**
    * Persist a row patch. Shared imports (Vendor Code, …) are writable on their home tab only —
    * Mass Edit used to strip them here, so the UI filled then cleared after save.
+   * Exam Day virtual rows write back to the Center list source row (+ `__exam_day` per date).
    */
   const persistRowValues = async (rowId, values) => {
+    // —— Exam Day live view: center×date row → patch Center list source ——
+    if (examDayLive) {
+      const parsed = parseExamDayRowId(rowId);
+      if (!parsed) throw new Error('Invalid Exam Day row');
+      const source = rows.find((r) => String(r.id) === String(parsed.sourceRowId));
+      if (!source) throw new Error('Center row not found');
+      const restored = restoreFromExamValues(
+        restoreAssigneeIds(
+          restoreLookupIds(values, source.values, fields, parsed.sourceRowId),
+          source.values,
+          fields,
+          parsed.sourceRowId,
+        ),
+        source.values,
+        fields,
+      );
+      const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
+      const rawPatch = {};
+      Object.entries(restored).forEach(([key, val]) => {
+        const f = fieldByKey.get(key);
+        if (!f || isCombinedField(f) || isFromExamField(f)) return;
+        rawPatch[key] = val;
+      });
+      const { rootPatch, nextMeta } = splitExamDayPersistPatch({
+        fields,
+        dateId: parsed.dateId,
+        previousCenterValues: source.values || {},
+        patch: rawPatch,
+      });
+      const centerPatch = { ...rootPatch };
+      if (nextMeta) centerPatch[EXAM_DAY_META_KEY] = nextMeta;
+      if (!Object.keys(centerPatch).length) return source;
+
+      const touchedAt = new Date().toISOString();
+      setRowsCache(
+        examId,
+        (prev) =>
+          prev.map((r) =>
+            String(r.id) === String(parsed.sourceRowId)
+              ? {
+                  ...r,
+                  updatedAt: touchedAt,
+                  values: {
+                    ...(r.values || {}),
+                    ...centerPatch,
+                    updated_at: touchedAt,
+                  },
+                }
+              : r,
+          ),
+        rowsPageKey,
+      );
+      const next = await updateExamRow(
+        examId,
+        parsed.sourceRowId,
+        centerPatch,
+        DEFAULT_EXAM_VIEW,
+      );
+      setRowsCache(
+        examId,
+        (prev) =>
+          prev.map((r) =>
+            String(r.id) === String(parsed.sourceRowId)
+              ? {
+                  ...(next || r),
+                  values: {
+                    ...((next || r).values || {}),
+                    ...centerPatch,
+                  },
+                }
+              : r,
+          ),
+        rowsPageKey,
+      );
+      return next;
+    }
+
     const original = rows.find((r) => r.id === rowId);
     const restored = restoreFromExamValues(
       restoreAssigneeIds(
@@ -903,6 +1039,7 @@ export const ExamExplorePage = () => {
 
     // Optimistic paint on every sibling (and every cached page size) before API returns.
     const touchedAt = new Date().toISOString();
+    const optimisticValues = { ...restored, ...localPatch };
     setRowsCache(
       examId,
       (prev) =>
@@ -913,7 +1050,7 @@ export const ExamExplorePage = () => {
                 updatedAt: touchedAt,
                 values: {
                   ...(r.values || {}),
-                  ...restored,
+                  ...optimisticValues,
                   updated_at: touchedAt,
                 },
               }
@@ -959,14 +1096,23 @@ export const ExamExplorePage = () => {
     }
     return next;
   };
+  examDayPersistRef.current = persistRowValues;
 
   const handleRowUpdate = async (rowId, values) => {
-    const original = rows.find((r) => r.id === rowId);
+    const examDayParsed = examDayLive ? parseExamDayRowId(rowId) : null;
+    const original = examDayParsed
+      ? rows.find((r) => String(r.id) === String(examDayParsed.sourceRowId))
+      : rows.find((r) => r.id === rowId);
     try {
       await persistRowValues(rowId, values);
     } catch (err) {
       if (original) {
-        setRowsCache(examId, (prev) => prev.map((r) => (r.id === rowId ? original : r)), rowsPageKey);
+        const matchId = String(original.id);
+        setRowsCache(
+          examId,
+          (prev) => prev.map((r) => (String(r.id) === matchId ? original : r)),
+          rowsPageKey,
+        );
       }
       setMessage(apiErrorMessage(err, 'Could not update the center'));
     }
@@ -987,6 +1133,8 @@ export const ExamExplorePage = () => {
       );
     }
   };
+
+  examDayTargetsRef.current = { all: examDayAllRows, filtered: derivedFilteredRows };
 
   /**
    * Mass Edit against the database (modal already closed — progress chip top-right):
@@ -1038,6 +1186,10 @@ export const ExamExplorePage = () => {
           const f = fieldByKey.get(key);
           if (!f || isCombinedField(f) || isFromExamField(f) || isLinkedField(f)) return;
           if (isSharedImportedField(f)) return; // home-tab only — skip in bulk for now
+          // Exam Day live counts are derived from Center list — never mass-write them.
+          if (isExamDayLiveCountRole(f.examDayImportRole) || f.examDayImportRole === 'maxStatus') {
+            return;
+          }
           localPatch[key] = val;
         });
         if (!Object.keys(localPatch).length) {
@@ -1045,6 +1197,63 @@ export const ExamExplorePage = () => {
             status: 'error',
             label: 'Mass edit',
             detail: 'Nothing to update on this tab',
+            progress: 100,
+          });
+          return;
+        }
+
+        // Exam Day: virtual center×date rows → persist onto Center list (+ per-date meta).
+        if (isExamDayView(view)) {
+          const { all, filtered } = examDayTargetsRef.current;
+          let targets = all;
+          if (scope === 'selected') {
+            const idSet = new Set((selectedRowIds || []).map(String));
+            targets = all.filter((r) => idSet.has(String(r.id)));
+          } else if (scope === 'filtered') {
+            targets = filtered;
+          }
+          if (!targets.length) {
+            setMassEditJob({
+              status: 'error',
+              label: 'Mass edit',
+              detail: 'No Exam Day rows to update',
+              progress: 100,
+            });
+            return;
+          }
+          setMassEditJob({
+            status: 'running',
+            label: 'Mass edit',
+            detail: `Updating ${targets.length.toLocaleString()} Exam Day row${targets.length === 1 ? '' : 's'}…`,
+            progress: 45,
+          });
+          const persist = examDayPersistRef.current;
+          const results = await Promise.allSettled(
+            targets.map((row) =>
+              persist?.(String(row.id), { ...(row.values || {}), ...localPatch }),
+            ),
+          );
+          const failed = results.filter((r) => r.status === 'rejected').length;
+          await invalidateRows(examId);
+          if (failed) {
+            setMassEditJob({
+              status: 'error',
+              label: 'Mass edit failed',
+              detail:
+                failed === targets.length
+                  ? 'Could not update Exam Day rows'
+                  : `${failed} of ${targets.length} rows could not be updated`,
+              progress: 100,
+            });
+            return;
+          }
+          setMassEditJob({
+            status: 'success',
+            label: 'Mass edit complete',
+            detail:
+              targets.length === 1
+                ? 'Updated 1 Exam Day row'
+                : `Updated ${targets.length.toLocaleString()} Exam Day rows`,
             progress: 100,
           });
           return;
@@ -1162,6 +1371,10 @@ export const ExamExplorePage = () => {
   }, [massEditJob]);
 
   const handleRowDelete = async (rowIds) => {
+    if (examDayLive) {
+      setMessage('Delete centers on Center list — Exam Day is a live view of those rows.');
+      return;
+    }
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
     try {
       await deleteExamRows(examId, ids);
@@ -1418,6 +1631,27 @@ export const ExamExplorePage = () => {
     [rows],
   );
 
+  /** Exam Day is a live view of Center list — refresh reloads shared centers + expand. */
+  const handleRefreshExamDayView = useCallback(async () => {
+    if (!examDayLive || !examId) return;
+    setImportingExamDay(true);
+    try {
+      await Promise.all([
+        loadRows(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.exams.table(examId, DEFAULT_EXAM_VIEW) }),
+      ]);
+      setMessage(
+        hasDateShiftTemplate(centerListDateShifts)
+          ? 'Exam Day refreshed from Center list (live view)'
+          : 'Add exam dates on Center list (Date shifts) to see Exam Day rows.',
+      );
+    } catch (err) {
+      setMessage(apiErrorMessage(err, 'Could not refresh Exam Day'));
+    } finally {
+      setImportingExamDay(false);
+    }
+  }, [examDayLive, examId, loadRows, centerListDateShifts, queryClient]);
+
   /** CSV / paste import: add, update / upsert by key, or replace all with incoming. */
   const handleImportRows = async (csvRows, handlers) => {
     const mode = handlers?.mode || 'add';
@@ -1500,13 +1734,13 @@ export const ExamExplorePage = () => {
       );
     };
 
-    /** Load every existing row (paginated) for match or replace. */
+    /** Load every existing row for this tab (paginated) for match or replace. */
     const loadAllExisting = async () => {
       const allExisting = [];
       let page = 1;
       const limit = 500;
       for (;;) {
-        const res = await listExamRows(examId, { page, limit });
+        const res = await listExamRows(examId, { page, limit, view });
         const batch = Array.isArray(res?.rows) ? res.rows : [];
         allExisting.push(...batch);
         const total = Number(res?.total) || allExisting.length;
@@ -1746,10 +1980,28 @@ export const ExamExplorePage = () => {
                   <IconButton label="Field builder (admin)" onClick={() => setIsBuilderOpen(true)}>
                     <SlidersHorizontal size={16} strokeWidth={2} />
                   </IconButton>
+                  {examDayLive && (
+                    <IconButton
+                      label="Refresh Exam Day from Center list (live view)"
+                      onClick={handleRefreshExamDayView}
+                      disabled={importingExamDay || !fields.length}
+                    >
+                      {importingExamDay ? (
+                        <Loader2 size={16} strokeWidth={2} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={16} strokeWidth={2} />
+                      )}
+                    </IconButton>
+                  )}
                 </>
               )}
-              {canCreateRow && (
-                <IconButton variant="primary" label="Add center" onClick={openCreate} disabled={createFields.length === 0}>
+              {canCreateRow && !examDayLive && (
+                <IconButton
+                  variant="primary"
+                  label="Add center"
+                  onClick={openCreate}
+                  disabled={createFields.length === 0}
+                >
                   <Plus size={16} strokeWidth={2.5} />
                 </IconButton>
               )}
@@ -1874,9 +2126,11 @@ export const ExamExplorePage = () => {
             <p className="exam-explore-empty-hint">
               {!isAdmin
                 ? `An admin needs to set up ${viewTitle.toLowerCase()} for this exam first.`
-                : matchedPreset
-                  ? 'Use the recommended preset for this exam’s service, pick another, or start blank.'
-                  : `${exam?.values?.service ? `No preset matches “${exam.values.service}”. ` : ''}Pick a preset to start from, or build the fields yourself.`}
+                : examDayLive
+                  ? 'Load the Exam Day preset for columns. Data comes live from Center list (one row per center × exam date).'
+                  : matchedPreset
+                    ? 'Use the recommended preset for this exam’s service, pick another, or start blank.'
+                    : `${exam?.values?.service ? `No preset matches “${exam.values.service}”. ` : ''}Pick a preset to start from, or build the fields yourself.`}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
             {isAdmin && (
@@ -1897,7 +2151,9 @@ export const ExamExplorePage = () => {
             <p className="exam-explore-empty-title">No fields yet</p>
             <p className="exam-explore-empty-hint">
               {isAdmin
-                ? 'Load a preset to get started.'
+                ? examDayLive
+                  ? 'Load the Exam Day preset. Rows expand live from Center list — no separate import.'
+                  : 'Load a preset to get started.'
                 : `Ask an admin to build the fields for this exam’s ${viewTitle.toLowerCase()}.`}
             </p>
             {tableError && <p className="exam-explore-error" role="alert">{tableError}</p>}
@@ -1914,6 +2170,15 @@ export const ExamExplorePage = () => {
           <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, fields.length || 5)} />
         ) : (
           <div className="exams-dynamic-table-wrap">
+            {examDayLive && !rowsLoading && displayTotal === 0 && (
+              <p className="exam-explore-live-hint" role="status">
+                {!hasDateShiftTemplate(centerListDateShifts)
+                  ? 'Add exam dates on Center list (Date shifts) — Exam Day expands those centers live.'
+                  : rows.length === 0
+                    ? 'No centers on Center list yet. Add centers there; Exam Day will show them here.'
+                    : 'No center×date rows to show (Max Day N is 0 for every date, or centers have no code).'}
+              </p>
+            )}
             <DynamicTable
               key={`exam_table_${layoutEpoch}_${savedLayoutPrefs || !presetLayout ? 0 : 1}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={layoutTableId}
@@ -1922,7 +2187,7 @@ export const ExamExplorePage = () => {
               isDarkMode={isDarkMode}
               initialColumns={tableColumns}
               initialRows={displayTableRows}
-              onRefresh={loadRows}
+              onRefresh={examDayLive ? handleRefreshExamDayView : loadRows}
               layoutPrefs={layoutPrefs}
               defaultDensity="compact"
               visibilityApiRef={view === DEFAULT_EXAM_VIEW ? tableVisibilityApiRef : undefined}
@@ -1940,12 +2205,12 @@ export const ExamExplorePage = () => {
               onBulkUpdate={handleBulkUpdate}
               onBulkUpdateByScope={handleBulkUpdateByScope}
               onRowDelete={handleRowDelete}
-              onDuplicateRow={handleDuplicateRow}
-              onImportRows={handleImportRows}
+              onDuplicateRow={examDayLive ? undefined : handleDuplicateRow}
+              onImportRows={examDayLive ? undefined : handleImportRows}
               importMatchKeys={importMatchKeys}
               importDefaultMatchKey={importDefaultMatchKey}
               importExistingRows={importExistingRows}
-              importAllowReplaceAll
+              importAllowReplaceAll={!examDayLive}
               showAddRow={false}
               permissions={tablePerms}
               enableFeatureBuilder={isAdmin}

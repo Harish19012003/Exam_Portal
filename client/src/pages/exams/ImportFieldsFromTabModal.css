@@ -485,6 +485,26 @@
   overflow: visible;
 }
 
+.import-fields-agg-row.is-mapped.is-incomplete {
+  border-color: #fca5a5;
+  background: #fff7f7;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.12);
+}
+
+.import-fields-agg-cell.is-missing .import-calc-pick-trigger,
+.import-fields-agg-cell.is-missing .exams-search-select-trigger {
+  border-color: #f87171;
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.15);
+}
+
+.import-fields-agg-row-error {
+  margin: 0;
+  padding: 0 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #dc2626;
+}
+
 .import-fields-agg-main {
   display: grid;
   grid-template-columns: minmax(110px, 0.8fr) minmax(140px, 1.2fr) minmax(140px, 1.2fr) 36px;

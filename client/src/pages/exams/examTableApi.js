@@ -48,14 +48,15 @@ export const examRowsFiltersSig = (filters) => {
   return JSON.stringify(slim);
 };
 
-/** Paginated center rows. Defaults: page=1, limit=100 (server max 500). Pass `all: true` for Unique import. */
+/** Paginated exam rows. Exam Day UI loads Center list (`center-list`) then expands live. */
 export const listExamRows = async (
   examId,
-  { page = 1, limit = 100, search = '', searchKeys, filters, all = false } = {},
+  { page = 1, limit = 100, search = '', searchKeys, filters, all = false, view = DEFAULT_EXAM_VIEW } = {},
 ) =>
   unwrap(
     await apiClient.get(`${base(examId)}/rows`, {
       params: {
+        view: view || DEFAULT_EXAM_VIEW,
         ...(all
           ? { all: 1 }
           : {

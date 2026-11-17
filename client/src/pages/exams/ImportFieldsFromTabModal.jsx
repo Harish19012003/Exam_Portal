@@ -13,7 +13,6 @@ import {
   uniqueRowKeysLabel,
 } from './examUniqueRows';
 import {
-  buildAllDaySumSourceField,
   dateShiftSumSourceOptions,
   DATE_SHIFT_ALL_DAY_KEY,
 } from './dateShiftsConfig';
@@ -488,6 +487,15 @@ export const ImportFieldsFromTabModal = ({
     [sourceFields, selectedOrder],
   );
 
+  const incompleteAggregateIds = useMemo(() => {
+    const bad = new Set();
+    for (const r of aggregateRules) {
+      if (!String(r.targetKey || '').trim()) bad.add(r.id);
+      else if (r.op === 'sum' && !String(r.sourceKey || '').trim()) bad.add(r.id);
+    }
+    return bad;
+  }, [aggregateRules]);
+
   if (!open) return null;
 
   const selected = new Set(selectedOrder);
@@ -557,7 +565,24 @@ export const ImportFieldsFromTabModal = ({
   };
 
   const patchAggregateRule = (id, patch) => {
-    setAggregateRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setAggregateRules((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const next = { ...r, ...patch };
+        // Writing to All Day Max without Sum of → default to Max all day from the source.
+        if (
+          next.op === 'sum' &&
+          !String(next.sourceKey || '').trim() &&
+          /all_?day.*max|max.*all_?day/i.test(String(next.targetKey || ''))
+        ) {
+          const allDay =
+            sourceFieldOptions.find((o) => o.value === DATE_SHIFT_ALL_DAY_KEY) ||
+            sourceFieldOptions.find((o) => /allday|all_day/i.test(String(o.value || '')));
+          if (allDay) next.sourceKey = allDay.value;
+        }
+        return next;
+      }),
+    );
   };
 
   const handleImport = () => {
@@ -610,8 +635,47 @@ export const ImportFieldsFromTabModal = ({
       setError('Where equals / not equals needs a condition value (e.g. Yes).');
       return;
     }
-    const draftedAggregates = uniqueMode
+    // Auto-fill Sum of → Max all day when Write to is All Day Max (same as patch helper).
+    const preparedRules = uniqueMode
       ? aggregateRules.map((r) => {
+          if (
+            r.op === 'sum' &&
+            !String(r.sourceKey || '').trim() &&
+            /all_?day.*max|max.*all_?day/i.test(String(r.targetKey || ''))
+          ) {
+            const allDay =
+              sourceFieldOptions.find((o) => o.value === DATE_SHIFT_ALL_DAY_KEY) ||
+              sourceFieldOptions.find((o) => /allday|all_day/i.test(String(o.value || '')));
+            if (allDay) return { ...r, sourceKey: allDay.value };
+          }
+          return r;
+        })
+      : aggregateRules;
+    if (uniqueMode && preparedRules.some((r) => r.sourceKey !== aggregateRules.find((x) => x.id === r.id)?.sourceKey)) {
+      setAggregateRules(preparedRules);
+    }
+
+    if (
+      uniqueMode &&
+      preparedRules.some(
+        (r) =>
+          !String(r.targetKey || '').trim() ||
+          (r.op === 'sum' && !String(r.sourceKey || '').trim()),
+      )
+    ) {
+      const missingSumOf = preparedRules.some(
+        (r) => r.op === 'sum' && !String(r.sourceKey || '').trim(),
+      );
+      setError(
+        missingSumOf
+          ? 'Sum needs a “Sum of” field (e.g. Max all day). Pick it under Sum of, or delete that Sum row with the trash icon.'
+          : 'Each calculation needs a “Write to” field on this page.',
+      );
+      return;
+    }
+
+    const draftedAggregates = uniqueMode
+      ? preparedRules.map((r) => {
           const whereKey = r.whereKey;
           const whereFormula =
             String(r.whereFormula || '').trim() ||
@@ -630,15 +694,8 @@ export const ImportFieldsFromTabModal = ({
     const uniqueRowAggregates = uniqueMode
       ? normalizeUniqueRowAggregates(draftedAggregates)
       : [];
-    if (uniqueMode && aggregateRules.length && !uniqueRowAggregates.length) {
-      const missingSumOf = aggregateRules.some(
-        (r) => r.op === 'sum' && !String(r.sourceKey || '').trim(),
-      );
-      setError(
-        missingSumOf
-          ? 'Sum needs a “Sum of” field (e.g. Max all day). Pick it, or remove that incomplete Sum row.'
-          : 'Each calculation needs a “Write to” field on this page.',
-      );
+    if (uniqueMode && preparedRules.length && uniqueRowAggregates.length !== preparedRules.length) {
+      setError('Each calculation needs a “Write to” field; Sum also needs “Sum of”.');
       return;
     }
     const sourceLabel = resolveSourceLabel();
@@ -673,20 +730,16 @@ export const ImportFieldsFromTabModal = ({
       taken.add(newKey);
       renamedCount += 1;
     }
-    // Sum sources from Center date-shifts (e.g. Max all day) should travel with the import.
+    // Sum sources that are real columns can travel with the import.
+    // Max all day (ds_allday) is resolved from Center date-shifts at rollup — do not
+    // invent a Formula field on this page (it had no formula text and blocked Save).
     if (uniqueMode) {
       for (const rule of uniqueRowAggregates) {
         if (rule.op !== 'sum' || !rule.sourceKey || currentKeys.has(rule.sourceKey)) continue;
         if (pickedByKey.has(rule.sourceKey)) continue;
+        if (rule.sourceKey === DATE_SHIFT_ALL_DAY_KEY || /allday/i.test(rule.sourceKey)) continue;
         const fromSource = sourceFields.find((f) => f.key === rule.sourceKey);
-        if (fromSource) {
-          pickedByKey.set(fromSource.key, fromSource);
-          continue;
-        }
-        if (rule.sourceKey === DATE_SHIFT_ALL_DAY_KEY) {
-          const synthetic = buildAllDaySumSourceField(sourceDateShifts);
-          if (synthetic) pickedByKey.set(synthetic.key, synthetic);
-        }
+        if (fromSource) pickedByKey.set(fromSource.key, fromSource);
       }
     }
     const picked = Array.from(pickedByKey.values());
@@ -712,10 +765,6 @@ export const ImportFieldsFromTabModal = ({
             uniqueRowKeys,
             // Always send aggregates in unique mode (including []) so parent can persist Where.
             uniqueRowAggregates,
-            skippedIncompleteAggregates: Math.max(
-              0,
-              aggregateRules.length - uniqueRowAggregates.length,
-            ),
           }
         : {}),
     });
@@ -1014,8 +1063,16 @@ export const ImportFieldsFromTabModal = ({
                   {aggregateRules.map((rule) => {
                     const whereOp = rule.whereOp || 'eq';
                     const needsWhereValue = whereOp === 'eq' || whereOp === 'neq';
+                    const rowIncomplete = incompleteAggregateIds.has(rule.id);
+                    const missingSumOf =
+                      rule.op === 'sum' && !String(rule.sourceKey || '').trim();
+                    const missingTarget = !String(rule.targetKey || '').trim();
                     return (
-                      <div key={rule.id} className="import-fields-agg-row is-mapped" role="listitem">
+                      <div
+                        key={rule.id}
+                        className={`import-fields-agg-row is-mapped${rowIncomplete ? ' is-incomplete' : ''}`}
+                        role="listitem"
+                      >
                         <div className="import-fields-agg-main">
                           <div className="import-fields-agg-cell is-type">
                           <span className="import-fields-agg-cap">Type</span>
@@ -1036,7 +1093,7 @@ export const ImportFieldsFromTabModal = ({
                             }))}
                           />
                           </div>
-                          <div className="import-fields-agg-cell is-source">
+                          <div className={`import-fields-agg-cell is-source${missingSumOf ? ' is-missing' : ''}`}>
                           <span className="import-fields-agg-cap">Sum of</span>
                           {rule.op === 'sum' ? (
                             <CalcFieldPicker
@@ -1045,7 +1102,7 @@ export const ImportFieldsFromTabModal = ({
                               onChange={(sourceKey) => patchAggregateRule(rule.id, { sourceKey })}
                               options={sourceFieldOptions}
                               searchPlaceholder="Search source… e.g. mock"
-                              placeholder="Sum of…"
+                              placeholder="Sum of… (required)"
                             />
                           ) : (
                             <span className="import-fields-calc-na">— (row count)</span>
@@ -1062,7 +1119,7 @@ export const ImportFieldsFromTabModal = ({
                           >
                             <Trash2 size={14} />
                           </button>
-                          <div className="import-fields-agg-cell is-target">
+                          <div className={`import-fields-agg-cell is-target${missingTarget ? ' is-missing' : ''}`}>
                           <span className="import-fields-agg-cap">Write to (this page)</span>
                           <CalcFieldPicker
                             ariaLabel="Target field on this page"
@@ -1070,10 +1127,17 @@ export const ImportFieldsFromTabModal = ({
                             onChange={(targetKey) => patchAggregateRule(rule.id, { targetKey })}
                             options={targetFieldOptions}
                             searchPlaceholder="Search this page…"
-                            placeholder="Write to…"
+                            placeholder="Write to… (required)"
                           />
                           </div>
                         </div>
+                        {rowIncomplete ? (
+                          <p className="import-fields-agg-row-error" role="alert">
+                            {missingSumOf
+                              ? 'Pick “Sum of” (e.g. Max all day), or remove this Sum with the trash icon.'
+                              : 'Pick “Write to” on this page, or remove this calculation.'}
+                          </p>
+                        ) : null}
                         <div className="import-fields-agg-where">
                           <span className="import-fields-agg-where-label">Only rows where</span>
                           <CalcFieldPicker

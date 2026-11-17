@@ -1,7 +1,21 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
-import { DEFAULT_EXAM_VIEW, examViewLabel, importedSourceLabel, sourceNameInitials } from '@exam-view/shared';
+import ExamDayImportChecklist from './ExamDayImportChecklist.jsx';
+import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  DEFAULT_EXAM_VIEW,
+  EXAM_DAY_VIEW,
+  examViewLabel,
+  importedSourceLabel,
+  sourceNameInitials,
+} from '@exam-view/shared';
+import {
+  buildMissingExamDayImportFields,
+  getExamDayImportFieldPlan,
+  isExamDayTimestampField,
+  orderExamDayFieldsTimestampsLast,
+} from './examDayExpand';
+import { useConfirm } from '../../feedback';
 import {
   EXAM_FIELD_TYPES,
   AUTO_FILL_OPTIONS,
@@ -48,6 +62,7 @@ import {
   emptyDateShiftsConfig,
   emptySummaryColumn,
   ensureFocusDateFields,
+  isFocusDateField,
   hexWithAlpha,
   newShiftColumn,
   normalizeColumnColor,
@@ -189,6 +204,8 @@ const newRow = (dataType = 'text') => ({
   combineSeparator: ', ',
   focusDateColumn: '',
   formula: '',
+  examDayShiftId: '',
+  examDayImportRole: '',
   existingId: null,
   orig: null,
   lockOptions: false,
@@ -240,7 +257,10 @@ const rowFromField = (f) => {
     combineKeys: Array.isArray(f.combine?.keys) ? f.combine.keys.map(String) : [],
     combineSeparator: f.combine?.separator == null ? ', ' : String(f.combine.separator),
     focusDateColumn: focusKind,
+    dateShift: f.dateShift && typeof f.dateShift === 'object' ? f.dateShift : undefined,
     formula: f.dataType === 'formula' ? String(f.formula || '') : '',
+    examDayShiftId: String(f.examDayShiftId || '').trim(),
+    examDayImportRole: String(f.examDayImportRole || '').trim(),
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
@@ -296,6 +316,12 @@ const rowToItem = (r, allowUnique = false) => ({
     ? { focusDateColumn: r.focusDateColumn }
     : {}),
   ...(r.dataType === 'formula' ? { formula: String(r.formula || '').trim() } : {}),
+  ...(String(r.examDayShiftId || '').trim()
+    ? { examDayShiftId: String(r.examDayShiftId).trim() }
+    : {}),
+  ...(String(r.examDayImportRole || '').trim()
+    ? { examDayImportRole: String(r.examDayImportRole).trim() }
+    : {}),
 });
 
 /** The saved field with this row's edits applied, or null when nothing changed. */
@@ -342,6 +368,12 @@ const changedField = (r, allowUnique = false) => {
     ...(item.dataType === 'formula'
       ? { formula: item.formula || '' }
       : { formula: undefined }),
+    ...(item.examDayShiftId
+      ? { examDayShiftId: item.examDayShiftId }
+      : { examDayShiftId: undefined }),
+    ...(item.examDayImportRole
+      ? { examDayImportRole: item.examDayImportRole }
+      : { examDayImportRole: undefined }),
   };
   const sig = (f) =>
     JSON.stringify([
@@ -399,7 +431,17 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
   // Fields queued for delete (removedIds) free their label/key so recreate-after-delete works before Save.
   const editing = new Set(rows.map((r) => r.existingId).filter(Boolean));
   const removing = new Set(removedIds);
-  const others = existingFields.filter((f) => !editing.has(f.id) && !removing.has(f.id));
+  // Keys already in this grid are owned here — don't flag "Key already used" against a parent
+  // copy that Unique-import / ensureFocusDateFields just added to `fields` while Bulk is open.
+  const gridKeys = new Set(
+    rows.map((r) => String(r.key || '').trim()).filter(Boolean),
+  );
+  const others = existingFields.filter(
+    (f) =>
+      !editing.has(f.id) &&
+      !removing.has(f.id) &&
+      !gridKeys.has(String(f.key || '').trim()),
+  );
   const takenKeys = new Map(others.map((f) => [f.key, true]));
   const takenLabels = new Set(others.map((f) => String(f.label).trim().toLowerCase()));
   return rows.map((row) => {
@@ -444,7 +486,10 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
       errors.optionsText = 'Pick an exam field';
     }
 
-    if (row.dataType === 'formula' && !String(row.formula || '').trim()) {
+    // Max-all-day sum source is resolved from date-shifts; empty formula text is OK.
+    const isAllDaySumSourceRow =
+      key === DATE_SHIFT_ALL_DAY_KEY || row.dateShift?.kind === 'allDay';
+    if (row.dataType === 'formula' && !String(row.formula || '').trim() && !isAllDaySumSourceRow) {
       errors.formula = 'Enter a formula (e.g. {a} / {b} * 100)';
     }
 
@@ -615,6 +660,8 @@ export const BulkFieldsModal = ({
   uniqueRowAggregates = null,
   /** Apply unique keys / count / sum as soon as Import finishes (don’t wait for Bulk Save). */
   onUniqueImportChange = null,
+  /** Apply a field delete to the parent draft immediately so reopen doesn’t bring it back. */
+  onFieldRemoved = null,
   /** Date × shift column template stored on features.dateShifts. */
   dateShifts = null,
   /**
@@ -674,9 +721,126 @@ export const BulkFieldsModal = ({
     enableDateShifts == null
       ? String(currentView || '') === DEFAULT_EXAM_VIEW
       : Boolean(enableDateShifts);
+  const showExamDayImport = String(currentView || '') === EXAM_DAY_VIEW;
+  // null = auto (collapsed when ready, open when columns are missing); boolean = user choice
+  const [examDayOpenPref, setExamDayOpenPref] = useState(null);
   useEffect(() => {
     if (!showDateShifts && tab === 'dateShifts') setTab('fields');
   }, [showDateShifts, tab]);
+
+  /** Center list date×shift template for this service — drives S1/S2 suggestions. */
+  const centerListDateShiftsForExamDay = useMemo(() => {
+    if (!showExamDayImport) return null;
+    const list = Array.isArray(presetSources) ? presetSources : [];
+    const svc = String(currentServiceValue || '').trim().toLowerCase();
+    const centerPresets = list.filter(
+      (p) => String(p?.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW,
+    );
+    const sameService = svc
+      ? centerPresets.filter((p) => String(p?.serviceValue || '').trim().toLowerCase() === svc)
+      : [];
+    const pick = sameService[0] || centerPresets[0] || null;
+    return pick?.features?.dateShifts || null;
+  }, [showExamDayImport, presetSources, currentServiceValue]);
+
+  const examDayImportPlan = useMemo(() => {
+    if (!showExamDayImport) return null;
+    const fieldLike = rows
+      .filter((r) => String(r.key || '').trim() || String(r.label || '').trim())
+      .map((r) => ({
+        key: String(r.key || '').trim(),
+        label: String(r.label || '').trim(),
+        dataType: r.dataType,
+        examDayShiftId: r.examDayShiftId,
+        examDayImportRole: r.examDayImportRole,
+        formula: r.formula,
+      }));
+    return getExamDayImportFieldPlan({
+      fields: fieldLike,
+      centerListDateShifts: centerListDateShiftsForExamDay,
+    });
+  }, [showExamDayImport, rows, centerListDateShiftsForExamDay]);
+
+  const addExamDayImportColumns = () => {
+    if (!examDayImportPlan) return;
+    const fieldLike = rows
+      .filter((r) => String(r.key || '').trim())
+      .map((r) => ({
+        key: String(r.key || '').trim(),
+        label: String(r.label || '').trim(),
+        dataType: r.dataType,
+        examDayShiftId: r.examDayShiftId,
+        examDayImportRole: r.examDayImportRole,
+        formula: r.formula,
+      }));
+    const missing = buildMissingExamDayImportFields({
+      fields: fieldLike,
+      centerListDateShifts: centerListDateShiftsForExamDay,
+    });
+    setRows((prev) => {
+      const used = new Set(prev.map((r) => String(r.key || '').trim()).filter(Boolean));
+      const additions = [];
+      let next = prev.map((r) => ({ ...r }));
+
+      const applyDefToRow = (row, def) => {
+        row.label = def.label;
+        row.key = def.key;
+        row.keyTouched = true;
+        row.dataType = def.dataType;
+        row.examDayShiftId = def.examDayShiftId || '';
+        row.examDayImportRole = def.examDayImportRole || '';
+        if (def.optionsText || (Array.isArray(def.options) && def.options.length)) {
+          row.optionsSource = 'manual';
+          row.optionsText = def.optionsText || def.options.join(', ');
+        }
+        if (def.formula != null) row.formula = String(def.formula || '');
+        return row;
+      };
+
+      missing.forEach((def) => {
+        if (def.updateExisting) {
+          const idx = next.findIndex((r) => String(r.key || '').trim() === def.key);
+          if (idx >= 0) {
+            next[idx] = applyDefToRow({ ...next[idx] }, def);
+          }
+          return;
+        }
+        if (used.has(def.key)) return;
+        used.add(def.key);
+        const row = applyDefToRow(newRow(def.dataType), def);
+        additions.push(row);
+      });
+
+      // Pull every First/Last T. to the bottom (before blank rows / Created·Modify on the table).
+      const blanks = [];
+      const filled = [];
+      [...next, ...additions].forEach((r) => {
+        const empty =
+          !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim();
+        if (empty) blanks.push(r);
+        else filled.push(r);
+      });
+      const seenRid = new Set();
+      const seenKey = new Set();
+      const uniqueFilled = [];
+      filled.forEach((r) => {
+        const key = String(r.key || '').trim();
+        if (seenRid.has(r.rid)) return;
+        if (key && seenKey.has(key)) return;
+        seenRid.add(r.rid);
+        if (key) seenKey.add(key);
+        uniqueFilled.push(r);
+      });
+      next = [
+        ...orderExamDayFieldsTimestampsLast(uniqueFilled),
+        ...(blanks.length ? blanks : [newRow()]),
+      ];
+      const focusAdd = additions.find((a) => !isExamDayTimestampField(a)) || additions[0];
+      focusRidRef.current = focusAdd?.rid || null;
+      return next.slice(0, maxRows);
+    });
+    setTab('fields');
+  };
   const initialDateShifts = useMemo(
     () => normalizeDateShiftsConfig(dateShifts || emptyDateShiftsConfig()),
     // Only seed from the prop when the modal mounts.
@@ -713,7 +877,12 @@ export const BulkFieldsModal = ({
   const allDayOn = Boolean(shiftDraft.allDayColumn?.enabled);
   const summaryHeader = summaryColumnLabel(shiftDraft.summaryColumn);
   const allDayHeader = allDayColumnLabel(shiftDraft.allDayColumn);
+  const confirm = useConfirm();
   const [removedIds, setRemovedIds] = useState([]); // existing field ids to delete on save
+  /** User deleted Date Total Center / Date Max All Day — don’t auto-reinsert them this session. */
+  const [suppressedFocusKeys, setSuppressedFocusKeys] = useState(() => new Set());
+  /** Ids already pushed to the parent draft via onFieldRemoved (don’t count as discardable). */
+  const liveRemovedIdsRef = useRef(new Set());
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -777,46 +946,98 @@ export const BulkFieldsModal = ({
     return map;
   }, [activeUniqueKeys, activeUniqueAggregates]);
 
-  // Presets / pages: show Date Total Center & Date Max All Day in Bulk add when Unique import needs them.
+  // Presets / pages: show Date Total Center & Date Max All Day when Unique import needs them.
+  // Skip keys the user deleted this session; always de-dupe by key (import + ensure can race).
   useEffect(() => {
     const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(activeUniqueAggregates);
     if (!countTargetKey && !sumTargetKey) return;
     setRows((prev) => {
       const filled = prev.filter((r) => String(r.key || '').trim());
       const blanks = prev.filter((r) => !String(r.key || '').trim());
-      const stubFields = filled.map((r) => ({
-        key: r.key,
-        label: r.label,
-        dataType: r.dataType || 'text',
-        focusDateColumn: r.focusDateColumn,
-        id: r.existingId || r.rid,
-      }));
+      const stubFields = [];
+      const stubSeen = new Set();
+      for (const r of filled) {
+        const k = String(r.key || '').trim();
+        if (!k || stubSeen.has(k)) continue;
+        stubSeen.add(k);
+        stubFields.push({
+          key: r.key,
+          label: r.label,
+          dataType: r.dataType || 'text',
+          focusDateColumn: r.focusDateColumn,
+          id: r.existingId || r.rid,
+        });
+      }
       const { fields: ensured, changed } = ensureFocusDateFields(stubFields, {
-        countTargetKey,
-        sumTargetKey,
+        countTargetKey: suppressedFocusKeys.has(FOCUS_TOTAL_CENTER_COLUMN_KEY)
+          ? ''
+          : countTargetKey,
+        sumTargetKey: suppressedFocusKeys.has(FOCUS_MAX_ALL_DAY_COLUMN_KEY) ? '' : sumTargetKey,
       });
-      if (!changed) return prev;
-      const byKey = new Map(filled.map((r) => [r.key, r]));
-      const nextFilled = ensured.map((f) => {
-        const existing = byKey.get(f.key);
+      const byKey = new Map(filled.map((r) => [String(r.key || '').trim(), r]));
+      const parentByKey = new Map(
+        (Array.isArray(fields) ? fields : [])
+          .filter((f) => f?.key)
+          .map((f) => [String(f.key).trim(), f]),
+      );
+      const nextFilled = [];
+      const outSeen = new Set();
+      for (const f of ensured) {
+        const k = String(f.key || '').trim();
+        if (!k || outSeen.has(k) || suppressedFocusKeys.has(k)) continue;
+        outSeen.add(k);
+        const existing = byKey.get(k);
         if (existing) {
-          return {
+          nextFilled.push({
             ...existing,
             focusDateColumn: f.focusDateColumn || existing.focusDateColumn,
             label: existing.label || f.label,
-          };
+            dataType:
+              k === FOCUS_TOTAL_CENTER_COLUMN_KEY || k === FOCUS_MAX_ALL_DAY_COLUMN_KEY
+                ? 'number'
+                : existing.dataType,
+          });
+        } else {
+          // Prefer the parent field (may already exist from ExamFieldBuilder ensure).
+          const parent = parentByKey.get(k);
+          if (parent?.id) {
+            nextFilled.push({
+              ...rowFromField(parent),
+              existingId: parent.id,
+              orig: {
+                label: parent.label || '',
+                key: parent.key || '',
+                dataType: parent.dataType || 'number',
+              },
+              keyTouched: true,
+              focusDateColumn: f.focusDateColumn || parent.focusDateColumn,
+            });
+          } else {
+            nextFilled.push({
+              ...rowFromField({ ...f, id: undefined, dataType: 'number' }),
+              existingId: null,
+              orig: null,
+              keyTouched: true,
+              focusDateColumn: f.focusDateColumn,
+            });
+          }
         }
-        return {
-          ...rowFromField({ ...f, id: undefined }),
-          existingId: null,
-          orig: null,
-          keyTouched: true,
-          focusDateColumn: f.focusDateColumn,
-        };
-      });
-      return [...nextFilled, ...blanks];
+      }
+      // Keep any non-focus filled rows that ensure dropped, still de-duped.
+      for (const r of filled) {
+        const k = String(r.key || '').trim();
+        if (!k || outSeen.has(k)) continue;
+        outSeen.add(k);
+        nextFilled.push(r);
+      }
+      const next = [...nextFilled, ...blanks];
+      if (!changed && next.length === prev.length) {
+        const same = next.every((r, i) => r.rid === prev[i]?.rid && r.key === prev[i]?.key);
+        if (same) return prev;
+      }
+      return next;
     });
-  }, [activeUniqueAggregates]);
+  }, [activeUniqueAggregates, suppressedFocusKeys, fields]);
   const uniqueImportSummary = useMemo(() => {
     if (!activeUniqueKeys.length && !activeUniqueAggregates.length) return '';
     const keyPart = activeUniqueKeys.length
@@ -932,12 +1153,14 @@ export const BulkFieldsModal = ({
           document.dispatchEvent(new MouseEvent('mousedown'));
           return;
         }
-        onClose();
+        requestClose();
       }
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+    // requestClose closes over latest pending counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirm, onClose, pending, removedIds, newCount, updateCount, dateShiftsDirty, uniqueImportDirty, orderDirty]);
 
   useEffect(() => {
     if (!focusRidRef.current) return;
@@ -985,13 +1208,45 @@ export const BulkFieldsModal = ({
   const removeRow = (rid) => {
     const target = rows.find((r) => r.rid === rid);
     if (!target) return;
+    const focusKey = String(target.key || '').trim();
+    if (focusKey && isFocusDateField(target)) {
+      setSuppressedFocusKeys((prev) => new Set([...prev, focusKey]));
+    }
     if (target.existingId) {
       setRemovedIds((prev) => (prev.includes(target.existingId) ? prev : [...prev, target.existingId]));
+      // Stick the delete on the parent draft immediately (preset / page form).
+      if (typeof onFieldRemoved === 'function') {
+        liveRemovedIdsRef.current.add(target.existingId);
+        onFieldRemoved(target.existingId);
+      }
     }
     setRows((prev) => {
       const next = prev.filter((r) => r.rid !== rid);
       return next.some((r) => !r.existingId) ? next : [...next, newRow()];
     });
+  };
+
+  const requestClose = async () => {
+    const liveGone = liveRemovedIdsRef.current;
+    const unsyncedRemoves = removedIds.filter((id) => !liveGone.has(id)).length;
+    const discardable =
+      newCount +
+      updateCount +
+      unsyncedRemoves +
+      (dateShiftsDirty ? 1 : 0) +
+      (uniqueImportDirty ? 1 : 0) +
+      (orderDirty ? 1 : 0);
+    if (discardable > 0) {
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message:
+          'Edits in Bulk add are not kept unless you click Save. Deleted fields that were already removed from the list stay removed.',
+        confirmLabel: 'Discard',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    onClose();
   };
 
   // Auto-fill and Width are rarely changed, so they stay hidden until asked for (or already in use).
@@ -1191,17 +1446,48 @@ export const BulkFieldsModal = ({
     setNotice('');
   };
 
+  /** Keep first row per key; blank rows stay. Prevents Unique-import / ensure races. */
+  const dedupeRowsByKey = (list = []) => {
+    const seen = new Set();
+    const out = [];
+    for (const r of list) {
+      const k = String(r?.key || '').trim();
+      if (!k) {
+        out.push(r);
+        continue;
+      }
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(r);
+    }
+    return out;
+  };
+
   const insertBulkRows = (additions, notice) => {
     if (!additions.length) {
       setNotice('Those fields are already in this list.');
       return;
     }
     setRows((prev) => {
+      const have = new Set(
+        prev.map((r) => String(r.key || '').trim()).filter(Boolean),
+      );
+      const fresh = [];
+      for (const row of additions) {
+        const k = String(row?.key || '').trim();
+        if (!k || have.has(k)) continue;
+        have.add(k);
+        fresh.push(row);
+      }
+      if (!fresh.length) return dedupeRowsByKey(prev);
       const blankStart = prev.findIndex(
         (r) => !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim(),
       );
-      if (blankStart < 0) return [...prev, ...additions].slice(0, maxRows);
-      return [...prev.slice(0, blankStart), ...additions, ...prev.slice(blankStart)].slice(0, maxRows);
+      const merged =
+        blankStart < 0
+          ? [...prev, ...fresh]
+          : [...prev.slice(0, blankStart), ...fresh, ...prev.slice(blankStart)];
+      return dedupeRowsByKey(merged).slice(0, maxRows);
     });
     setNotice(notice);
     setTab('fields');
@@ -1308,56 +1594,8 @@ export const BulkFieldsModal = ({
         };
       });
 
-    // Real Date Total Center / Date Max All Day fields (formulas + fixed column order).
-    const aggregatesForFocus = Array.isArray(nextUniqueAggregates) ? nextUniqueAggregates : [];
-    const countTargetKey =
-      aggregatesForFocus.find((r) => r.op === 'count')?.targetKey || '';
-    const sumTargetKey =
-      aggregatesForFocus.find(
-        (r) =>
-          r.op === 'sum' &&
-          (r.sourceKey === DATE_SHIFT_ALL_DAY_KEY || /allday/i.test(String(r.sourceKey || ''))),
-      )?.targetKey || '';
-    if (countTargetKey || sumTargetKey) {
-      const stubFields = [
-        ...rows
-          .filter((r) => r.key)
-          .map((r) => ({
-            key: r.key,
-            label: r.label,
-            dataType: r.dataType || 'text',
-            focusDateColumn: r.focusDateColumn,
-          })),
-        ...additions.map((r) => ({
-          key: r.key,
-          label: r.label,
-          dataType: r.dataType || 'number',
-          focusDateColumn: r.focusDateColumn,
-        })),
-      ];
-      const { fields: ensured } = ensureFocusDateFields(stubFields, {
-        countTargetKey,
-        sumTargetKey,
-      });
-      const haveAdd = new Set([...haveKeys, ...additions.map((a) => a.key)]);
-      for (const f of ensured) {
-        if (
-          (f.key === FOCUS_TOTAL_CENTER_COLUMN_KEY || f.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY) &&
-          !haveAdd.has(f.key)
-        ) {
-          const row = rowFromField({ ...f, id: undefined });
-          additions.push({
-            ...row,
-            rid: newRow().rid,
-            existingId: null,
-            orig: null,
-            keyTouched: true,
-            focusDateColumn: f.focusDateColumn,
-          });
-          haveAdd.add(f.key);
-        }
-      }
-    }
+    // Date Total Center / Date Max All Day are added by the unique-aggregates effect
+    // (single path — adding here too raced and duplicated keys).
 
     if (!additions.length) {
       if (nextUniqueKeys.length || aggregatesForFocus.length || skippedIncomplete) {
@@ -1672,7 +1910,7 @@ export const BulkFieldsModal = ({
   }, [validation, rows]);
 
   return createPortal(
-    <div className="exams-bulk-overlay" onClick={onClose}>
+    <div className="exams-bulk-overlay" onClick={requestClose}>
       <form
         className="exams-bulk-modal"
         onClick={(e) => e.stopPropagation()}
@@ -1692,7 +1930,7 @@ export const BulkFieldsModal = ({
               </p>
             ) : null}
           </div>
-          <button type="button" className="exams-drawer-close compact" onClick={onClose} aria-label="Close">
+          <button type="button" className="exams-drawer-close compact" onClick={requestClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>
@@ -1805,6 +2043,76 @@ export const BulkFieldsModal = ({
             <span>{uniqueImportSummary}</span>
             <span className="exams-bulk-unique-banner-hint">Edit</span>
           </button>
+        ) : null}
+
+        {tab === 'fields' && showExamDayImport && examDayImportPlan ? (
+          (() => {
+          const examDayOpen = examDayOpenPref ?? !examDayImportPlan.ready;
+          const presentCount = examDayImportPlan.items.filter((it) => it.present).length;
+          return (
+          <div
+            className={`exams-bulk-examday-banner${examDayImportPlan.ready ? ' is-ready' : ''}${examDayOpen ? '' : ' is-collapsed'}`}
+            role="region"
+            aria-label="Center list import columns"
+          >
+            <div className="exams-bulk-examday-banner-head">
+              <button
+                type="button"
+                className="exams-bulk-examday-toggle"
+                onClick={() => setExamDayOpenPref(!examDayOpen)}
+                aria-expanded={examDayOpen}
+                aria-controls="exams-bulk-examday-checklist"
+                title={examDayOpen ? 'Collapse' : 'Show import columns'}
+              >
+                <ChevronDown size={16} aria-hidden="true" className="exams-bulk-examday-chevron" />
+                <CalendarDays size={15} aria-hidden="true" />
+                <span className="exams-bulk-examday-banner-copy">
+                  <strong>
+                    Center list → Exam Day import
+                    <span className="exams-bulk-examday-count">
+                      {presentCount}/{examDayImportPlan.items.length} columns
+                    </span>
+                    {examDayImportPlan.missing.length ? (
+                      <span className="exams-bulk-examday-missing">
+                        {examDayImportPlan.missing.length} missing
+                      </span>
+                    ) : null}
+                  </strong>
+                  {examDayOpen ? (
+                    <span
+                      title={
+                        examDayImportPlan.ready
+                          ? undefined
+                          : 'Center Code and other BCL fields stay via Import from preset.'
+                      }
+                    >
+                      {examDayImportPlan.ready
+                        ? 'Ready — on the Exam Day tab, use Import from Center list to fill rows.'
+                        : 'Needed so Import from Center list can fill exam date, shift counts and status.'}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+              {!examDayImportPlan.ready ? (
+                <button
+                  type="button"
+                  className="exams-bulk-examday-add-btn"
+                  onClick={addExamDayImportColumns}
+                >
+                  <Plus size={14} /> Add missing columns
+                </button>
+              ) : (
+                <span className="exams-bulk-examday-ready">
+                  <CheckCircle2 size={14} aria-hidden="true" /> Ready
+                </span>
+              )}
+            </div>
+            {examDayOpen ? (
+              <ExamDayImportChecklist plan={examDayImportPlan} id="exams-bulk-examday-checklist" />
+            ) : null}
+          </div>
+          );
+          })()
         ) : null}
 
         {tab === 'dateShifts' && (
@@ -2080,7 +2388,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title="One extra column after the shifts for each date (e.g. Max Day 1)."
+                      title="One read-only column after the shifts for each date (e.g. Max Day 1), computed from that day’s shift values."
                       aria-label="About summary column"
                     >
                       <Info size={13} />
@@ -3073,7 +3381,7 @@ export const BulkFieldsModal = ({
                     : 'Edit a field or fill a new row')}
           </span>
           <div className="exams-bulk-footer-actions">
-            <button type="button" className="exams-btn secondary compact" onClick={onClose}>
+            <button type="button" className="exams-btn secondary compact" onClick={requestClose}>
               Cancel
             </button>
             <button
