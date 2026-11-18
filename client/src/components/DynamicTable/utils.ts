@@ -132,17 +132,58 @@ export function formatTime(value: unknown): string {
   }
 }
 
-/** Status → color tokens */
+/** Status → color tokens (keys matched case-insensitively via resolveStatusColors). */
 export const STATUS_COLORS: Record<
   string,
   { light: string; dark: string; dot: string }
 > = {
   Active: { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-400', dot: 'bg-emerald-500' },
   Inactive: { light: 'bg-gray-100 text-gray-600', dark: 'bg-gray-800 text-gray-400', dot: 'bg-gray-400' },
-  Pending: { light: 'bg-amber-100 text-amber-700', dark: 'bg-amber-900/30 text-amber-400', dot: 'bg-amber-500' },
+  // Exam Day / Max Status: completed = green, pending = red, partial = yellow
+  completed: {
+    light: 'bg-emerald-100 text-emerald-700',
+    dark: 'bg-emerald-900/30 text-emerald-400',
+    dot: 'bg-emerald-500',
+  },
+  pending: {
+    light: 'bg-rose-100 text-rose-700',
+    dark: 'bg-rose-900/30 text-rose-400',
+    dot: 'bg-rose-500',
+  },
+  partial: {
+    light: 'bg-amber-100 text-amber-700',
+    dark: 'bg-amber-900/30 text-amber-400',
+    dot: 'bg-amber-500',
+  },
+  Completed: {
+    light: 'bg-emerald-100 text-emerald-700',
+    dark: 'bg-emerald-900/30 text-emerald-400',
+    dot: 'bg-emerald-500',
+  },
+  Pending: {
+    light: 'bg-rose-100 text-rose-700',
+    dark: 'bg-rose-900/30 text-rose-400',
+    dot: 'bg-rose-500',
+  },
+  Partial: {
+    light: 'bg-amber-100 text-amber-700',
+    dark: 'bg-amber-900/30 text-amber-400',
+    dot: 'bg-amber-500',
+  },
   Suspended: { light: 'bg-rose-100 text-rose-700', dark: 'bg-rose-900/30 text-rose-400', dot: 'bg-rose-500' },
   '2FA ON': { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/30 text-emerald-400', dot: 'bg-emerald-500' },
   '2FA OFF': { light: 'bg-gray-100 text-gray-600', dark: 'bg-gray-800 text-gray-400', dot: 'bg-gray-400' },
+};
+
+const STATUS_COLORS_BY_LOWER: Record<string, { light: string; dark: string; dot: string }> = Object.fromEntries(
+  Object.entries(STATUS_COLORS).map(([k, v]) => [k.toLowerCase(), v]),
+);
+
+/** Resolve status chip colors; matches `completed` / `Completed` / etc. */
+export const resolveStatusColors = (value: string) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  return STATUS_COLORS[raw] ?? STATUS_COLORS_BY_LOWER[raw.toLowerCase()] ?? null;
 };
 
 /** Generate a unique row id */

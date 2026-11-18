@@ -1,9 +1,26 @@
-import { DEFAULT_EXAM_VIEW } from '@exam-view/shared';
+import { DEFAULT_EXAM_VIEW, EXAM_DAY_META_KEY, EXAM_DAY_VIEW, isOwnRowSetView } from '@exam-view/shared';
 import { getEm } from '../../../database/connection.js';
 import { Exam, ExamTable, ExamRow, User } from '../../../database/entities/index.js';
 import { encodeCellValue, decodeCellValue } from '../exams/exam.repository.js';
+import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
 
 export const SYSTEM_COLUMNS = ['id', 'sys_created_by', 'sys_updated_by', 'sys_created_at', 'sys_updated_at'];
+
+/**
+ * Mongo filter for rows belonging to a tab.
+ * Shared tabs (center-list, Unique-import, Exam Day live view) use the shared bag.
+ * Legacy `row_view === 'exam-day'` rows (if any) stay excluded from the shared bag.
+ */
+export const rowViewMatch = (view = DEFAULT_EXAM_VIEW) => {
+  if (isOwnRowSetView(view)) {
+    return { row_view: EXAM_DAY_VIEW };
+  }
+  // Shared bag: missing / null / center-list — never legacy exam-day snapshots.
+  return { row_view: { $nin: [EXAM_DAY_VIEW] } };
+};
+
+export const persistRowView = (view = DEFAULT_EXAM_VIEW) =>
+  (isOwnRowSetView(view) ? EXAM_DAY_VIEW : null);
 
 export const isSafeColumnName = (name) => /^[a-z][a-z0-9_]{0,39}$/.test(String(name || ''));
 export const isReservedKey = (key) => key === 'id' || String(key).startsWith('sys_');
@@ -32,10 +49,15 @@ const normalizeFieldList = (fields) =>
     order: def.order ?? i + 1,
   }));
 
-export const effectiveType = (def) =>
-  (def?.dataType === 'dropdown' || def?.dataType === 'status') && def?.allowMultiple
+export const effectiveType = (def) => {
+  // User-tag assignees follow the field type only (ignore stale allowMultiple).
+  if (def?.optionsSource === 'userTags') {
+    return def.dataType === 'multiselect' || def.dataType === 'tags' ? 'multiselect' : 'text';
+  }
+  return (def?.dataType === 'dropdown' || def?.dataType === 'status') && def?.allowMultiple
     ? 'multiselect'
     : def?.dataType || 'text';
+};
 
 /** @deprecated no SQL column types */
 export const columnSqlType = () => 'json';
@@ -249,11 +271,16 @@ const mapRow = (raw, fields, userMap) => {
 /**
  * Lightweight id + decoded values for server-side filter matching (no user joins).
  */
-export const listRowValues = async (tableId, fields) => {
+export const listRowValues = async (tableId, fields, options = {}) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);
   if (!examId) return [];
-  const rows = await em.find(ExamRow, { exam_id: examId }, { orderBy: { sys_created_at: 'DESC' } });
+  const view = options.view || DEFAULT_EXAM_VIEW;
+  const rows = await em.find(
+    ExamRow,
+    { exam_id: examId, ...rowViewMatch(view) },
+    { orderBy: { sys_created_at: 'DESC' } },
+  );
   return rows.map((r) => ({
     id: String(r.id ?? r._id),
     values: decodeRowValues(r, fields),
@@ -272,7 +299,9 @@ const normalizeLimit = (limit) =>
 
 /**
  * Paginated center rows for one exam.
- * Pass `{ all: true }` only for rare internal scans (e.g. uniqueness) — not for list APIs.
+ * Pass `{ all: true }` for Unique import (and similar) — every center, no page-size cap.
+ * Optional `search` / `searchKeys` / `filters` match across the full exam set, then page
+ * (or return every match when `all: true`).
  */
 export const listRows = async (tableId, fields, options = {}) => {
   const em = getEm();
@@ -280,46 +309,117 @@ export const listRows = async (tableId, fields, options = {}) => {
   if (!examId) {
     return { rows: [], total: 0, page: 1, limit: DEFAULT_PAGE_SIZE, totalPages: 0 };
   }
-  const total = await em.count(ExamRow, { exam_id: examId });
-  const findOpts = { orderBy: { sys_created_at: 'DESC' } };
-  let page = 1;
-  let limit = total;
 
-  if (!options.all) {
-    page = normalizePage(options.page);
-    limit = normalizeLimit(options.limit);
-    findOpts.limit = limit;
-    findOpts.offset = (page - 1) * limit;
+  const view = options.view || DEFAULT_EXAM_VIEW;
+  const viewFilter = rowViewMatch(view);
+  const search = typeof options.search === 'string' ? options.search : '';
+  const searchKeys = Array.isArray(options.searchKeys) ? options.searchKeys.map(String) : undefined;
+  const filters =
+    options.filters && typeof options.filters === 'object' && !Array.isArray(options.filters)
+      ? options.filters
+      : undefined;
+  const query = { search, searchKeys, filters };
+  const wantsQuery = hasActiveQuery(query);
+  const fetchAll = Boolean(options.all);
+  const match = { exam_id: examId, ...viewFilter };
+
+  // Search/filters (and Unique import `all`) must scan every row — never a 500-row page slice.
+  if (wantsQuery || fetchAll) {
+    const raw = await em.find(ExamRow, match, { orderBy: { sys_created_at: 'DESC' } });
+    const userMap = await loadUsers(
+      em,
+      raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+    );
+    const mapped = raw.map((r) => mapRow(r, fields, userMap));
+    const matched = wantsQuery
+      ? mapped.filter((r) => rowMatchesQuery(r.values || {}, query))
+      : mapped;
+    const total = matched.length;
+    if (fetchAll) {
+      return {
+        rows: matched,
+        total,
+        page: 1,
+        limit: total,
+        totalPages: 1,
+      };
+    }
+    const page = normalizePage(options.page);
+    const limit = normalizeLimit(options.limit);
+    const offset = (page - 1) * limit;
+    return {
+      rows: matched.slice(offset, offset + limit),
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+    };
   }
 
-  const rows = await em.find(ExamRow, { exam_id: examId }, findOpts);
+  const total = await em.count(ExamRow, match);
+  const page = normalizePage(options.page);
+  const limit = normalizeLimit(options.limit);
+  const rows = await em.find(
+    ExamRow,
+    match,
+    {
+      orderBy: { sys_created_at: 'DESC' },
+      limit,
+      offset: (page - 1) * limit,
+    },
+  );
   const userMap = await loadUsers(
     em,
     rows.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
   );
-  const totalPages = options.all ? 1 : Math.max(1, Math.ceil(total / limit) || 1);
   return {
     rows: rows.map((r) => mapRow(r, fields, userMap)),
     total,
     page,
-    limit: options.all ? total : limit,
-    totalPages,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit) || 1),
   };
 };
 
 /** Lightweight center_code scan for uniqueness (no full row decode). */
-export const listCenterCodes = async (tableId, fieldKey = 'center_code') => {
+export const listCenterCodes = async (tableId, fieldKey = 'center_code', options = {}) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);
   if (!examId) return [];
   const key = String(fieldKey || 'center_code');
+  const view = options.view || DEFAULT_EXAM_VIEW;
   const docs = await em.aggregate(ExamRow, [
-    { $match: { exam_id: examId } },
+    { $match: { exam_id: examId, ...rowViewMatch(view) } },
     { $project: { id: 1, code: `$values.${key}` } },
   ]);
   return (docs || []).map((d) => ({
     id: String(d.id ?? d._id),
     code: d.code,
+  }));
+};
+
+/** Exam Day uniqueness scan: center_code + exam_date pairs. */
+export const listCenterDatePairs = async (
+  tableId,
+  { centerKey = 'center_code', dateKey = 'exam_date', view = EXAM_DAY_VIEW } = {},
+) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const docs = await em.aggregate(ExamRow, [
+    { $match: { exam_id: examId, ...rowViewMatch(view) } },
+    {
+      $project: {
+        id: 1,
+        code: `$values.${centerKey}`,
+        examDate: `$values.${dateKey}`,
+      },
+    },
+  ]);
+  return (docs || []).map((d) => ({
+    id: String(d.id ?? d._id),
+    code: d.code,
+    examDate: d.examDate,
   }));
 };
 
@@ -343,7 +443,7 @@ export const findRowsByIds = async (tableId, fields, rowIds) => {
   return rows.map((r) => mapRow(r, fields, userMap));
 };
 
-export const insertRow = async (tableId, fields, values, userId) => {
+export const insertRow = async (tableId, fields, values, userId, options = {}) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);
   if (!examId) throw new Error('Exam table not found');
@@ -354,6 +454,7 @@ export const insertRow = async (tableId, fields, values, userId) => {
   });
   const entity = em.create(ExamRow, {
     exam_id: examId,
+    row_view: persistRowView(options.view),
     values: encoded,
     sys_created_by: userId || null,
     sys_updated_by: userId || null,
@@ -363,10 +464,11 @@ export const insertRow = async (tableId, fields, values, userId) => {
 };
 
 /** Insert many rows with a single flush. */
-export const insertRows = async (tableId, fields, valuesList, userId) => {
+export const insertRows = async (tableId, fields, valuesList, userId, options = {}) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);
   if (!examId) throw new Error('Exam table not found');
+  const rowView = persistRowView(options.view);
   const entities = valuesList.map((values) => {
     const encoded = {};
     fields.forEach((f) => {
@@ -375,6 +477,7 @@ export const insertRows = async (tableId, fields, valuesList, userId) => {
     });
     return em.create(ExamRow, {
       exam_id: examId,
+      row_view: rowView,
       values: encoded,
       sys_created_by: userId || null,
       sys_updated_by: userId || null,
@@ -396,6 +499,10 @@ export const updateRow = async (tableId, fields, rowId, values, userId) => {
     if (!(f.key in values)) return;
     next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
   });
+  // Exam Day per-date bag on the shared Center list row (not a field def).
+  if (values && Object.prototype.hasOwnProperty.call(values, EXAM_DAY_META_KEY)) {
+    next[EXAM_DAY_META_KEY] = values[EXAM_DAY_META_KEY];
+  }
   em.assign(row, {
     values: next,
     sys_updated_by: userId || null,
@@ -427,6 +534,9 @@ export const updateRowsBulk = async (tableId, fields, values, userId, rowIds = n
       if (!(f.key in values)) return;
       next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
     });
+    if (values && Object.prototype.hasOwnProperty.call(values, EXAM_DAY_META_KEY)) {
+      next[EXAM_DAY_META_KEY] = values[EXAM_DAY_META_KEY];
+    }
     em.assign(row, {
       values: next,
       sys_updated_by: userId || null,

@@ -315,29 +315,31 @@ const toAssignable = (u) => ({
  * Users who have at least one of `tagIds`. Empty tagIds → empty list (callers must pick tags).
  * Active users only.
  */
-export const listAssignableByTags = async (tagIds = []) => {
+/**
+ * Assignee picker page (or full list when options.all).
+ * Returns { rows, total, page, limit, hasMore }.
+ */
+export const listAssignableByTags = async (tagIds = [], options = {}) => {
   const wanted = [...new Set((Array.isArray(tagIds) ? tagIds : []).map(String).filter(Boolean))];
-  if (wanted.length === 0) return [];
-  const users = await userRepository.findAll();
-  return users
-    .filter((u) => {
-      if (u.status && String(u.status).toLowerCase() === 'disabled') return false;
-      const tags = Array.isArray(u.tag_ids) ? u.tag_ids.map(String) : [];
-      return tags.some((t) => wanted.includes(t));
-    })
+  if (wanted.length === 0) {
+    return { rows: [], total: 0, page: 1, limit: 0, hasMore: false };
+  }
+  const result = await userRepository.findAssignableByTagIds(wanted, options);
+  const rows = (result.rows || [])
+    .filter((u) => !(u.status && String(u.status).toLowerCase() === 'disabled'))
     .map(toAssignable)
     .sort((a, b) => a.name.localeCompare(b.name));
+  return { ...result, rows };
 };
 
 /** Resolve display labels for saved assignee user ids. */
 export const resolveAssignableUsers = async (ids = []) => {
   const wanted = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 500);
   if (wanted.length === 0) return {};
-  const users = await userRepository.findAll();
+  const users = await userRepository.findAssignableByIds(wanted);
   const out = {};
   users.forEach((u) => {
-    const id = String(u.id);
-    if (wanted.includes(id)) out[id] = toAssignable(u);
+    out[String(u.id)] = toAssignable(u);
   });
   return out;
 };

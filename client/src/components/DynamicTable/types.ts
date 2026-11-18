@@ -253,6 +253,8 @@ export interface FilterComponentProps {
   onFilterChange: (filter: FilterValue | null) => void;
   onClose: () => void;
   isDarkMode: boolean;
+  /** Set/multi-select filters report live selected/total while the panel is open. */
+  onDraftSelectionChange?: (selected: number, total: number) => void;
 }
 
 // ─── Pending Delete (for undo toast) ─────────────────────────────────────────

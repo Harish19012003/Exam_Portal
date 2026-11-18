@@ -2,18 +2,22 @@
 
 let shiftSeq = 0;
 
+/** Per-date Summary (Max Day N) — always formula / read-only from that day’s shifts. */
 export const DATE_SHIFT_SUMMARY_TYPES = [
-  { value: 'max', label: 'Max', hint: 'Highest value across that day’s shifts' },
-  { value: 'sum', label: 'Sum', hint: 'Total of that day’s shifts' },
-  { value: 'counta', label: 'CountA', hint: 'Count of filled shift cells that day' },
-  { value: 'custom', label: 'Custom', hint: 'Type your own column name (manual entry)' },
+  {
+    value: 'max',
+    label: 'Max',
+    hint: 'Highest value across that day’s shifts (read-only · Max Day N)',
+  },
+  { value: 'sum', label: 'Sum', hint: 'Total of that day’s shifts (read-only)' },
+  { value: 'counta', label: 'CountA', hint: 'Count of filled shift cells that day (read-only)' },
 ];
 
-/** Same types as per-day summary; hints describe the all-days column. */
+/** Same types as per-day summary; All day aggregates Summary (Max Day N) only — not shifts / shift Max. */
 export const DATE_SHIFT_ALL_DAY_TYPES = [
-  { value: 'max', label: 'Max', hint: 'Highest value across every date’s shifts' },
-  { value: 'sum', label: 'Sum', hint: 'Total of all shifts across every date' },
-  { value: 'counta', label: 'CountA', hint: 'Count of filled shift cells across every date' },
+  { value: 'max', label: 'Max', hint: 'Highest of each date’s Summary (Max Day N) values' },
+  { value: 'sum', label: 'Sum', hint: 'Total of each date’s Summary (Max Day N) values' },
+  { value: 'counta', label: 'CountA', hint: 'Count of filled Summary (Max Day N) cells' },
   { value: 'custom', label: 'Custom', hint: 'Type your own column name (manual entry)' },
 ];
 
@@ -74,14 +78,22 @@ export const resolveDateShiftColumnWidth = (value) => {
   );
 };
 
-export const newShiftColumn = (label = '', { color = '', width } = {}) => ({
+export const newShiftColumn = (label = '', { color = '', width, maxEnabled = false } = {}) => ({
   id: `shift_${Date.now().toString(36)}_${(shiftSeq += 1)}`,
   label: String(label || ''),
   color: normalizeColumnColor(color),
   width: resolveDateShiftColumnWidth(
     width != null && width !== '' ? width : DATE_SHIFT_COLUMN_WIDTH_DEFAULT,
   ),
+  /** When true, add a Max column for this shift across all exam dates. */
+  maxEnabled: Boolean(maxEnabled),
 });
+
+/** Header for an optional per-shift Max column (e.g. "Max OP S1"). */
+export const shiftMaxColumnLabel = (shift) => {
+  const label = String(shift?.label || '').trim();
+  return label ? `Max ${label}` : 'Max shift';
+};
 
 export const emptyDateShiftColumnWidths = () => ({
   allDay: DATE_SHIFT_COLUMN_WIDTH_DEFAULT,
@@ -160,11 +172,18 @@ const formulaFor = (type, keys) => {
 
 const SUMMARY_TYPE_SET = new Set(DATE_SHIFT_SUMMARY_TYPES.map((t) => t.value));
 
-/** Normalize summary / all-day column shape. */
+/** Normalize Summary (Max Day N) — never editable; legacy `custom` → max. */
 export const normalizeSummaryColumn = (input, { includeMaxDay } = {}) => {
   const base = emptySummaryColumn();
   if (input && typeof input === 'object' && !Array.isArray(input)) {
-    const type = SUMMARY_TYPE_SET.has(input.type) ? input.type : 'max';
+    const rawType = String(input.type || '').trim().toLowerCase();
+    // Custom used to be a manual number column — coerce to Max (formula).
+    const type =
+      rawType === 'custom'
+        ? 'max'
+        : SUMMARY_TYPE_SET.has(rawType)
+          ? rawType
+          : 'max';
     const enabled =
       typeof input.enabled === 'boolean'
         ? input.enabled
@@ -172,7 +191,7 @@ export const normalizeSummaryColumn = (input, { includeMaxDay } = {}) => {
     return {
       enabled,
       type,
-      customLabel: String(input.customLabel || '').trim(),
+      customLabel: '',
       color: normalizeColumnColor(input.color),
     };
   }
@@ -183,10 +202,23 @@ export const normalizeSummaryColumn = (input, { includeMaxDay } = {}) => {
   return base;
 };
 
+const ALL_DAY_TYPE_SET = new Set(DATE_SHIFT_ALL_DAY_TYPES.map((t) => t.value));
+
 /** Normalize all-day column; migrates legacy `maxAllDay: true`. */
 export const normalizeAllDayColumn = (input, { maxAllDay } = {}) => {
   if (input && typeof input === 'object' && !Array.isArray(input)) {
-    return normalizeSummaryColumn(input);
+    const base = emptyAllDayColumn();
+    const type = ALL_DAY_TYPE_SET.has(input.type) ? input.type : 'max';
+    const enabled =
+      typeof input.enabled === 'boolean'
+        ? input.enabled
+        : Boolean(input.type) || Boolean(String(input.customLabel || '').trim());
+    return {
+      enabled,
+      type,
+      customLabel: String(input.customLabel || '').trim(),
+      color: normalizeColumnColor(input.color),
+    };
   }
   if (maxAllDay === true) {
     return { ...emptyAllDayColumn(), enabled: true, type: 'max' };
@@ -232,10 +264,16 @@ export const aggregateShiftValues = (type, values) => {
   return Math.max(...nums);
 };
 
-/** Per-date shift cell keys (not all-day / not day-summary). */
+/** Per-date shift cell keys (not all-day / not day-summary / not shift-max). */
 export const isDateShiftShiftKey = (key) => {
   const k = String(key || '');
-  return k.startsWith('ds_') && !/allday/i.test(k) && !/_smry$/i.test(k);
+  return (
+    k.startsWith('ds_') &&
+    !/allday/i.test(k) &&
+    !/^ds_smax_/i.test(k) &&
+    !/_smax$/i.test(k) &&
+    !/_smry$/i.test(k)
+  );
 };
 
 const toShiftNumber = (value) => {
@@ -245,21 +283,233 @@ const toShiftNumber = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** Stable Summary (Max Day N) keys for every selected exam date. */
+export const summaryKeysForConfig = (dateShiftsConfig) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  if (!cfg.summaryColumn?.enabled || !cfg.dates.length) return [];
+  return cfg.dates.map((date) => makeKey(date.id, 'smry'));
+};
+
+/** Stable shift cell keys for one exam date (from the Center list template). */
+export const shiftKeysForDate = (dateShiftsConfig, dateId) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  const id = String(dateId || '').trim();
+  if (!id || !cfg.shifts.length) return [];
+  return cfg.shifts.map((shift) => makeKey(id, shift.id));
+};
+
 /**
- * Live Max/Sum/CountA all-day value from shift cells on a row.
- * Used when `ds_allday` is formula-only (not stored) — e.g. Unique import Sum.
+ * Live Max/Sum/CountA all-day value from Summary (Max Day N) only — never raw
+ * shifts or per-shift Max columns. Used when `ds_allday` is formula-only.
  */
 export const resolveAllDayValueFromRow = (values, dateShiftsConfig = null) => {
   const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
   const type = cfg.allDayColumn?.enabled ? cfg.allDayColumn.type || 'max' : 'max';
   if (type === 'custom') return null;
   const bag = values && typeof values === 'object' ? values : {};
-  const nums = Object.keys(bag)
-    .filter(isDateShiftShiftKey)
-    .map((k) => toShiftNumber(bag[k]))
-    .filter((n) => n != null);
+  const summaryKeys = summaryKeysForConfig(cfg);
+  let nums = summaryKeys.map((k) => toShiftNumber(bag[k])).filter((n) => n != null);
+  // If Summary cells are not stored yet, recompute each day’s Summary from shifts.
+  if (!nums.length && cfg.dates.length) {
+    nums = cfg.dates
+      .map((date) => resolveDayAggregateFromRow(bag, cfg, date.id))
+      .filter((n) => n != null);
+  }
   const result = aggregateShiftValues(type, nums);
   return typeof result === 'number' && Number.isFinite(result) ? result : null;
+};
+
+/**
+ * Live Max/Sum/CountA for one exam date's shifts on a center row
+ * (same math as that day's summary column on Center list).
+ */
+export const resolveDayAggregateFromRow = (values, dateShiftsConfig, dateId) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  // Always compute from shifts (Max Day N is read-only; legacy custom → max via normalize).
+  const type = cfg.summaryColumn?.type || 'max';
+  const keys = shiftKeysForDate(cfg, dateId);
+  if (!keys.length) return null;
+  const bag = values && typeof values === 'object' ? values : {};
+  const nums = keys.map((k) => toShiftNumber(bag[k])).filter((n) => n != null);
+  const result = aggregateShiftValues(type, nums);
+  return typeof result === 'number' && Number.isFinite(result) ? result : null;
+};
+
+/** True when the center has any filled shift cell on that exam date. */
+export const rowHasActivityOnDate = (values, dateShiftsConfig, dateId) => {
+  const keys = shiftKeysForDate(dateShiftsConfig, dateId);
+  if (!keys.length) return false;
+  const bag = values && typeof values === 'object' ? values : {};
+  return keys.some((k) => toShiftNumber(bag[k]) != null);
+};
+
+/**
+ * Real Unique-import fields (formula-friendly keys). Table headers become
+ * `{date} Total Center` / `{date} Max All Day` when an exam date is selected.
+ * Order with count/sum targets: Days Total Center → All Day Max → these two.
+ */
+export const FOCUS_TOTAL_CENTER_COLUMN_KEY = 'date_total_center';
+export const FOCUS_MAX_ALL_DAY_COLUMN_KEY = 'date_max_all_day';
+/** @deprecated use FOCUS_MAX_ALL_DAY_COLUMN_KEY */
+export const FOCUS_EXAM_DATE_COLUMN_KEY = FOCUS_MAX_ALL_DAY_COLUMN_KEY;
+
+/** Labels for Unique-import focus-date columns (sheet-style, e.g. 26-Oct-26 Total Center). */
+export const focusDateColumnLabels = (dateTitle) => {
+  const title = String(dateTitle || '').trim() || 'Selected date';
+  return {
+    totalCenter: `${title} Total Center`,
+    maxAllDay: `${title} Max All Day`,
+  };
+};
+
+export const isFocusDateField = (field) => {
+  const kind = field?.focusDateColumn;
+  if (kind === 'totalCenter' || kind === 'maxAllDay') return true;
+  const key = String(field?.key || '');
+  return key === FOCUS_TOTAL_CENTER_COLUMN_KEY || key === FOCUS_MAX_ALL_DAY_COLUMN_KEY;
+};
+
+const newFocusDateField = (kind) => {
+  const isTotal = kind === 'totalCenter';
+  return {
+    id: `fld_${isTotal ? FOCUS_TOTAL_CENTER_COLUMN_KEY : FOCUS_MAX_ALL_DAY_COLUMN_KEY}_${Date.now().toString(36).slice(-5)}`,
+    key: isTotal ? FOCUS_TOTAL_CENTER_COLUMN_KEY : FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+    label: isTotal ? 'Date Total Center' : 'Date Max All Day',
+    dataType: 'number',
+    required: false,
+    layout: 'full',
+    autoFill: 'none',
+    focusDateColumn: kind,
+  };
+};
+
+/**
+ * Ensure Date Total Center / Date Max All Day exist and sit in this order:
+ * count target → sum target → date_total_center → date_max_all_day
+ */
+export const ensureFocusDateFields = (
+  fields = [],
+  { countTargetKey = '', sumTargetKey = '' } = {},
+) => {
+  const countKey = String(countTargetKey || '').trim();
+  const sumKey = String(sumTargetKey || '').trim();
+  const wantTotal = Boolean(countKey);
+  const wantMax = Boolean(sumKey);
+  if (!wantTotal && !wantMax) {
+    return { fields: Array.isArray(fields) ? fields : [], changed: false };
+  }
+
+  let list = Array.isArray(fields) ? fields.map((f) => ({ ...f })) : [];
+  let changed = false;
+  // Drop duplicate keys (Unique import + ensure can race and insert twice).
+  {
+    const seen = new Set();
+    const deduped = [];
+    for (const f of list) {
+      const k = String(f?.key || '').trim();
+      if (k && seen.has(k)) {
+        changed = true;
+        continue;
+      }
+      if (k) seen.add(k);
+      deduped.push(f);
+    }
+    list = deduped;
+  }
+  const byKey = () => new Map(list.map((f) => [f.key, f]));
+
+  if (wantTotal && !byKey().has(FOCUS_TOTAL_CENTER_COLUMN_KEY)) {
+    list.push(newFocusDateField('totalCenter'));
+    changed = true;
+  } else if (wantTotal) {
+    list = list.map((f) => {
+      if (f.key !== FOCUS_TOTAL_CENTER_COLUMN_KEY) return f;
+      if (f.focusDateColumn === 'totalCenter' && f.dataType === 'number') return f;
+      changed = true;
+      return {
+        ...f,
+        focusDateColumn: 'totalCenter',
+        dataType: f.dataType || 'number',
+        label: f.label || 'Date Total Center',
+      };
+    });
+  }
+
+  if (wantMax && !byKey().has(FOCUS_MAX_ALL_DAY_COLUMN_KEY)) {
+    list.push(newFocusDateField('maxAllDay'));
+    changed = true;
+  } else if (wantMax) {
+    list = list.map((f) => {
+      if (f.key !== FOCUS_MAX_ALL_DAY_COLUMN_KEY) return f;
+      if (f.focusDateColumn === 'maxAllDay' && f.dataType === 'number') return f;
+      changed = true;
+      return {
+        ...f,
+        focusDateColumn: 'maxAllDay',
+        dataType: f.dataType || 'number',
+        label: f.label || 'Date Max All Day',
+      };
+    });
+  }
+
+  const blockKeys = [
+    countKey,
+    sumKey,
+    wantTotal ? FOCUS_TOTAL_CENTER_COLUMN_KEY : '',
+    wantMax ? FOCUS_MAX_ALL_DAY_COLUMN_KEY : '',
+  ].filter(Boolean);
+  // De-dupe while keeping order (count/sum might theoretically collide).
+  const blockKeyList = [...new Set(blockKeys)];
+  const map = new Map(list.map((f) => [f.key, f]));
+  if (!blockKeyList.every((k) => map.has(k))) {
+    return {
+      fields: list.map((f, i) => ({ ...f, order: i + 1 })),
+      changed,
+    };
+  }
+
+  const blockSet = new Set(blockKeyList);
+  let insertAt = 0;
+  for (let i = 0; i < list.length; i += 1) {
+    if (blockSet.has(list[i].key)) break;
+    insertAt += 1;
+  }
+  const without = list.filter((f) => !blockSet.has(f.key));
+  const blockFields = blockKeyList.map((k) => map.get(k));
+  const next = [...without.slice(0, insertAt), ...blockFields, ...without.slice(insertAt)];
+  if (next.some((f, i) => f.key !== list[i]?.key)) changed = true;
+
+  return {
+    fields: next.map((f, i) => ({ ...f, order: i + 1 })),
+    changed,
+  };
+};
+
+/** Force table column order for the Days Total / Max / date-focus block. */
+export const orderFocusDateColumns = (
+  columns = [],
+  { countTargetKey = '', sumTargetKey = '' } = {},
+) => {
+  const blockKeys = [
+    String(countTargetKey || '').trim(),
+    String(sumTargetKey || '').trim(),
+    FOCUS_TOTAL_CENTER_COLUMN_KEY,
+    FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+  ].filter(Boolean);
+  const blockKeyList = [...new Set(blockKeys)];
+  const present = blockKeyList.filter((k) => columns.some((c) => c.key === k));
+  if (present.length < 2) return columns;
+
+  const blockSet = new Set(present);
+  let insertAt = 0;
+  for (let i = 0; i < columns.length; i += 1) {
+    if (blockSet.has(columns[i].key)) break;
+    insertAt += 1;
+  }
+  const byKey = new Map(columns.map((c) => [c.key, c]));
+  const without = columns.filter((c) => !blockSet.has(c.key));
+  const block = present.map((k) => byKey.get(k)).filter(Boolean);
+  return [...without.slice(0, insertAt), ...block, ...without.slice(insertAt)];
 };
 
 /** Normalize persisted / draft date-shifts config. */
@@ -282,6 +532,7 @@ export const normalizeDateShiftsConfig = (input) => {
             width: resolveDateShiftColumnWidth(
               hasOwnWidth ? s.width : columnWidths.shift,
             ),
+            maxEnabled: Boolean(s.maxEnabled),
           };
         })
         .filter(Boolean)
@@ -334,42 +585,28 @@ export const resolveDateShiftsConfig = (examDateShifts, presetDateShifts) => {
 /**
  * Build Center-list field defs from the date×shift template + selected dates.
  * Stable keys use date/shift ids so renaming a date keeps cell values.
+ * Order: optional per-shift Max columns → All day → each date’s shifts → Summary.
  */
 export const buildDateShiftFields = (input) => {
   const cfg = normalizeDateShiftsConfig(input);
   if (!cfg.shifts.length || !cfg.dates.length) return [];
 
   const widths = cfg.columnWidths || emptyDateShiftColumnWidths();
-  const out = [];
-  const allShiftKeys = [];
-
-  if (cfg.allDayColumn.enabled) {
-    // Placeholder — formula filled after all shift keys are known.
-    const allDayColor = normalizeColumnColor(cfg.allDayColumn.color);
-    out.push({
-      id: fieldId(),
-      key: makeKey('allday'),
-      label: allDayColumnLabel(cfg.allDayColumn),
-      dataType: cfg.allDayColumn.type === 'custom' ? 'number' : 'formula',
-      required: false,
-      layout: 'full',
-      autoFill: 'none',
-      order: 0,
-      width: widths.allDay,
-      ...(allDayColor ? { color: allDayColor } : {}),
-      dateShift: { kind: 'allDay', type: cfg.allDayColumn.type },
-    });
-  }
+  const summaryKeys = [];
+  const keysByShiftId = new Map();
+  const dateFields = [];
 
   cfg.dates.forEach((date, dayIndex) => {
     const dayKeys = [];
     cfg.shifts.forEach((shift) => {
       const key = makeKey(date.id, shift.id);
       dayKeys.push(key);
-      allShiftKeys.push(key);
+      const list = keysByShiftId.get(shift.id) || [];
+      list.push(key);
+      keysByShiftId.set(shift.id, list);
       const shiftColor = normalizeColumnColor(shift.color);
       const shiftWidth = resolveDateShiftColumnWidth(shift.width ?? widths.shift);
-      out.push({
+      dateFields.push({
         id: fieldId(),
         key,
         label: `${date.title} · ${shift.label}`,
@@ -393,13 +630,15 @@ export const buildDateShiftFields = (input) => {
     if (cfg.summaryColumn.enabled) {
       const type = cfg.summaryColumn.type || 'max';
       const key = makeKey(date.id, 'smry');
+      summaryKeys.push(key);
       const summaryColor = normalizeColumnColor(cfg.summaryColumn.color);
-      out.push({
+      // Summary (Max Day N) is always a formula over that day’s shifts — never editable.
+      dateFields.push({
         id: fieldId(),
         key,
         label: `${date.title} · ${summaryColumnLabel(cfg.summaryColumn, dayIndex + 1)}`,
-        dataType: type === 'custom' ? 'number' : 'formula',
-        formula: type === 'custom' ? undefined : formulaFor(type, dayKeys),
+        dataType: 'formula',
+        formula: formulaFor(type, dayKeys),
         required: false,
         layout: 'full',
         autoFill: 'none',
@@ -412,18 +651,62 @@ export const buildDateShiftFields = (input) => {
           dateTitle: date.title,
           type,
           dayIndex: dayIndex + 1,
+          readOnly: true,
         },
       });
     }
   });
 
-  if (cfg.allDayColumn.enabled && out[0]?.dateShift?.kind === 'allDay') {
+  const shiftMaxFields = [];
+  cfg.shifts.forEach((shift) => {
+    if (!shift.maxEnabled) return;
+    const keys = keysByShiftId.get(shift.id) || [];
+    if (!keys.length) return;
+    const shiftColor = normalizeColumnColor(shift.color);
+    const shiftWidth = resolveDateShiftColumnWidth(shift.width ?? widths.shift);
+    shiftMaxFields.push({
+      id: fieldId(),
+      key: makeKey('smax', shift.id),
+      label: shiftMaxColumnLabel(shift),
+      dataType: 'formula',
+      formula: formulaFor('max', keys),
+      required: false,
+      layout: 'full',
+      autoFill: 'none',
+      order: 0,
+      width: shiftWidth,
+      ...(shiftColor ? { color: shiftColor } : {}),
+      dateShift: {
+        kind: 'shiftMax',
+        shiftId: shift.id,
+        shiftLabel: shift.label,
+      },
+    });
+  });
+
+  const out = [...shiftMaxFields];
+
+  if (cfg.allDayColumn.enabled) {
     const type = cfg.allDayColumn.type || 'max';
-    if (type !== 'custom') {
-      out[0].formula = formulaFor(type, allShiftKeys);
-    }
+    const allDayColor = normalizeColumnColor(cfg.allDayColumn.color);
+    // All day looks up Summary (Max Day N) only — not shifts or shift Max.
+    out.push({
+      id: fieldId(),
+      key: makeKey('allday'),
+      label: allDayColumnLabel(cfg.allDayColumn),
+      dataType: type === 'custom' ? 'number' : 'formula',
+      formula: type === 'custom' ? undefined : formulaFor(type, summaryKeys),
+      required: false,
+      layout: 'full',
+      autoFill: 'none',
+      order: 0,
+      width: widths.allDay,
+      ...(allDayColor ? { color: allDayColor } : {}),
+      dateShift: { kind: 'allDay', type },
+    });
   }
 
+  out.push(...dateFields);
   return out.map((f, i) => ({ ...f, order: i + 1 }));
 };
 
@@ -455,6 +738,11 @@ export const isAllDayDateShiftField = (field) =>
   field?.dateShift?.kind === 'allDay' ||
   /^ds_allday$/i.test(String(field?.key || '')) ||
   /\ball day\b/i.test(String(field?.label || ''));
+
+export const isShiftMaxDateShiftField = (field) =>
+  field?.dateShift?.kind === 'shiftMax' ||
+  /^ds_smax_/i.test(String(field?.key || '')) ||
+  /_smax$/i.test(String(field?.key || ''));
 
 /** Stable key for the all-day column (`buildDateShiftFields` → makeKey('allday')). */
 export const DATE_SHIFT_ALL_DAY_KEY = 'ds_allday';
@@ -522,6 +810,27 @@ export const buildDateShiftVisibilityGroups = (dateShiftsConfig, fields) => {
   const list = Array.isArray(fields) ? fields.filter(isDateShiftField) : [];
   const groups = [];
 
+  cfg.shifts.forEach((shift) => {
+    if (!shift?.maxEnabled) return;
+    const shiftId = String(shift?.id || '');
+    if (!shiftId) return;
+    const keys = list
+      .filter(
+        (f) =>
+          isShiftMaxDateShiftField(f) && String(f?.dateShift?.shiftId || '') === shiftId,
+      )
+      .map((f) => f.key)
+      .filter(Boolean);
+    if (!keys.length) return;
+    groups.push({
+      id: `shiftMax:${shiftId}`,
+      kind: 'shiftMax',
+      shiftId,
+      label: shiftMaxColumnLabel(shift),
+      keys,
+    });
+  });
+
   if (cfg.allDayColumn.enabled) {
     const keys = list.filter(isAllDayDateShiftField).map((f) => f.key).filter(Boolean);
     if (keys.length) {
@@ -561,6 +870,32 @@ export const buildDateShiftVisibilityGroups = (dateShiftsConfig, fields) => {
   return groups;
 };
 
+/** True when any key in the group is still visible (`!== false`). */
+export const isDateShiftVisibilityGroupShown = (keys, columnVisibility = {}) =>
+  (Array.isArray(keys) ? keys : []).some((k) => columnVisibility?.[k] !== false);
+
+/**
+ * Shift ids hidden on Center list via columnVisibility (OP S4 chip off → that shiftId).
+ * Used by Exam Day to hide the matching Requested / Reached / Status / First·Last T. family.
+ */
+export const hiddenShiftIdsFromCenterVisibility = ({
+  dateShiftsConfig = null,
+  centerListFields = [],
+  columnVisibility = {},
+} = {}) => {
+  const groups = buildDateShiftVisibilityGroups(dateShiftsConfig, centerListFields);
+  const hidden = new Set();
+  groups.forEach((g) => {
+    if (g?.kind !== 'shift') return;
+    const shiftId = String(g.shiftId || '').trim();
+    if (!shiftId) return;
+    if (!isDateShiftVisibilityGroupShown(g.keys, columnVisibility)) {
+      hidden.add(shiftId);
+    }
+  });
+  return hidden;
+};
+
 /** Match a shift template row for a Center-list field (by id, then by key suffix). */
 const findShiftForField = (field, cfg) => {
   const shiftId = String(field?.dateShift?.shiftId || '').trim();
@@ -569,7 +904,14 @@ const findShiftForField = (field, cfg) => {
     if (byId) return byId;
   }
   const key = String(field?.key || '').toLowerCase();
-  if (!key.startsWith('ds_') || key.includes('allday') || /_smry$/i.test(key)) return null;
+  if (
+    !key.startsWith('ds_') ||
+    key.includes('allday') ||
+    key.includes('smax') ||
+    /_smry$/i.test(key)
+  ) {
+    return null;
+  }
   const suffix = key.split('_').pop();
   if (!suffix) return null;
   return (
@@ -584,6 +926,15 @@ export const resolveDateShiftWidthForField = (field, dateShiftsConfig) => {
   // Always prefer live features.dateShifts template — never stale field.width.
   if (isAllDayDateShiftField(field)) return widths.allDay;
   if (isSummaryDateShiftField(field)) return widths.summary;
+  if (isShiftMaxDateShiftField(field)) {
+    const shift = findShiftForField(field, cfg);
+    if (shift) {
+      return resolveDateShiftColumnWidth(
+        shift.width != null && shift.width !== '' ? shift.width : widths.shift,
+      );
+    }
+    return widths.shift;
+  }
   const shift = findShiftForField(field, cfg);
   if (shift) {
     // Per-shift px when set; otherwise shared Shifts width.
@@ -629,8 +980,8 @@ export const applyDateShiftColumnColors = (fields, dateShiftsConfig) => {
   return (Array.isArray(fields) ? fields : []).map((f) => {
     if (isAllDayDateShiftField(f)) return stampFieldColor(f, allDayColor);
     if (isSummaryDateShiftField(f)) return stampFieldColor(f, summaryColor);
-    if (f?.dateShift?.kind === 'shift') {
-      const shiftId = String(f.dateShift.shiftId || '');
+    if (f?.dateShift?.kind === 'shift' || isShiftMaxDateShiftField(f)) {
+      const shiftId = String(f.dateShift?.shiftId || '');
       return stampFieldColor(f, shiftColorById.get(shiftId) || '');
     }
     return f;
@@ -648,8 +999,8 @@ export const resolveDateShiftFieldAccent = (field, dateShiftsConfig) => {
   if (isSummaryDateShiftField(field) && cfg.summaryColumn.enabled) {
     return normalizeColumnColor(cfg.summaryColumn.color);
   }
-  if (field?.dateShift?.kind === 'shift') {
-    const shiftId = String(field.dateShift.shiftId || '');
+  if (field?.dateShift?.kind === 'shift' || isShiftMaxDateShiftField(field)) {
+    const shiftId = String(field.dateShift?.shiftId || '');
     const shift = cfg.shifts.find((s) => String(s.id) === shiftId);
     return normalizeColumnColor(shift?.color);
   }

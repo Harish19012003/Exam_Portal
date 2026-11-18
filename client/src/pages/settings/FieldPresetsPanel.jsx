@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel, isExamViewKey } from '@exam-view/shared';
 import { apiClient } from '../../api/client';
+import { useUrlState } from '../../hooks/useUrlState';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
 import {
@@ -23,6 +24,8 @@ import {
   listExamPresets,
   updateExamPreset,
 } from '../exams/examPresetApi';
+import { ensureFocusDateFields } from '../exams/dateShiftsConfig';
+import { focusDateTargetsFromAggregates } from '../exams/examUniqueRows';
 import { apiErrorMessage } from '../exams/examTableApi';
 import './FieldPresetsPanel.css';
 
@@ -37,6 +40,8 @@ const emptyForm = () => ({
 
 const pairKey = (serviceValue, view) =>
   `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
+
+const SORT_KEYS = ['default', 'name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'fields-desc', 'fields-asc', 'service-asc'];
 
 /** Stable JSON payload for Export / Import round-trips. */
 export const buildFieldPresetsExportPayload = (presets) =>
@@ -127,9 +132,10 @@ export const FieldPresetsPanel = ({
   const [form, setForm] = useState(null); // null = editor closed
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [query, setQuery] = useState('');
-  const [serviceFilter, setServiceFilter] = useState('');
-  const [viewFilter, setViewFilter] = useState('');
+  const [query, setQuery] = useUrlState('pq', '');
+  const [serviceFilter, setServiceFilter] = useUrlState('psvc', '');
+  const [viewFilter, setViewFilter] = useUrlState('pview', '');
+  const [sortBy, setSortBy] = useUrlState('psort', 'default', SORT_KEYS);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
@@ -216,16 +222,24 @@ export const FieldPresetsPanel = ({
   }, [exportTick, handleExport]);
 
   const openEdit = (preset) => {
+    const features =
+      preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
+        ? { ...preset.features }
+        : {};
+    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
+      features.uniqueRowAggregates,
+    );
+    const { fields: nextFields } = ensureFocusDateFields(preset.fields || [], {
+      countTargetKey,
+      sumTargetKey,
+    });
     setForm({
       id: preset.id,
       name: preset.name,
       serviceValue: preset.serviceValue,
       view: preset.view || DEFAULT_EXAM_VIEW,
-      fields: preset.fields,
-      features:
-        preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
-          ? { ...preset.features }
-          : {},
+      fields: nextFields,
+      features,
     });
     setFormError('');
   };
@@ -341,6 +355,19 @@ export const FieldPresetsPanel = ({
   );
   const visiblePresets = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const time = (v) => (v ? new Date(v).getTime() || 0 : 0);
+    const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const sorters = {
+      'name-asc': byName,
+      'name-desc': (a, b) => byName(b, a),
+      'created-desc': (a, b) => time(b.createdAt) - time(a.createdAt),
+      'created-asc': (a, b) => time(a.createdAt) - time(b.createdAt),
+      'updated-desc': (a, b) => time(b.updatedAt) - time(a.updatedAt),
+      'fields-desc': (a, b) => (b.fieldCount ?? 0) - (a.fieldCount ?? 0),
+      'fields-asc': (a, b) => (a.fieldCount ?? 0) - (b.fieldCount ?? 0),
+      'service-asc': (a, b) => String(a.serviceValue || '').localeCompare(String(b.serviceValue || '')) || byName(a, b),
+    };
+    sorters.default = () => 0;
     return presets.filter((p) => {
       const view = p.view || DEFAULT_EXAM_VIEW;
       if (serviceFilter && p.serviceValue !== serviceFilter) return false;
@@ -348,8 +375,8 @@ export const FieldPresetsPanel = ({
       if (!q) return true;
       return [p.name, p.serviceValue, examViewLabel(view), ...(p.fields || []).map((f) => f.label)]
         .some((t) => String(t || '').toLowerCase().includes(q));
-    });
-  }, [presets, query, serviceFilter, viewFilter]);
+    }).sort(sorters[sortBy] || sorters.default);
+  }, [presets, query, serviceFilter, viewFilter, sortBy]);
   const filtersActive = Boolean(query || serviceFilter || viewFilter);
   const clearFilters = () => {
     setQuery('');
@@ -409,6 +436,17 @@ export const FieldPresetsPanel = ({
           <select className="fpp-filter-select" value={viewFilter} onChange={(e) => setViewFilter(e.target.value)} aria-label="Filter by exam page">
             <option value="">All pages</option>
             {EXAM_VIEWS.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+          </select>
+          <select className="fpp-filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort presets">
+            <option value="default">Sort: Default</option>
+            <option value="name-asc">Name (A → Z)</option>
+            <option value="name-desc">Name (Z → A)</option>
+            <option value="created-desc">Newest created</option>
+            <option value="created-asc">Oldest created</option>
+            <option value="updated-desc">Recently updated</option>
+            <option value="fields-desc">Most fields</option>
+            <option value="fields-asc">Fewest fields</option>
+            <option value="service-asc">Service (A → Z)</option>
           </select>
           <span className="fpp-filter-count" aria-live="polite">
             {visiblePresets.length} of {presets.length}
@@ -497,6 +535,7 @@ export const FieldPresetsPanel = ({
         enableFromExam
         currentView={form?.view}
         presetSources={presets.filter((p) => p.id !== form?.id)}
+        currentServiceValue={form?.serviceValue || ''}
         bulkWorkingContext={
           form
             ? [
@@ -511,24 +550,44 @@ export const FieldPresetsPanel = ({
         }
         onClose={() => !saving && closeEditor()}
         onChange={(fields) => patchForm({ fields })}
-        enableDateShifts={false}
-        dateShifts={null}
-        onDateShiftsChange={null}
+        // Center list presets: Bulk add → Date shifts (shift format for exams).
+        enableDateShifts={form?.view === DEFAULT_EXAM_VIEW}
+        dateShifts={form?.view === DEFAULT_EXAM_VIEW ? form?.features?.dateShifts || null : null}
+        onDateShiftsChange={
+          form?.view === DEFAULT_EXAM_VIEW
+            ? (dateShifts) =>
+                patchForm({
+                  features: {
+                    ...(form?.features && typeof form.features === 'object' ? form.features : {}),
+                    dateShifts,
+                  },
+                })
+            : null
+        }
         uniqueRowKeys={form?.features?.uniqueRowKeys}
         uniqueRowAggregates={form?.features?.uniqueRowAggregates}
-        onUniqueImportChange={(payload) =>
+        onUniqueImportChange={(payload) => {
+          const nextFeatures = {
+            ...(form?.features && typeof form.features === 'object' ? form.features : {}),
+            ...(payload?.uniqueRowKeys !== undefined
+              ? { uniqueRowKeys: payload.uniqueRowKeys }
+              : {}),
+            ...(payload?.uniqueRowAggregates !== undefined
+              ? { uniqueRowAggregates: payload.uniqueRowAggregates }
+              : {}),
+          };
+          const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
+            nextFeatures.uniqueRowAggregates,
+          );
+          const { fields: nextFields, changed } = ensureFocusDateFields(form?.fields || [], {
+            countTargetKey,
+            sumTargetKey,
+          });
           patchForm({
-            features: {
-              ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-              ...(payload?.uniqueRowKeys !== undefined
-                ? { uniqueRowKeys: payload.uniqueRowKeys }
-                : {}),
-              ...(payload?.uniqueRowAggregates !== undefined
-                ? { uniqueRowAggregates: payload.uniqueRowAggregates }
-                : {}),
-            },
-          })
-        }
+            features: nextFeatures,
+            ...(changed ? { fields: nextFields } : {}),
+          });
+        }}
         topSlot={
           form && (
             <div className="fpp-meta">

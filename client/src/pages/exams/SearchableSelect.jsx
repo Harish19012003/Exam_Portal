@@ -2,6 +2,14 @@ import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } f
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 
+const matchesQuery = (opt, q) => {
+  if (!q) return true;
+  const hay = [opt?.label, opt?.value, opt?.triggerLabel, opt?.group]
+    .map((v) => String(v ?? '').toLowerCase())
+    .join(' ');
+  return hay.includes(q);
+};
+
 /**
  * Dropdown with optional search when options.length >= searchThreshold (default 4).
  * `portal` renders the menu on document.body (fixed, flips upward near the bottom edge),
@@ -32,33 +40,43 @@ export const SearchableSelect = ({
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
 
-  const showSearch = options.length >= searchThreshold;
+  // Duplicate values break React list identity and make search look broken.
+  const uniqueOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const opt of options) {
+      const v = String(opt?.value ?? '');
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      out.push(opt);
+    }
+    return out;
+  }, [options]);
+
+  const showSearch = uniqueOptions.length >= searchThreshold;
+  const normalizedQuery = query.trim().toLowerCase();
 
   const selected = useMemo(
-    () => options.find((o) => o.value === value) || null,
-    [options, value]
+    () => uniqueOptions.find((o) => o.value === value) || null,
+    [uniqueOptions, value],
   );
 
-  const filtered = useMemo(() => {
-    if (!showSearch || !query.trim()) return options;
-    const q = query.trim().toLowerCase();
-    return options.filter(
-      (o) =>
-        String(o.label).toLowerCase().includes(q) ||
-        String(o.value).toLowerCase().includes(q) ||
-        String(o.group || '').toLowerCase().includes(q)
-    );
-  }, [options, query, showSearch]);
+  // Filter in render (not a fragile memo path) so typing always updates the list.
+  const filtered =
+    !showSearch || !normalizedQuery
+      ? uniqueOptions
+      : uniqueOptions.filter((o) => matchesQuery(o, normalizedQuery));
 
   useEffect(() => {
     setHighlight(0);
-  }, [query, open]);
+  }, [normalizedQuery, open]);
 
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (e) => {
+      const t = e.target;
       const inside =
-        rootRef.current?.contains(e.target) || menuRef.current?.contains(e.target);
+        rootRef.current?.contains(t) || menuRef.current?.contains(t);
       if (!inside) {
         setOpen(false);
         setQuery('');
@@ -68,35 +86,32 @@ export const SearchableSelect = ({
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [open]);
 
-  // Portal menu: anchor to the trigger; close when anything behind it scrolls or the window resizes.
+  // Portal: position against the trigger. Do NOT clear search on dialog scroll —
+  // that made Calculation filters look broken (typed text stayed, list reset).
   useLayoutEffect(() => {
     if (!portal || !open || !triggerRef.current) {
       setMenuPos(null);
       return undefined;
     }
-    const r = triggerRef.current.getBoundingClientRect();
-    const width = Math.max(r.width, 200);
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    const spaceBelow = window.innerHeight - r.bottom - 12;
-    const spaceAbove = r.top - 12;
-    const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(160, Math.min(320, openUp ? spaceAbove : spaceBelow));
-    setMenuPos(
-      openUp
-        ? { left, width, maxHeight, bottom: window.innerHeight - r.top + 3 }
-        : { left, width, maxHeight, top: r.bottom + 3 }
-    );
-    const dismiss = (e) => {
-      if (e.type === 'scroll' && menuRef.current?.contains(e.target)) return;
-      setOpen(false);
-      setQuery('');
+    const place = () => {
+      const el = triggerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const width = Math.max(r.width, 220);
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+      const spaceBelow = window.innerHeight - r.bottom - 12;
+      const spaceAbove = r.top - 12;
+      const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(180, Math.min(360, openUp ? spaceAbove : spaceBelow));
+      setMenuPos(
+        openUp
+          ? { left, width, maxHeight, bottom: window.innerHeight - r.top + 3 }
+          : { left, width, maxHeight, top: r.bottom + 3 },
+      );
     };
-    window.addEventListener('resize', dismiss);
-    window.addEventListener('scroll', dismiss, true);
-    return () => {
-      window.removeEventListener('resize', dismiss);
-      window.removeEventListener('scroll', dismiss, true);
-    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
   }, [portal, open]);
 
   useEffect(() => {
@@ -114,8 +129,13 @@ export const SearchableSelect = ({
   };
 
   const handleSelect = (nextValue) => {
-    onChange(nextValue);
+    onChange?.(nextValue);
     close();
+  };
+
+  const onSearchChange = (e) => {
+    e.stopPropagation();
+    setQuery(e.target.value);
   };
 
   const onMenuKeyDown = (e) => {
@@ -141,29 +161,40 @@ export const SearchableSelect = ({
   };
 
   const menu = (
-    <div className="exams-search-select-menu" role="listbox" onKeyDown={onMenuKeyDown}>
+    <div
+      className="exams-search-select-menu"
+      role="listbox"
+      onKeyDown={onMenuKeyDown}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       {showSearch && (
         <div className="exams-search-select-search">
-          <Search size={13} strokeWidth={2.2} />
+          <Search size={13} strokeWidth={2.2} aria-hidden="true" />
           <input
             ref={searchRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={onSearchChange}
             placeholder={searchPlaceholder}
             aria-label="Search options"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             onKeyDown={onMenuKeyDown}
           />
-          {query && (
+          {query ? (
             <button
               type="button"
               className="exams-search-select-clear"
-              onClick={() => setQuery('')}
+              onClick={() => {
+                setQuery('');
+                searchRef.current?.focus();
+              }}
               aria-label="Clear search"
             >
               <X size={12} />
             </button>
-          )}
+          ) : null}
         </div>
       )}
       <ul className="exams-search-select-list">
@@ -171,33 +202,36 @@ export const SearchableSelect = ({
           filtered.map((opt, index) => {
             const isSelected = opt.value === value;
             const isActive = index === highlight;
-            // Options may carry a `group`: its heading shows once above the first option of the group.
             const showGroup = opt.group && opt.group !== filtered[index - 1]?.group;
             return (
-              <React.Fragment key={opt.value}>
-              {showGroup && (
-                <li role="presentation" className="exams-search-select-group">
-                  {opt.group}
+              <React.Fragment key={String(opt.value)}>
+                {showGroup && (
+                  <li role="presentation" className="exams-search-select-group">
+                    {opt.group}
+                  </li>
+                )}
+                <li>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={`exams-search-select-option ${opt.group ? 'is-grouped' : ''} ${isSelected ? 'selected' : ''} ${isActive ? 'active' : ''}`}
+                    onMouseEnter={() => setHighlight(index)}
+                    onClick={() => handleSelect(opt.value)}
+                  >
+                    <span className="exams-search-select-option-label">{opt.label}</span>
+                    {isSelected && (
+                      <Check size={13} strokeWidth={2.5} className="exams-search-select-check" />
+                    )}
+                  </button>
                 </li>
-              )}
-              <li>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  className={`exams-search-select-option ${opt.group ? 'is-grouped' : ''} ${isSelected ? 'selected' : ''} ${isActive ? 'active' : ''}`}
-                  onMouseEnter={() => setHighlight(index)}
-                  onClick={() => handleSelect(opt.value)}
-                >
-                  <span className="exams-search-select-option-label">{opt.label}</span>
-                  {isSelected && <Check size={13} strokeWidth={2.5} className="exams-search-select-check" />}
-                </button>
-              </li>
               </React.Fragment>
             );
           })
         ) : (
-          <li className="exams-search-select-empty">No matches</li>
+          <li className="exams-search-select-empty">
+            {normalizedQuery ? `No matches for “${query.trim()}”` : 'No options'}
+          </li>
         )}
       </ul>
     </div>
@@ -235,7 +269,7 @@ export const SearchableSelect = ({
           >
             {menu}
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );

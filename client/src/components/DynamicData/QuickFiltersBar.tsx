@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Filter, X } from 'lucide-react';
 import type { ColumnConfig, DataRow, FilterValue } from '../DynamicTable/types';
 import { isFieldColumn } from '../DynamicTable/types';
@@ -56,6 +56,32 @@ function summarizeFilter(filter: FilterValue | undefined): string | null {
   }
 }
 
+/** True when a stored filter actually constrains rows (not empty / no-op). */
+function isQuickFilterApplied(filter: FilterValue | undefined): boolean {
+  if (!filter) return false;
+  if (filter.op === 'in' && Array.isArray(filter.value) && filter.value.length === 0) return false;
+  if (filter.op === 'contains' && !String(filter.value ?? '').trim()) return false;
+  if (filter.op === 'equals' && (filter.value === '' || filter.value === null || filter.value === undefined)) {
+    return false;
+  }
+  if (filter.op === 'startsWith' && !String(filter.value ?? '').trim()) return false;
+  if (filter.op === 'between' && filter.value == null && filter.value2 == null) return false;
+  return true;
+}
+
+function countAppliedQuickFilters(
+  fieldKeys: string[],
+  values: Record<string, FilterValue>,
+): number {
+  return fieldKeys.reduce((n, key) => (isQuickFilterApplied(values[key]) ? n + 1 : n), 0);
+}
+
+function isSetFilterColumn(column: ColumnConfig): boolean {
+  if (!isFieldColumn(column)) return false;
+  const dt = column.dataType;
+  return dt === 'status' || dt === 'dropdown' || dt === 'multiselect' || dt === 'select' || dt === 'tags';
+}
+
 function QuickFilterField({
   column,
   allColumns,
@@ -75,15 +101,31 @@ function QuickFilterField({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [draftSelection, setDraftSelection] = useState<{ selected: number; total: number } | null>(null);
 
   const filterCol = useMemo(() => columnForFilter(column, rows), [column, rows]);
   const label = isFieldColumn(column) ? column.label : column.key;
   const summary = summarizeFilter(value);
   const active = Boolean(value);
+  const isSet = isSetFilterColumn(filterCol);
+  const optionTotal = isFieldColumn(filterCol) ? (filterCol.options?.length ?? 0) : 0;
+  const appliedSelected =
+    value?.op === 'in' && Array.isArray(value.value) ? value.value.length : 0;
+  const selectedCount = open && draftSelection ? draftSelection.selected : appliedSelected;
+  const totalCount = open && draftSelection ? draftSelection.total : optionTotal;
+
+  const handleDraftSelection = useCallback((selected: number, total: number) => {
+    setDraftSelection(prev =>
+      prev && prev.selected === selected && prev.total === total
+        ? prev
+        : { selected, total },
+    );
+  }, []);
 
   useEffect(() => {
     if (!open || !triggerRef.current) {
       setPos(null);
+      setDraftSelection(null);
       return;
     }
     const rect = triggerRef.current.getBoundingClientRect();
@@ -148,13 +190,24 @@ function QuickFilterField({
           role="dialog"
           aria-label={`Filter ${label}`}
         >
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1 flex items-center justify-between gap-2">
             <span
               className={`text-[11px] font-bold uppercase tracking-wider ${
                 isDarkMode ? 'text-gray-400' : 'text-gray-500'
               }`}
             >
               Filter: {label}
+              {isSet && totalCount > 0 ? (
+                <span className={`ml-1.5 font-semibold normal-case tracking-normal ${
+                  selectedCount > 0
+                    ? 'text-[#13C296]'
+                    : isDarkMode
+                      ? 'text-gray-500'
+                      : 'text-gray-400'
+                }`}>
+                  ({selectedCount}/{totalCount})
+                </span>
+              ) : null}
             </span>
             {active && (
               <span className="h-2 w-2 flex-shrink-0 rounded-full bg-[#13C296]" aria-label="Filter active" />
@@ -167,6 +220,7 @@ function QuickFilterField({
             onFilterChange={next => onChange(next)}
             onClose={() => setOpen(false)}
             isDarkMode={isDarkMode}
+            onDraftSelectionChange={isSet ? handleDraftSelection : undefined}
           />
         </div>
       )}
@@ -180,19 +234,31 @@ export interface QuickFiltersBarProps {
   isDarkMode: boolean;
 }
 
-/** Filter controls beside the chips eye — show/hide bar + clear applied filters. */
-export function QuickFiltersVisibilityToggle({ isDarkMode }: { isDarkMode: boolean }) {
+/** Toolbar funnel — show/hide bar; Clear when quick or header filters are applied. */
+export function QuickFiltersVisibilityToggle({
+  isDarkMode,
+  hasActiveFilters = false,
+  activeFilterCount = 0,
+  onClearAll,
+}: {
+  isDarkMode: boolean;
+  /** True when column-header filters, search, or sort are active. */
+  hasActiveFilters?: boolean;
+  /** Combined active filter/sort/search count for the badge. */
+  activeFilterCount?: number;
+  /** Clears header filters + quick filters + sort/search. */
+  onClearAll?: () => void;
+}) {
   const { enabled, fieldKeys, visible, values, toggleVisible, clearValues } = useQuickFiltersStore();
   if (!enabled || fieldKeys.length === 0) return null;
 
-  const appliedCount = fieldKeys.reduce((n, key) => {
-    const v = values[key];
-    if (!v) return n;
-    if (v.op === 'in' && Array.isArray(v.value) && v.value.length === 0) return n;
-    if (v.op === 'contains' && !String(v.value ?? '').trim()) return n;
-    if (v.op === 'equals' && (v.value === '' || v.value === null || v.value === undefined)) return n;
-    return n + 1;
-  }, 0);
+  const appliedCount = countAppliedQuickFilters(fieldKeys, values);
+  const badgeCount = Math.max(appliedCount, activeFilterCount);
+  const showClear = appliedCount > 0 || hasActiveFilters;
+  const handleClear = () => {
+    if (onClearAll) onClearAll();
+    else clearValues();
+  };
 
   // Match SummaryChipsEyeToggle icon button styling.
   const iconBtnCls = isDarkMode
@@ -207,8 +273,8 @@ export function QuickFiltersVisibilityToggle({ isDarkMode }: { isDarkMode: boole
         className={`relative p-1.5 rounded-lg transition-colors ${iconBtnCls}`}
         aria-pressed={visible}
         aria-label={
-          appliedCount > 0
-            ? `${visible ? 'Hide' : 'Show'} filter bar (${appliedCount} applied)`
+          showClear
+            ? `${visible ? 'Hide' : 'Show'} filter bar (filters applied)`
             : visible
               ? 'Hide filter bar'
               : 'Show filter bar'
@@ -216,23 +282,23 @@ export function QuickFiltersVisibilityToggle({ isDarkMode }: { isDarkMode: boole
         title={visible ? 'Hide filter bar' : 'Show filter bar'}
       >
         <Filter className="w-4 h-4" strokeWidth={2} />
-        {appliedCount > 0 && (
+        {badgeCount > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[#13C296] px-0.5 text-[8px] font-bold leading-none text-white">
-            {appliedCount > 99 ? '99+' : appliedCount}
+            {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}
       </button>
 
-      {appliedCount > 0 && (
+      {showClear && (
         <button
           type="button"
-          onClick={clearValues}
+          onClick={handleClear}
           className={`rounded-lg px-1.5 py-1 text-[11.5px] font-semibold transition-colors ${
             isDarkMode
-              ? 'text-gray-500 hover:bg-white/5 hover:text-rose-400'
-              : 'text-gray-400 hover:bg-teal-50 hover:text-rose-600'
+              ? 'text-rose-400 hover:bg-white/5 hover:text-rose-300'
+              : 'text-rose-600 hover:bg-rose-50 hover:text-rose-700'
           }`}
-          aria-label={`Clear ${appliedCount} filter${appliedCount === 1 ? '' : 's'}`}
+          aria-label="Clear filters"
           title="Clear filters"
         >
           Clear
@@ -251,7 +317,7 @@ export function QuickFiltersBar({ columns, rows, isDarkMode }: QuickFiltersBarPr
       .filter((c): c is ColumnConfig => Boolean(c));
   }, [fieldKeys, columns]);
 
-  const hasActive = Object.keys(values).length > 0;
+  const appliedCount = countAppliedQuickFilters(fieldKeys, values);
 
   if (!enabled || !visible || fields.length === 0) return null;
 
@@ -272,20 +338,28 @@ export function QuickFiltersBar({ columns, rows, isDarkMode }: QuickFiltersBarPr
           onChange={next => setValue(col.key, next)}
         />
       ))}
-      {hasActive && (
-        <button
-          type="button"
-          onClick={clearValues}
-          className={`inline-flex h-[32px] items-center gap-1 rounded-lg px-2.5 text-[11.5px] font-semibold transition-colors ${
-            isDarkMode
-              ? 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-              : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
-          }`}
-        >
-          <X className="h-3.5 w-3.5" />
-          Clear
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={clearValues}
+        disabled={appliedCount === 0}
+        className={`ml-auto inline-flex h-[32px] items-center gap-1 rounded-lg px-2.5 text-[12px] font-semibold transition-colors disabled:pointer-events-none ${
+          appliedCount > 0
+            ? isDarkMode
+              ? 'text-rose-400 hover:bg-white/5 hover:text-rose-300'
+              : 'text-rose-600 hover:bg-rose-50 hover:text-rose-700'
+            : isDarkMode
+              ? 'text-gray-600'
+              : 'text-gray-300'
+        }`}
+        aria-label={
+          appliedCount > 0
+            ? `Clear ${appliedCount} filter${appliedCount === 1 ? '' : 's'}`
+            : 'No filters to clear'
+        }
+      >
+        <X className="h-3.5 w-3.5" />
+        Clear
+      </button>
     </div>
   );
 }

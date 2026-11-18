@@ -1,7 +1,21 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Check, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
-import { DEFAULT_EXAM_VIEW, examViewLabel } from '@exam-view/shared';
+import ExamDayImportChecklist from './ExamDayImportChecklist.jsx';
+import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  DEFAULT_EXAM_VIEW,
+  EXAM_DAY_VIEW,
+  examViewLabel,
+  importedSourceLabel,
+  sourceNameInitials,
+} from '@exam-view/shared';
+import {
+  buildMissingExamDayImportFields,
+  getExamDayImportFieldPlan,
+  isExamDayTimestampField,
+  orderExamDayImportFields,
+} from './examDayExpand';
+import { useConfirm } from '../../feedback';
 import {
   EXAM_FIELD_TYPES,
   AUTO_FILL_OPTIONS,
@@ -26,16 +40,20 @@ import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
 import {
+  focusDateTargetsFromAggregates,
   normalizeUniqueRowAggregates,
   normalizeUniqueRowKeys,
   uniqueRowKeysLabel,
 } from './examUniqueRows';
 import {
+  DATE_SHIFT_ALL_DAY_KEY,
   DATE_SHIFT_ALL_DAY_TYPES,
   DATE_SHIFT_COLUMN_COLORS,
   DATE_SHIFT_COLUMN_WIDTH_MAX,
   DATE_SHIFT_COLUMN_WIDTH_MIN,
   DATE_SHIFT_SUMMARY_TYPES,
+  FOCUS_MAX_ALL_DAY_COLUMN_KEY,
+  FOCUS_TOTAL_CENTER_COLUMN_KEY,
   aggregateShiftValues,
   allDayColumnLabel,
   dateShiftsConfigEqual,
@@ -43,12 +61,15 @@ import {
   emptyDateShiftColumnWidths,
   emptyDateShiftsConfig,
   emptySummaryColumn,
+  ensureFocusDateFields,
+  isFocusDateField,
   hexWithAlpha,
   newShiftColumn,
   normalizeColumnColor,
   normalizeDateShiftColumnWidths,
   normalizeDateShiftsConfig,
   resolveDateShiftColumnWidth,
+  shiftMaxColumnLabel,
   summaryColumnLabel,
 } from './dateShiftsConfig';
 
@@ -140,7 +161,6 @@ const OPTIONS_SOURCES = [
 
 const BULK_TYPES = EXAM_FIELD_TYPES.filter(
   (t) =>
-    t.value !== 'formula' &&
     t.value !== 'composite' &&
     t.value !== 'linked' &&
     t.value !== 'combined',
@@ -179,8 +199,13 @@ const newRow = (dataType = 'text') => ({
   phonePattern: '',
   phoneMessage: '',
   sharedFromView: '',
+  sharedFromLabel: '',
   combineKeys: [],
   combineSeparator: ', ',
+  focusDateColumn: '',
+  formula: '',
+  examDayShiftId: '',
+  examDayImportRole: '',
   existingId: null,
   orig: null,
   lockOptions: false,
@@ -189,6 +214,14 @@ const newRow = (dataType = 'text') => ({
 /** A row pre-filled from a saved field, so it can be edited in place. The key stays fixed. */
 const rowFromField = (f) => {
   const pv = f.phoneValidation || {};
+  const focusKind =
+    f.focusDateColumn === 'totalCenter' || f.focusDateColumn === 'maxAllDay'
+      ? f.focusDateColumn
+      : f.key === FOCUS_TOTAL_CENTER_COLUMN_KEY
+        ? 'totalCenter'
+        : f.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY
+          ? 'maxAllDay'
+          : '';
   return {
     ...newRow(f.dataType),
     label: f.label || '',
@@ -220,8 +253,14 @@ const rowFromField = (f) => {
     examFieldKey: f.examFieldKey || '',
     scheduleRole: f.scheduleRole === 'start' || f.scheduleRole === 'end' ? f.scheduleRole : '',
     sharedFromView: f.sharedFromView || '',
+    sharedFromLabel: f.sharedFromLabel || '',
     combineKeys: Array.isArray(f.combine?.keys) ? f.combine.keys.map(String) : [],
     combineSeparator: f.combine?.separator == null ? ', ' : String(f.combine.separator),
+    focusDateColumn: focusKind,
+    dateShift: f.dateShift && typeof f.dateShift === 'object' ? f.dateShift : undefined,
+    formula: f.dataType === 'formula' ? String(f.formula || '') : '',
+    examDayShiftId: String(f.examDayShiftId || '').trim(),
+    examDayImportRole: String(f.examDayImportRole || '').trim(),
     existingId: f.id,
     orig: f,
     // Any other options source is managed in the single-field editor.
@@ -269,8 +308,19 @@ const rowToItem = (r, allowUnique = false) => ({
   layout: r.layout,
   phoneValidation: buildPhoneValidation(r),
   ...(r.sharedFromView ? { sharedFromView: r.sharedFromView } : {}),
+  ...(r.sharedFromLabel ? { sharedFromLabel: r.sharedFromLabel } : {}),
   ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
     ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
+    : {}),
+  ...(r.focusDateColumn === 'totalCenter' || r.focusDateColumn === 'maxAllDay'
+    ? { focusDateColumn: r.focusDateColumn }
+    : {}),
+  ...(r.dataType === 'formula' ? { formula: String(r.formula || '').trim() } : {}),
+  ...(String(r.examDayShiftId || '').trim()
+    ? { examDayShiftId: String(r.examDayShiftId).trim() }
+    : {}),
+  ...(String(r.examDayImportRole || '').trim()
+    ? { examDayImportRole: String(r.examDayImportRole).trim() }
     : {}),
 });
 
@@ -310,6 +360,20 @@ const changedField = (r, allowUnique = false) => {
       : item.dataType === 'combined'
         ? {}
         : { combine: undefined }),
+    ...(item.sharedFromView ? { sharedFromView: item.sharedFromView } : {}),
+    ...(item.sharedFromLabel ? { sharedFromLabel: item.sharedFromLabel } : {}),
+    ...(item.focusDateColumn === 'totalCenter' || item.focusDateColumn === 'maxAllDay'
+      ? { focusDateColumn: item.focusDateColumn }
+      : { focusDateColumn: undefined }),
+    ...(item.dataType === 'formula'
+      ? { formula: item.formula || '' }
+      : { formula: undefined }),
+    ...(item.examDayShiftId
+      ? { examDayShiftId: item.examDayShiftId }
+      : { examDayShiftId: undefined }),
+    ...(item.examDayImportRole
+      ? { examDayImportRole: item.examDayImportRole }
+      : { examDayImportRole: undefined }),
   };
   const sig = (f) =>
     JSON.stringify([
@@ -330,6 +394,9 @@ const changedField = (r, allowUnique = false) => {
       f.phoneValidation || null,
       f.combine || null,
       f.sharedFromView || '',
+      f.sharedFromLabel || '',
+      f.focusDateColumn || '',
+      f.formula || '',
     ]);
   return sig(next) === sig(o) ? null : next;
 };
@@ -364,7 +431,17 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
   // Fields queued for delete (removedIds) free their label/key so recreate-after-delete works before Save.
   const editing = new Set(rows.map((r) => r.existingId).filter(Boolean));
   const removing = new Set(removedIds);
-  const others = existingFields.filter((f) => !editing.has(f.id) && !removing.has(f.id));
+  // Keys already in this grid are owned here — don't flag "Key already used" against a parent
+  // copy that Unique-import / ensureFocusDateFields just added to `fields` while Bulk is open.
+  const gridKeys = new Set(
+    rows.map((r) => String(r.key || '').trim()).filter(Boolean),
+  );
+  const others = existingFields.filter(
+    (f) =>
+      !editing.has(f.id) &&
+      !removing.has(f.id) &&
+      !gridKeys.has(String(f.key || '').trim()),
+  );
   const takenKeys = new Map(others.map((f) => [f.key, true]));
   const takenLabels = new Set(others.map((f) => String(f.label).trim().toLowerCase()));
   return rows.map((row) => {
@@ -407,6 +484,13 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
 
     if (row.dataType === 'fromExam' && !row.examFieldKey) {
       errors.optionsText = 'Pick an exam field';
+    }
+
+    // Max-all-day sum source is resolved from date-shifts; empty formula text is OK.
+    const isAllDaySumSourceRow =
+      key === DATE_SHIFT_ALL_DAY_KEY || row.dateShift?.kind === 'allDay';
+    if (row.dataType === 'formula' && !String(row.formula || '').trim() && !isAllDaySumSourceRow) {
+      errors.formula = 'Enter a formula (e.g. {a} / {b} * 100)';
     }
 
     if (row.dataType === 'phone' && row.phoneValidationMode === 'custom') {
@@ -569,11 +653,15 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  /** Current preset service — maps sharedFromView → source preset name for badges. */
+  currentServiceValue = '',
   /** Existing unique-import config (features) so Import can re-edit it. */
   uniqueRowKeys = null,
   uniqueRowAggregates = null,
   /** Apply unique keys / count / sum as soon as Import finishes (don’t wait for Bulk Save). */
   onUniqueImportChange = null,
+  /** Apply a field delete to the parent draft immediately so reopen doesn’t bring it back. */
+  onFieldRemoved = null,
   /** Date × shift column template stored on features.dateShifts. */
   dateShifts = null,
   /**
@@ -581,19 +669,39 @@ export const BulkFieldsModal = ({
    * Pass false to hide even on Center list.
    */
   enableDateShifts = null,
+  /** Center-list–hidden shift ids — skip those families in Exam Day import checklist. */
+  hiddenExamDayShiftIds = null,
 }) => {
   const examFieldOptions = (examSourceFields || [])
     .filter((f) => f?.key)
     .map((f) => ({ value: f.key, label: f.label || f.key }));
+  const sourceLabelOpts = {
+    presets: Array.isArray(presetSources) ? presetSources : [],
+    preferredService: currentServiceValue,
+  };
   const initialRows = () => {
-    const existing = fields
+    let existing = fields
       .filter(
         (f) =>
           f.dataType === 'linked' ||
           f.dataType === 'combined' ||
           BULK_TYPES.some((t) => t.value === f.dataType),
       )
-      .map(rowFromField);
+      .map((f) => {
+        const row = rowFromField(f);
+        // Backfill preset name for older imports that only stored the view key.
+        if (row.sharedFromView && !row.sharedFromLabel) {
+          const resolved = importedSourceLabel(row, sourceLabelOpts);
+          if (resolved && resolved !== examViewLabel(row.sharedFromView)) {
+            row.sharedFromLabel = resolved;
+          }
+        }
+        return row;
+      });
+    // Exam Day: counts → Max Day N → Reached → Status → Max Status → First/Last T.
+    if (String(currentView || '') === EXAM_DAY_VIEW) {
+      existing = orderExamDayImportFields(existing);
+    }
     // A Linked value points at the row (field) it reads from.
     existing.forEach((r) => {
       if (r.linkedKey) r.linkedRid = existing.find((x) => x.key === r.linkedKey)?.rid || '';
@@ -619,9 +727,128 @@ export const BulkFieldsModal = ({
     enableDateShifts == null
       ? String(currentView || '') === DEFAULT_EXAM_VIEW
       : Boolean(enableDateShifts);
+  const showExamDayImport = String(currentView || '') === EXAM_DAY_VIEW;
+  // null = auto (collapsed when ready, open when columns are missing); boolean = user choice
+  const [examDayOpenPref, setExamDayOpenPref] = useState(null);
   useEffect(() => {
     if (!showDateShifts && tab === 'dateShifts') setTab('fields');
   }, [showDateShifts, tab]);
+
+  /** Center list date×shift template for this service — drives S1/S2 suggestions. */
+  const centerListDateShiftsForExamDay = useMemo(() => {
+    if (!showExamDayImport) return null;
+    const list = Array.isArray(presetSources) ? presetSources : [];
+    const svc = String(currentServiceValue || '').trim().toLowerCase();
+    const centerPresets = list.filter(
+      (p) => String(p?.view || DEFAULT_EXAM_VIEW) === DEFAULT_EXAM_VIEW,
+    );
+    const sameService = svc
+      ? centerPresets.filter((p) => String(p?.serviceValue || '').trim().toLowerCase() === svc)
+      : [];
+    const pick = sameService[0] || centerPresets[0] || null;
+    return pick?.features?.dateShifts || null;
+  }, [showExamDayImport, presetSources, currentServiceValue]);
+
+  const examDayImportPlan = useMemo(() => {
+    if (!showExamDayImport) return null;
+    const fieldLike = rows
+      .filter((r) => String(r.key || '').trim() || String(r.label || '').trim())
+      .map((r) => ({
+        key: String(r.key || '').trim(),
+        label: String(r.label || '').trim(),
+        dataType: r.dataType,
+        examDayShiftId: r.examDayShiftId,
+        examDayImportRole: r.examDayImportRole,
+        formula: r.formula,
+      }));
+    return getExamDayImportFieldPlan({
+      fields: fieldLike,
+      centerListDateShifts: centerListDateShiftsForExamDay,
+      hiddenShiftIds: hiddenExamDayShiftIds,
+    });
+  }, [showExamDayImport, rows, centerListDateShiftsForExamDay, hiddenExamDayShiftIds]);
+
+  const addExamDayImportColumns = () => {
+    if (!examDayImportPlan) return;
+    const fieldLike = rows
+      .filter((r) => String(r.key || '').trim())
+      .map((r) => ({
+        key: String(r.key || '').trim(),
+        label: String(r.label || '').trim(),
+        dataType: r.dataType,
+        examDayShiftId: r.examDayShiftId,
+        examDayImportRole: r.examDayImportRole,
+        formula: r.formula,
+      }));
+    const missing = buildMissingExamDayImportFields({
+      fields: fieldLike,
+      centerListDateShifts: centerListDateShiftsForExamDay,
+      hiddenShiftIds: hiddenExamDayShiftIds,
+    });
+    setRows((prev) => {
+      const used = new Set(prev.map((r) => String(r.key || '').trim()).filter(Boolean));
+      const additions = [];
+      let next = prev.map((r) => ({ ...r }));
+
+      const applyDefToRow = (row, def) => {
+        row.label = def.label;
+        row.key = def.key;
+        row.keyTouched = true;
+        row.dataType = def.dataType;
+        row.examDayShiftId = def.examDayShiftId || '';
+        row.examDayImportRole = def.examDayImportRole || '';
+        if (def.optionsText || (Array.isArray(def.options) && def.options.length)) {
+          row.optionsSource = 'manual';
+          row.optionsText = def.optionsText || def.options.join(', ');
+        }
+        if (def.formula != null) row.formula = String(def.formula || '');
+        return row;
+      };
+
+      missing.forEach((def) => {
+        if (def.updateExisting) {
+          const idx = next.findIndex((r) => String(r.key || '').trim() === def.key);
+          if (idx >= 0) {
+            next[idx] = applyDefToRow({ ...next[idx] }, def);
+          }
+          return;
+        }
+        if (used.has(def.key)) return;
+        used.add(def.key);
+        const row = applyDefToRow(newRow(def.dataType), def);
+        additions.push(row);
+      });
+
+      // Pull every First/Last T. to the bottom (before blank rows / Created·Modify on the table).
+      const blanks = [];
+      const filled = [];
+      [...next, ...additions].forEach((r) => {
+        const empty =
+          !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim();
+        if (empty) blanks.push(r);
+        else filled.push(r);
+      });
+      const seenRid = new Set();
+      const seenKey = new Set();
+      const uniqueFilled = [];
+      filled.forEach((r) => {
+        const key = String(r.key || '').trim();
+        if (seenRid.has(r.rid)) return;
+        if (key && seenKey.has(key)) return;
+        seenRid.add(r.rid);
+        if (key) seenKey.add(key);
+        uniqueFilled.push(r);
+      });
+      next = [
+        ...orderExamDayImportFields(uniqueFilled),
+        ...(blanks.length ? blanks : [newRow()]),
+      ];
+      const focusAdd = additions.find((a) => !isExamDayTimestampField(a)) || additions[0];
+      focusRidRef.current = focusAdd?.rid || null;
+      return next.slice(0, maxRows);
+    });
+    setTab('fields');
+  };
   const initialDateShifts = useMemo(
     () => normalizeDateShiftsConfig(dateShifts || emptyDateShiftsConfig()),
     // Only seed from the prop when the modal mounts.
@@ -651,11 +878,19 @@ export const BulkFieldsModal = ({
   }, [shiftDraft, initialDateShifts, showDateShifts]);
   const columnWidths = normalizeDateShiftColumnWidths(shiftDraft.columnWidths);
   const filledShiftCount = shiftDraft.shifts.filter((s) => String(s.label || '').trim()).length;
+  const shiftMaxCount = shiftDraft.shifts.filter(
+    (s) => String(s.label || '').trim() && s.maxEnabled,
+  ).length;
   const summaryOn = Boolean(shiftDraft.summaryColumn?.enabled);
   const allDayOn = Boolean(shiftDraft.allDayColumn?.enabled);
   const summaryHeader = summaryColumnLabel(shiftDraft.summaryColumn);
   const allDayHeader = allDayColumnLabel(shiftDraft.allDayColumn);
+  const confirm = useConfirm();
   const [removedIds, setRemovedIds] = useState([]); // existing field ids to delete on save
+  /** User deleted Date Total Center / Date Max All Day — don’t auto-reinsert them this session. */
+  const [suppressedFocusKeys, setSuppressedFocusKeys] = useState(() => new Set());
+  /** Ids already pushed to the parent draft via onFieldRemoved (don’t count as discardable). */
+  const liveRemovedIdsRef = useRef(new Set());
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -666,7 +901,187 @@ export const BulkFieldsModal = ({
   const [pendingUniqueRowAggregates, setPendingUniqueRowAggregates] = useState(null);
   const hasUniqueImportConfig =
     (Array.isArray(uniqueRowKeys) && uniqueRowKeys.length > 0) ||
-    (Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0);
+    (Array.isArray(pendingUniqueRowKeys) && pendingUniqueRowKeys.length > 0) ||
+    (Array.isArray(uniqueRowAggregates) && uniqueRowAggregates.length > 0) ||
+    (Array.isArray(pendingUniqueRowAggregates) && pendingUniqueRowAggregates.length > 0);
+  const activeUniqueKeys = useMemo(
+    () =>
+      normalizeUniqueRowKeys(
+        Array.isArray(pendingUniqueRowKeys) ? pendingUniqueRowKeys : uniqueRowKeys,
+      ),
+    [pendingUniqueRowKeys, uniqueRowKeys],
+  );
+  const activeUniqueAggregates = useMemo(
+    () =>
+      normalizeUniqueRowAggregates(
+        Array.isArray(pendingUniqueRowAggregates)
+          ? pendingUniqueRowAggregates
+          : uniqueRowAggregates,
+      ),
+    [pendingUniqueRowAggregates, uniqueRowAggregates],
+  );
+  /** Per field key → roles in Unique import (unique key / count target / sum target or source). */
+  const uniqueRoleByKey = useMemo(() => {
+    const map = new Map();
+    const add = (key, role) => {
+      const k = String(key || '').trim();
+      if (!k) return;
+      const prev = map.get(k) || [];
+      if (!prev.includes(role)) map.set(k, [...prev, role]);
+    };
+    activeUniqueKeys.forEach((k, i) => add(k, `unique · ${i + 1}`));
+    let hasCount = false;
+    let hasAllDaySum = false;
+    activeUniqueAggregates.forEach((rule) => {
+      if (rule.op === 'count') {
+        hasCount = true;
+        add(rule.targetKey, 'count');
+      }
+      if (rule.op === 'sum') {
+        add(rule.targetKey, 'sum');
+        if (rule.sourceKey) add(rule.sourceKey, 'sum src');
+        if (
+          rule.sourceKey === DATE_SHIFT_ALL_DAY_KEY ||
+          /allday/i.test(String(rule.sourceKey || ''))
+        ) {
+          hasAllDaySum = true;
+        }
+      }
+      if (rule.whereKey) add(rule.whereKey, 'where');
+    });
+    if (hasCount) add(FOCUS_TOTAL_CENTER_COLUMN_KEY, 'date count');
+    if (hasAllDaySum) add(FOCUS_MAX_ALL_DAY_COLUMN_KEY, 'date max');
+    return map;
+  }, [activeUniqueKeys, activeUniqueAggregates]);
+
+  // Presets / pages: show Date Total Center & Date Max All Day when Unique import needs them.
+  // Skip keys the user deleted this session; always de-dupe by key (import + ensure can race).
+  useEffect(() => {
+    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(activeUniqueAggregates);
+    if (!countTargetKey && !sumTargetKey) return;
+    setRows((prev) => {
+      const filled = prev.filter((r) => String(r.key || '').trim());
+      const blanks = prev.filter((r) => !String(r.key || '').trim());
+      const stubFields = [];
+      const stubSeen = new Set();
+      for (const r of filled) {
+        const k = String(r.key || '').trim();
+        if (!k || stubSeen.has(k)) continue;
+        stubSeen.add(k);
+        stubFields.push({
+          key: r.key,
+          label: r.label,
+          dataType: r.dataType || 'text',
+          focusDateColumn: r.focusDateColumn,
+          id: r.existingId || r.rid,
+        });
+      }
+      const { fields: ensured, changed } = ensureFocusDateFields(stubFields, {
+        countTargetKey: suppressedFocusKeys.has(FOCUS_TOTAL_CENTER_COLUMN_KEY)
+          ? ''
+          : countTargetKey,
+        sumTargetKey: suppressedFocusKeys.has(FOCUS_MAX_ALL_DAY_COLUMN_KEY) ? '' : sumTargetKey,
+      });
+      const byKey = new Map(filled.map((r) => [String(r.key || '').trim(), r]));
+      const parentByKey = new Map(
+        (Array.isArray(fields) ? fields : [])
+          .filter((f) => f?.key)
+          .map((f) => [String(f.key).trim(), f]),
+      );
+      const nextFilled = [];
+      const outSeen = new Set();
+      for (const f of ensured) {
+        const k = String(f.key || '').trim();
+        if (!k || outSeen.has(k) || suppressedFocusKeys.has(k)) continue;
+        outSeen.add(k);
+        const existing = byKey.get(k);
+        if (existing) {
+          nextFilled.push({
+            ...existing,
+            focusDateColumn: f.focusDateColumn || existing.focusDateColumn,
+            label: existing.label || f.label,
+            dataType:
+              k === FOCUS_TOTAL_CENTER_COLUMN_KEY || k === FOCUS_MAX_ALL_DAY_COLUMN_KEY
+                ? 'number'
+                : existing.dataType,
+          });
+        } else {
+          // Prefer the parent field (may already exist from ExamFieldBuilder ensure).
+          const parent = parentByKey.get(k);
+          if (parent?.id) {
+            nextFilled.push({
+              ...rowFromField(parent),
+              existingId: parent.id,
+              orig: {
+                label: parent.label || '',
+                key: parent.key || '',
+                dataType: parent.dataType || 'number',
+              },
+              keyTouched: true,
+              focusDateColumn: f.focusDateColumn || parent.focusDateColumn,
+            });
+          } else {
+            nextFilled.push({
+              ...rowFromField({ ...f, id: undefined, dataType: 'number' }),
+              existingId: null,
+              orig: null,
+              keyTouched: true,
+              focusDateColumn: f.focusDateColumn,
+            });
+          }
+        }
+      }
+      // Keep any non-focus filled rows that ensure dropped, still de-duped.
+      for (const r of filled) {
+        const k = String(r.key || '').trim();
+        if (!k || outSeen.has(k)) continue;
+        outSeen.add(k);
+        nextFilled.push(r);
+      }
+      const next = [...nextFilled, ...blanks];
+      if (!changed && next.length === prev.length) {
+        const same = next.every((r, i) => r.rid === prev[i]?.rid && r.key === prev[i]?.key);
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [activeUniqueAggregates, suppressedFocusKeys, fields]);
+  const uniqueImportSummary = useMemo(() => {
+    if (!activeUniqueKeys.length && !activeUniqueAggregates.length) return '';
+    const keyPart = activeUniqueKeys.length
+      ? `Unique key: ${uniqueRowKeysLabel(
+          rows.map((r) => ({ key: r.key, label: r.label })),
+          activeUniqueKeys,
+        ) || activeUniqueKeys.join(' · ')}`
+      : '';
+    const resultPart = activeUniqueAggregates
+      .map((rule) => {
+        const target =
+          rows.find((r) => r.key === rule.targetKey)?.label || rule.targetKey;
+        const whereField =
+          rule.whereKey &&
+          (rows.find((r) => r.key === rule.whereKey)?.label || rule.whereKey);
+        const whereOpLabel =
+          rule.whereOp === 'neq'
+            ? '≠'
+            : rule.whereOp === 'filled'
+              ? 'filled'
+              : rule.whereOp === 'empty'
+                ? 'empty'
+                : '=';
+        const wherePart = whereField
+          ? rule.whereOp === 'filled' || rule.whereOp === 'empty'
+            ? ` where ${whereField} ${whereOpLabel}`
+            : ` where ${whereField} ${whereOpLabel} ${rule.whereValue || ''}`
+          : '';
+        if (rule.op === 'count') return `Count${wherePart} → ${target}`;
+        const source =
+          rows.find((r) => r.key === rule.sourceKey)?.label || rule.sourceKey || 'source';
+        return `Sum(${source})${wherePart} → ${target}`;
+      })
+      .join(' · ');
+    return [keyPart, resultPart].filter(Boolean).join(' · ');
+  }, [activeUniqueKeys, activeUniqueAggregates, rows]);
 
   const openImportModal = (focusUnique = false) => {
     setImportFocusUnique(Boolean(focusUnique));
@@ -721,7 +1136,21 @@ export const BulkFieldsModal = ({
   const uniqueAggregatesDirty =
     Array.isArray(pendingUniqueRowAggregates) && pendingUniqueRowAggregates.length > 0;
   const uniqueImportDirty = uniqueKeysDirty || uniqueAggregatesDirty;
-  const pending = fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueImportDirty ? 1 : 0);
+  // Drag reorder alone must unlock Save — content signatures do not change.
+  const orderDirty = useMemo(() => {
+    const bulkable = (f) =>
+      f.dataType === 'linked' ||
+      f.dataType === 'combined' ||
+      BULK_TYPES.some((t) => t.value === f.dataType);
+    const original = (fields || []).filter(bulkable).map((f) => `id:${f.id}`).join('\0');
+    const current = rows
+      .filter((r, i) => r.existingId || !validation[i].blank)
+      .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${String(r.key || '').trim()}`))
+      .join('\0');
+    return Boolean(original || current) && original !== current;
+  }, [fields, rows, validation]);
+  const pending =
+    fieldPending + (dateShiftsDirty ? 1 : 0) + (uniqueImportDirty ? 1 : 0) + (orderDirty ? 1 : 0);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -732,12 +1161,14 @@ export const BulkFieldsModal = ({
           document.dispatchEvent(new MouseEvent('mousedown'));
           return;
         }
-        onClose();
+        requestClose();
       }
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+    // requestClose closes over latest pending counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirm, onClose, pending, removedIds, newCount, updateCount, dateShiftsDirty, uniqueImportDirty, orderDirty]);
 
   useEffect(() => {
     if (!focusRidRef.current) return;
@@ -785,13 +1216,45 @@ export const BulkFieldsModal = ({
   const removeRow = (rid) => {
     const target = rows.find((r) => r.rid === rid);
     if (!target) return;
+    const focusKey = String(target.key || '').trim();
+    if (focusKey && isFocusDateField(target)) {
+      setSuppressedFocusKeys((prev) => new Set([...prev, focusKey]));
+    }
     if (target.existingId) {
       setRemovedIds((prev) => (prev.includes(target.existingId) ? prev : [...prev, target.existingId]));
+      // Stick the delete on the parent draft immediately (preset / page form).
+      if (typeof onFieldRemoved === 'function') {
+        liveRemovedIdsRef.current.add(target.existingId);
+        onFieldRemoved(target.existingId);
+      }
     }
     setRows((prev) => {
       const next = prev.filter((r) => r.rid !== rid);
       return next.some((r) => !r.existingId) ? next : [...next, newRow()];
     });
+  };
+
+  const requestClose = async () => {
+    const liveGone = liveRemovedIdsRef.current;
+    const unsyncedRemoves = removedIds.filter((id) => !liveGone.has(id)).length;
+    const discardable =
+      newCount +
+      updateCount +
+      unsyncedRemoves +
+      (dateShiftsDirty ? 1 : 0) +
+      (uniqueImportDirty ? 1 : 0) +
+      (orderDirty ? 1 : 0);
+    if (discardable > 0) {
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message:
+          'Edits in Bulk add are not kept unless you click Save. Deleted fields that were already removed from the list stay removed.',
+        confirmLabel: 'Discard',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    onClose();
   };
 
   // Auto-fill and Width are rarely changed, so they stay hidden until asked for (or already in use).
@@ -991,17 +1454,48 @@ export const BulkFieldsModal = ({
     setNotice('');
   };
 
+  /** Keep first row per key; blank rows stay. Prevents Unique-import / ensure races. */
+  const dedupeRowsByKey = (list = []) => {
+    const seen = new Set();
+    const out = [];
+    for (const r of list) {
+      const k = String(r?.key || '').trim();
+      if (!k) {
+        out.push(r);
+        continue;
+      }
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(r);
+    }
+    return out;
+  };
+
   const insertBulkRows = (additions, notice) => {
     if (!additions.length) {
       setNotice('Those fields are already in this list.');
       return;
     }
     setRows((prev) => {
+      const have = new Set(
+        prev.map((r) => String(r.key || '').trim()).filter(Boolean),
+      );
+      const fresh = [];
+      for (const row of additions) {
+        const k = String(row?.key || '').trim();
+        if (!k || have.has(k)) continue;
+        have.add(k);
+        fresh.push(row);
+      }
+      if (!fresh.length) return dedupeRowsByKey(prev);
       const blankStart = prev.findIndex(
         (r) => !r.existingId && !String(r.label || '').trim() && !String(r.key || '').trim(),
       );
-      if (blankStart < 0) return [...prev, ...additions].slice(0, maxRows);
-      return [...prev.slice(0, blankStart), ...additions, ...prev.slice(blankStart)].slice(0, maxRows);
+      const merged =
+        blankStart < 0
+          ? [...prev, ...fresh]
+          : [...prev.slice(0, blankStart), ...fresh, ...prev.slice(blankStart)];
+      return dedupeRowsByKey(merged).slice(0, maxRows);
     });
     setNotice(notice);
     setTab('fields');
@@ -1010,18 +1504,28 @@ export const BulkFieldsModal = ({
   /** Pull shared / combined columns from another tab or preset into this bulk grid. */
   const handleImportFromTab = (result) => {
     const home = String(result?.sourceView || '').trim();
+    const sourceLabel =
+      String(result?.sourceLabel || '').trim() || (home ? examViewLabel(home) : '');
+    const sourceNotice = sourceLabel || examViewLabel(home);
     const haveKeys = new Set(rows.map((r) => String(r.key || '').trim()).filter(Boolean));
     const nextUniqueKeys = normalizeUniqueRowKeys(result?.uniqueRowKeys);
-    const nextUniqueAggregates = normalizeUniqueRowAggregates(result?.uniqueRowAggregates);
+    const aggregatesProvided = Object.prototype.hasOwnProperty.call(
+      result || {},
+      'uniqueRowAggregates',
+    );
+    const nextUniqueAggregates = aggregatesProvided
+      ? normalizeUniqueRowAggregates(result.uniqueRowAggregates)
+      : null;
     if (nextUniqueKeys.length) setPendingUniqueRowKeys(nextUniqueKeys);
-    if (nextUniqueAggregates.length || nextUniqueKeys.length) {
+    // Only replace aggregates when the modal explicitly sent them (never wipe on keys-only).
+    if (aggregatesProvided) {
       setPendingUniqueRowAggregates(nextUniqueAggregates);
     }
     // Count / sum must hit features immediately — waiting for Bulk Save left Days Total Center at 0.
-    if (nextUniqueKeys.length || nextUniqueAggregates.length) {
+    if (nextUniqueKeys.length || aggregatesProvided) {
       onUniqueImportChange?.({
-        uniqueRowKeys: nextUniqueKeys,
-        uniqueRowAggregates: nextUniqueAggregates,
+        ...(nextUniqueKeys.length ? { uniqueRowKeys: nextUniqueKeys } : {}),
+        ...(aggregatesProvided ? { uniqueRowAggregates: nextUniqueAggregates } : {}),
       });
     }
     const uniqueLabel = nextUniqueKeys.length
@@ -1033,9 +1537,16 @@ export const BulkFieldsModal = ({
           nextUniqueKeys,
         )
       : '';
-    const aggNotice = nextUniqueAggregates.length
-      ? ` · ${nextUniqueAggregates.length} result field${nextUniqueAggregates.length === 1 ? '' : 's'}`
-      : '';
+    const skippedIncomplete = Number(result?.skippedIncompleteAggregates) || 0;
+    const aggNotice = Array.isArray(nextUniqueAggregates) && nextUniqueAggregates.length
+      ? ` · ${nextUniqueAggregates.length} result field${nextUniqueAggregates.length === 1 ? '' : 's'}${
+          skippedIncomplete
+            ? ` (skipped ${skippedIncomplete} incomplete)`
+            : ''
+        }`
+      : skippedIncomplete
+        ? ` · skipped ${skippedIncomplete} incomplete calculation${skippedIncomplete === 1 ? '' : 's'}`
+        : '';
 
     if (result?.combinedField) {
       const f = result.combinedField;
@@ -1043,6 +1554,7 @@ export const BulkFieldsModal = ({
         setNotice(`“${f.label || f.key}” is already in this list.`);
         return;
       }
+      const sharedFromLabel = String(f.sharedFromLabel || sourceLabel || '').trim();
       const row = rowFromField({ ...f, id: undefined });
       insertBulkRows(
         [
@@ -1053,33 +1565,48 @@ export const BulkFieldsModal = ({
             orig: null,
             keyTouched: true,
             sharedFromView: f.sharedFromView || home,
+            sharedFromLabel,
             combineKeys: f.combine?.keys || [],
             combineSeparator: f.combine?.separator ?? ', ',
           },
         ],
-        `Added combined column “${f.label}” from ${examViewLabel(home)}. Save to keep it.`,
+        `Added combined column “${f.label}” from ${sourceNotice}. Save to keep it.`,
       );
       return;
     }
 
     const pickedFields = Array.isArray(result?.fields) ? result.fields : Array.isArray(result) ? result : [];
+    const renamedCount = Number(result?.renamedCount) || 0;
     const additions = pickedFields
       .filter((f) => f?.key && !haveKeys.has(f.key))
       .map((f) => {
-        const sharedFromView = String(f.sharedFromView || home || '').trim();
-        const row = rowFromField({ ...f, id: undefined, sharedFromView });
+        const sharedFromLabel = String(f.sharedFromLabel || sourceLabel || '').trim();
+        // Renamed copies are independent columns; same-key imports stay shared.
+        const isCopy = Boolean(f.importRenamedFrom);
+        const sharedFromView = isCopy ? '' : String(f.sharedFromView || home || '').trim();
+        const { importRenamedFrom: _renamed, ...fieldRest } = f;
+        const row = rowFromField({
+          ...fieldRest,
+          id: undefined,
+          sharedFromView: sharedFromView || undefined,
+          sharedFromLabel,
+        });
         return {
           ...row,
           rid: newRow().rid,
           existingId: null,
           orig: null,
           sharedFromView,
+          sharedFromLabel,
           keyTouched: true,
         };
       });
 
+    // Date Total Center / Date Max All Day are added by the unique-aggregates effect
+    // (single path — adding here too raced and duplicated keys).
+
     if (!additions.length) {
-      if (nextUniqueKeys.length || nextUniqueAggregates.length) {
+      if (nextUniqueKeys.length || aggregatesForFocus.length || skippedIncomplete) {
         setNotice(
           examId
             ? `Unique import active: ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}.`
@@ -1092,13 +1619,17 @@ export const BulkFieldsModal = ({
       return;
     }
 
+    const renameNotice =
+      renamedCount > 0
+        ? ` · ${renamedCount} key${renamedCount === 1 ? '' : 's'} prefixed (edit labels as you like)`
+        : '';
     insertBulkRows(
       additions,
       nextUniqueKeys.length
         ? examId
-          ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}.`
-          : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}. Save the preset to keep them.`
-        : `Imported ${additions.length} shared field${additions.length === 1 ? '' : 's'} from ${examViewLabel(home)}. Save to keep them.`,
+          ? `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${sourceNotice} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}${renameNotice}.`
+          : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${sourceNotice} with unique key ${uniqueLabel || nextUniqueKeys.join(' · ')}${aggNotice}${renameNotice}. Save the preset to keep them.`
+        : `Imported ${additions.length} field${additions.length === 1 ? '' : 's'} from ${sourceNotice}${renameNotice}. Save to keep them.`,
     );
   };
 
@@ -1145,6 +1676,12 @@ export const BulkFieldsModal = ({
       shifts: prev.shifts.map((s) =>
         s.id === id ? { ...s, width: resolveDateShiftColumnWidth(px) } : s,
       ),
+    }));
+
+  const updateShiftMaxEnabled = (id, maxEnabled) =>
+    setShiftDraft((prev) => ({
+      ...prev,
+      shifts: prev.shifts.map((s) => (s.id === id ? { ...s, maxEnabled: Boolean(maxEnabled) } : s)),
     }));
 
   const removeShiftRow = (id) =>
@@ -1212,24 +1749,31 @@ export const BulkFieldsModal = ({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!pending) return;
-    // Feature-only saves (date shifts / unique keys) must not be blocked by Fields-tab errors.
-    const metaOnly = fieldPending === 0 && removedIds.length === 0 && (dateShiftsDirty || uniqueImportDirty);
-    if (errorCount && !metaOnly) return;
-    const items = metaOnly
+    // Feature-only / order-only saves must not be blocked by Fields-tab errors.
+    const metaOnly =
+      fieldPending === 0 &&
+      removedIds.length === 0 &&
+      (dateShiftsDirty || uniqueImportDirty) &&
+      !orderDirty;
+    const orderOnly = orderDirty && fieldPending === 0 && removedIds.length === 0;
+    if (errorCount && !metaOnly && !orderOnly) return;
+    const skipFieldPayload = metaOnly || orderOnly;
+    const items = skipFieldPayload
       ? []
       : resolvedRows
           .filter((r, i) => !r.existingId && !validation[i].blank)
           .map((r) => rowToItem(r, allowUnique));
-    const updated = metaOnly
+    const updated = skipFieldPayload
       ? []
       : resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
     const newDefs = items.map((item, i) => toFieldDefinition(item, fields.length + i + 1));
     // Row order = field order: existing fields by id, new ones by key.
-    const order = metaOnly
-      ? []
-      : resolvedRows
-          .filter((r, i) => r.existingId || !validation[i].blank)
-          .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
+    const order =
+      metaOnly && !orderDirty
+        ? []
+        : resolvedRows
+            .filter((r, i) => r.existingId || !validation[i].blank)
+            .map((r) => (r.existingId ? `id:${r.existingId}` : `key:${r.key.trim()}`));
     const meta = {
       ...(dateShiftsDirty
         ? {
@@ -1252,7 +1796,7 @@ export const BulkFieldsModal = ({
           }
         : {}),
     };
-    onAdd(newDefs, updated, metaOnly ? [] : removedIds, order, meta);
+    onAdd(newDefs, updated, skipFieldPayload ? [] : removedIds, order, meta);
   };
 
   /* ---------- Dependencies: lookup fields and the Linked values that follow them ---------- */
@@ -1348,8 +1892,33 @@ export const BulkFieldsModal = ({
 
   const cellError = (i, col) => validation[i].errors[col];
 
+  const jumpToFirstError = () => {
+    const idx = validation.findIndex((v) => !v.blank && Object.keys(v.errors).length);
+    if (idx < 0) return;
+    const rid = rows[idx]?.rid;
+    const errKeys = Object.keys(validation[idx].errors);
+    setTab('fields');
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector(`tr[data-rid="${rid}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input =
+        (errKeys[0] && el?.querySelector(`[data-col="${errKeys[0]}"]`)) ||
+        el?.querySelector('input, select, textarea');
+      if (input && typeof input.focus === 'function') input.focus();
+    });
+  };
+
+  const firstErrorSummary = useMemo(() => {
+    const idx = validation.findIndex((v) => !v.blank && Object.keys(v.errors).length);
+    if (idx < 0) return '';
+    const errs = validation[idx].errors;
+    const msg = Object.values(errs)[0] || 'needs fixing';
+    const label = String(rows[idx]?.label || rows[idx]?.key || `Row ${idx + 1}`).trim();
+    return `${label}: ${msg}`;
+  }, [validation, rows]);
+
   return createPortal(
-    <div className="exams-bulk-overlay" onClick={onClose}>
+    <div className="exams-bulk-overlay" onClick={requestClose}>
       <form
         className="exams-bulk-modal"
         onClick={(e) => e.stopPropagation()}
@@ -1369,7 +1938,7 @@ export const BulkFieldsModal = ({
               </p>
             ) : null}
           </div>
-          <button type="button" className="exams-drawer-close compact" onClick={onClose} aria-label="Close">
+          <button type="button" className="exams-drawer-close compact" onClick={requestClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>
@@ -1471,6 +2040,89 @@ export const BulkFieldsModal = ({
         </div>
         )}
 
+        {tab === 'fields' && uniqueImportSummary ? (
+          <button
+            type="button"
+            className="exams-bulk-unique-banner"
+            onClick={() => canImportShared && openImportModal(true)}
+            title="Click to edit Unique import"
+          >
+            <Link2 size={14} aria-hidden="true" />
+            <span>{uniqueImportSummary}</span>
+            <span className="exams-bulk-unique-banner-hint">Edit</span>
+          </button>
+        ) : null}
+
+        {tab === 'fields' && showExamDayImport && examDayImportPlan ? (
+          (() => {
+          const examDayOpen = examDayOpenPref ?? !examDayImportPlan.ready;
+          const presentCount = examDayImportPlan.items.filter((it) => it.present).length;
+          return (
+          <div
+            className={`exams-bulk-examday-banner${examDayImportPlan.ready ? ' is-ready' : ''}${examDayOpen ? '' : ' is-collapsed'}`}
+            role="region"
+            aria-label="Center list import columns"
+          >
+            <div className="exams-bulk-examday-banner-head">
+              <button
+                type="button"
+                className="exams-bulk-examday-toggle"
+                onClick={() => setExamDayOpenPref(!examDayOpen)}
+                aria-expanded={examDayOpen}
+                aria-controls="exams-bulk-examday-checklist"
+                title={examDayOpen ? 'Collapse' : 'Show import columns'}
+              >
+                <ChevronDown size={16} aria-hidden="true" className="exams-bulk-examday-chevron" />
+                <CalendarDays size={15} aria-hidden="true" />
+                <span className="exams-bulk-examday-banner-copy">
+                  <strong>
+                    Center list → Exam Day import
+                    <span className="exams-bulk-examday-count">
+                      {presentCount}/{examDayImportPlan.items.length} columns
+                    </span>
+                    {examDayImportPlan.missing.length ? (
+                      <span className="exams-bulk-examday-missing">
+                        {examDayImportPlan.missing.length} missing
+                      </span>
+                    ) : null}
+                  </strong>
+                  {examDayOpen ? (
+                    <span
+                      title={
+                        examDayImportPlan.ready
+                          ? undefined
+                          : 'Center Code and other BCL fields stay via Import from preset.'
+                      }
+                    >
+                      {examDayImportPlan.ready
+                        ? 'Ready — on the Exam Day tab, use Import from Center list to fill rows.'
+                        : 'Needed so Import from Center list can fill exam date, shift counts, Reached, and status.'}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+              {!examDayImportPlan.ready ? (
+                <button
+                  type="button"
+                  className="exams-bulk-examday-add-btn"
+                  onClick={addExamDayImportColumns}
+                >
+                  <Plus size={14} /> Add missing columns
+                </button>
+              ) : (
+                <span className="exams-bulk-examday-ready">
+                  <CheckCircle2 size={14} aria-hidden="true" /> Ready
+                </span>
+              )}
+            </div>
+            {examDayOpen ? (
+              <ExamDayImportChecklist plan={examDayImportPlan} id="exams-bulk-examday-checklist" />
+            ) : null}
+          </div>
+          );
+          })()
+        ) : null}
+
         {tab === 'dateShifts' && (
         <div className="exams-bulk-toolbar">
           <span
@@ -1501,6 +2153,8 @@ export const BulkFieldsModal = ({
             <div className="exams-date-shifts-layout">
               <section className="exams-date-shifts-panel" aria-label="Date shift columns">
                 <p className="exams-date-shifts-flow" aria-hidden="true">
+                  <span>Shift Max</span>
+                  <span aria-hidden="true">→</span>
                   <span>All day</span>
                   <span aria-hidden="true">→</span>
                   <span>Shifts</span>
@@ -1532,7 +2186,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title="Aggregate across every date’s shifts. Placed before all date columns."
+                      title="Aggregates each date’s Summary (Max Day N) only — not individual shifts or shift Max. Turn Summary on. Placed before all date columns."
                       aria-label="About all-day column"
                     >
                       <Info size={13} />
@@ -1598,7 +2252,7 @@ export const BulkFieldsModal = ({
                       <button
                         type="button"
                         className="exams-bulk-info-btn"
-                        title="Type each column name. The same set repeats under every exam date on Center list."
+                        title="Type each column name. The same set repeats under every exam date on Center list. Turn on Max to also add a Max column for that shift across all dates."
                         aria-label="About shift columns"
                       >
                         <Info size={13} />
@@ -1615,10 +2269,12 @@ export const BulkFieldsModal = ({
                       const dragging = dragShiftId === shift.id;
                       const dragOver =
                         dragOverShiftId === shift.id && dragShiftId && dragShiftId !== shift.id;
+                      const maxOn = Boolean(shift.maxEnabled);
+                      const shiftLabel = String(shift.label || '').trim() || `Shift ${index + 1}`;
                       return (
                         <div
                           key={shift.id}
-                          className={`exams-date-shifts-row${dragging ? ' is-dragging' : ''}${dragOver ? ' is-drag-over' : ''}`}
+                          className={`exams-date-shifts-row${dragging ? ' is-dragging' : ''}${dragOver ? ' is-drag-over' : ''}${maxOn ? ' has-max' : ''}`}
                           role="listitem"
                           onDragOver={(e) => {
                             if (!dragShiftId) return;
@@ -1684,6 +2340,18 @@ export const BulkFieldsModal = ({
                               shiftDraft.shifts.length === 1
                             }
                           />
+                          <label
+                            className={`exams-date-shifts-max-toggle${maxOn ? ' is-on' : ''}`}
+                            title={`Add ${shiftMaxColumnLabel({ label: shiftLabel })} — max of this shift across all exam dates`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={maxOn}
+                              onChange={(e) => updateShiftMaxEnabled(shift.id, e.target.checked)}
+                              aria-label={`Enable Max column for ${shiftLabel}`}
+                            />
+                            <span>Max</span>
+                          </label>
                           <DateShiftPxInput
                             label={`Shift ${index + 1} width`}
                             value={shift.width ?? columnWidths.shift}
@@ -1728,7 +2396,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title="One extra column after the shifts for each date (e.g. Max Day 1)."
+                      title="One read-only column after the shifts for each date (e.g. Max Day 1), computed from that day’s shift values."
                       aria-label="About summary column"
                     >
                       <Info size={13} />
@@ -1793,7 +2461,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title={`Each selected date gets this group. Renaming a date later keeps the values. Dates are chosen later on the Center list. ${filledShiftCount} shift${filledShiftCount === 1 ? '' : 's'}${summaryOn ? ` + ${summaryHeader}` : ''} per date.${allDayOn ? ` ${allDayHeader} sits before all date columns.` : ''}`}
+                      title={`Each selected date gets this group. Renaming a date later keeps the values. Dates are chosen later on the Center list. ${filledShiftCount} shift${filledShiftCount === 1 ? '' : 's'}${summaryOn ? ` + ${summaryHeader}` : ''} per date.${shiftMaxCount ? ` ${shiftMaxCount} shift Max column${shiftMaxCount === 1 ? '' : 's'} before date groups.` : ''}${allDayOn ? ` ${allDayHeader} sits before all date columns.` : ''}`}
                       aria-label="About preview"
                     >
                       <Info size={13} />
@@ -1807,6 +2475,7 @@ export const BulkFieldsModal = ({
                       const filledShifts = shiftDraft.shifts.filter((s) =>
                         String(s.label || '').trim(),
                       );
+                      const maxShifts = filledShifts.filter((s) => s.maxEnabled);
                       const labels = filledShifts.map((s) => String(s.label).trim());
                       const days = [
                         { key: 'd1', title: '10-Nov-2026', dayIndex: 1 },
@@ -1814,11 +2483,19 @@ export const BulkFieldsModal = ({
                       ];
                       const colCount = Math.max(labels.length + (summaryOn ? 1 : 0), 1);
                       const sampleVals = (di) => labels.map((_, i) => 8 + ((di + i) % 3));
-                      const allShiftVals = days.flatMap((_, di) => sampleVals(di));
-                      const allDaySample = aggregateShiftValues(
-                        shiftDraft.allDayColumn?.type || 'max',
-                        allShiftVals,
-                      );
+                      const summaryType = shiftDraft.summaryColumn?.type || 'max';
+                      // All day looks up Summary (Max Day N) only — not shifts / shift Max.
+                      const daySummaryVals = summaryOn
+                        ? days.map((_, di) =>
+                            aggregateShiftValues(summaryType, sampleVals(di)),
+                          )
+                        : [];
+                      const allDaySample = summaryOn
+                        ? aggregateShiftValues(
+                            shiftDraft.allDayColumn?.type || 'max',
+                            daySummaryVals.filter((v) => typeof v === 'number'),
+                          )
+                        : '—';
                       const emptyDay = labels.length === 0 && !summaryOn;
                       const allDayColor = normalizeColumnColor(shiftDraft.allDayColumn?.color);
                       const summaryColor = normalizeColumnColor(shiftDraft.summaryColumn?.color);
@@ -1829,17 +2506,17 @@ export const BulkFieldsModal = ({
                               backgroundColor: hexWithAlpha(hex, 0.12),
                             }
                           : undefined;
+                      const leadColSpan = maxShifts.length + (allDayOn ? 1 : 0);
                       return (
                         <table className="exams-date-shifts-sheet-table">
                           <thead>
                             <tr>
-                              {allDayOn && (
+                              {leadColSpan > 0 && (
                                 <th
-                                  rowSpan={2}
-                                  className="is-max exams-date-shifts-all-day"
-                                  style={tintStyle(allDayColor)}
+                                  colSpan={leadColSpan}
+                                  className="exams-date-shifts-lead-group"
                                 >
-                                  {allDayHeader}
+                                  Across dates
                                 </th>
                               )}
                               {days.map((d) => (
@@ -1849,6 +2526,23 @@ export const BulkFieldsModal = ({
                               ))}
                             </tr>
                             <tr>
+                              {maxShifts.map((shift) => (
+                                <th
+                                  key={`smax-${shift.id}`}
+                                  className="is-max exams-date-shifts-shift-max"
+                                  style={tintStyle(normalizeColumnColor(shift.color))}
+                                >
+                                  {shiftMaxColumnLabel(shift)}
+                                </th>
+                              ))}
+                              {allDayOn && (
+                                <th
+                                  className="is-max exams-date-shifts-all-day"
+                                  style={tintStyle(allDayColor)}
+                                >
+                                  {allDayHeader}
+                                </th>
+                              )}
                               {days.flatMap((d) =>
                                 emptyDay
                                   ? [
@@ -1880,6 +2574,19 @@ export const BulkFieldsModal = ({
                           </thead>
                           <tbody>
                             <tr>
+                              {maxShifts.map((shift) => {
+                                const shiftIndex = filledShifts.findIndex((s) => s.id === shift.id);
+                                const acrossDates = days.map((_, di) => sampleVals(di)[shiftIndex]);
+                                return (
+                                  <td
+                                    key={`smax-v-${shift.id}`}
+                                    className="is-max exams-date-shifts-shift-max"
+                                    style={tintStyle(normalizeColumnColor(shift.color))}
+                                  >
+                                    {aggregateShiftValues('max', acrossDates)}
+                                  </td>
+                                );
+                              })}
                               {allDayOn && (
                                 <td
                                   className="is-max exams-date-shifts-all-day"
@@ -2047,11 +2754,11 @@ export const BulkFieldsModal = ({
           <table
             ref={tableRef}
             className="exams-bulk-table"
-            style={{ width: `max(100%, ${(showMore ? 2080 : 1720) + (allowUnique ? 90 : 0)}px)` }}
+            style={{ width: `max(100%, ${(showMore ? 2220 : 1860) + (allowUnique ? 90 : 0)}px)` }}
           >
             <colgroup>
-              <col style={{ width: 92 }} />
-              <col />
+              <col style={{ width: 124 }} />
+              <col style={{ width: 240 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 220 }} />
@@ -2178,36 +2885,70 @@ export const BulkFieldsModal = ({
                         ) : (
                           <CheckCircle2 size={15} className="is-ok" aria-label="Row is valid" />
                         )}
-                        {row.sharedFromView ? (
+                        {row.sharedFromView || row.sharedFromLabel ? (
                           <button
                             type="button"
                             className="exams-bulk-imported-badge"
-                            title={`Imported · shared from ${examViewLabel(row.sharedFromView)}. Click to edit unique import.`}
-                            aria-label={`Imported · shared from ${examViewLabel(row.sharedFromView)}. Edit unique import.`}
+                            title={`Imported · from ${importedSourceLabel(row, sourceLabelOpts)}.${row.sharedFromView ? ' Click to edit unique import.' : ''}`}
+                            aria-label={`Imported · from ${importedSourceLabel(row, sourceLabelOpts)}`}
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              if (canImportShared) openImportModal(true);
+                              if (canImportShared && row.sharedFromView) openImportModal(true);
                             }}
                           >
                             <Link2 size={11} strokeWidth={2.25} aria-hidden="true" />
+                            {sourceNameInitials(importedSourceLabel(row, sourceLabelOpts)) ? (
+                              <span className="exams-bulk-imported-abbr" aria-hidden="true">
+                                {sourceNameInitials(importedSourceLabel(row, sourceLabelOpts))}
+                              </span>
+                            ) : null}
                           </button>
                         ) : null}
                       </span>
                     </td>
                     <td {...pinned(1)} data-label="Label">
-                      <input
-                        type="text"
-                        data-col="label"
-                        value={row.label}
-                        placeholder={labelPlaceholder}
-                        className={cellError(i, 'label') ? 'invalid' : ''}
-                        onChange={(e) => setLabel(row.rid, e.target.value)}
-                        onPaste={(e) => handlePaste(e, row.rid, 'label')}
-                        onKeyDown={(e) => handleKeyDown(e, row, isLast)}
-                        autoFocus={i === existingCount}
-                        aria-label={`Row ${i + 1} label`}
-                      />
+                      <div className="exams-bulk-label-cell">
+                        <input
+                          type="text"
+                          data-col="label"
+                          value={row.label}
+                          placeholder={labelPlaceholder}
+                          className={cellError(i, 'label') ? 'invalid' : ''}
+                          onChange={(e) => setLabel(row.rid, e.target.value)}
+                          onPaste={(e) => handlePaste(e, row.rid, 'label')}
+                          onKeyDown={(e) => handleKeyDown(e, row, isLast)}
+                          autoFocus={i === existingCount}
+                          aria-label={`Row ${i + 1} label`}
+                        />
+                        {uniqueRoleByKey.get(String(row.key || '').trim())?.length ? (
+                          <span className="exams-bulk-unique-roles">
+                            {uniqueRoleByKey.get(String(row.key || '').trim()).map((role) => (
+                              <button
+                                key={role}
+                                type="button"
+                                className={`exams-bulk-unique-role is-${role.startsWith('unique') ? 'unique' : role.replace(/\s+/g, '-')}`}
+                                title={
+                                  role.startsWith('unique')
+                                    ? `Part of Unique import key (${role}). Click to edit.`
+                                    : role === 'count'
+                                      ? 'Count result field for Unique import. Click to edit.'
+                                      : role === 'sum'
+                                        ? 'Sum result field for Unique import. Click to edit.'
+                                        : 'Sum source field for Unique import. Click to edit.'
+                                }
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (canImportShared) openImportModal(true);
+                                }}
+                              >
+                                {role}
+                              </button>
+                            ))}
+                          </span>
+                        ) : null}
+                      </div>
                       {cellError(i, 'label') && <span className="exams-bulk-err">{cellError(i, 'label')}</span>}
                     </td>
                     <td {...pinned(2)} data-label="Key">
@@ -2258,6 +2999,7 @@ export const BulkFieldsModal = ({
                                   phoneMessage: '',
                                 }
                               : {}),
+                            ...(next !== 'formula' ? { formula: '' } : {}),
                           })
                         }
                       />
@@ -2357,6 +3099,10 @@ export const BulkFieldsModal = ({
                         >
                           {(row.combineKeys || []).join(row.combineSeparator || ', ') || 'Parts'}
                         </span>
+                      ) : row.dataType === 'formula' ? (
+                        <span className="exams-bulk-static-chip" title="Expression goes in the Options column">
+                          Formula
+                        </span>
                       ) : needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions ? (
                         <SearchableSelect
                           className="exams-bulk-select"
@@ -2455,6 +3201,23 @@ export const BulkFieldsModal = ({
                           ariaLabel={`Row ${i + 1} user tags`}
                           onChange={(next) => update(row.rid, { userTagIds: next })}
                         />
+                      ) : row.dataType === 'formula' ? (
+                        <>
+                          <input
+                            type="text"
+                            data-col="formula"
+                            value={row.formula || ''}
+                            placeholder="e.g. {date_total_center} / {days_total_center} * 100"
+                            className={cellError(i, 'formula') ? 'invalid' : ''}
+                            onChange={(e) => update(row.rid, { formula: e.target.value })}
+                            onKeyDown={(e) => handleKeyDown(e, row, isLast)}
+                            aria-label={`Row ${i + 1} formula`}
+                            spellCheck={false}
+                          />
+                          {cellError(i, 'formula') && (
+                            <span className="exams-bulk-err">{cellError(i, 'formula')}</span>
+                          )}
+                        </>
                       ) : (
                         <input
                           type="text"
@@ -2470,7 +3233,9 @@ export const BulkFieldsModal = ({
                           aria-label={`Row ${i + 1} options`}
                         />
                       )}
-                      {cellError(i, 'optionsText') && effectiveSource(row) !== 'userTags' && (
+                      {cellError(i, 'optionsText') &&
+                        effectiveSource(row) !== 'userTags' &&
+                        row.dataType !== 'formula' && (
                         <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>
                       )}
                     </td>
@@ -2581,17 +3346,34 @@ export const BulkFieldsModal = ({
             {error ? `${error} ` : ''}
             {tab === 'dateShifts'
               ? `${filledShiftCount} shift column${filledShiftCount === 1 ? '' : 's'}${
-                  allDayOn ? ` · ${allDayHeader}` : ''
-                }${summaryOn ? ` · ${summaryHeader}` : ''}${dateShiftsDirty ? ' · unsaved' : ''}`
+                  shiftMaxCount
+                    ? ` · ${shiftMaxCount} Max`
+                    : ''
+                }${allDayOn ? ` · ${allDayHeader}` : ''}${
+                  summaryOn ? ` · ${summaryHeader}` : ''
+                }${dateShiftsDirty ? ' · unsaved' : ''}`
               : `${rows.length} rows · `}
             {tab !== 'dateShifts' &&
-              (errorCount
-                ? `${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`
-                : fieldPending
+              (errorCount ? (
+                <>
+                  {`${errorCount} row${errorCount === 1 ? '' : 's'} need fixing`}
+                  {firstErrorSummary ? ` · ${firstErrorSummary}` : ''}
+                  {' · '}
+                  <button
+                    type="button"
+                    className="exams-bulk-status-link"
+                    onClick={jumpToFirstError}
+                  >
+                    Go to row
+                  </button>
+                </>
+              ) : fieldPending || orderDirty
                   ? [
                       newCount && `${newCount} new`,
                       updateCount && `${updateCount} to update`,
                       removedIds.length && `${removedIds.length} to remove`,
+                      orderDirty && !fieldPending && 'order changed',
+                      orderDirty && fieldPending && 'reordered',
                       dateShiftsDirty && 'date shifts',
                       uniqueImportDirty && 'unique import',
                     ]
@@ -2607,7 +3389,7 @@ export const BulkFieldsModal = ({
                     : 'Edit a field or fill a new row')}
           </span>
           <div className="exams-bulk-footer-actions">
-            <button type="button" className="exams-btn secondary compact" onClick={onClose}>
+            <button type="button" className="exams-btn secondary compact" onClick={requestClose}>
               Cancel
             </button>
             <button
@@ -2618,9 +3400,9 @@ export const BulkFieldsModal = ({
                 saving ||
                 (errorCount > 0 &&
                   !(
-                    (dateShiftsDirty || uniqueImportDirty) &&
-                    fieldPending === 0 &&
-                    removedIds.length === 0
+                    ((dateShiftsDirty || uniqueImportDirty || orderDirty) &&
+                      fieldPending === 0 &&
+                      removedIds.length === 0)
                   ))
               }
             >

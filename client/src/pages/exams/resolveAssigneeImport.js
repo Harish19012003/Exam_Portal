@@ -151,7 +151,7 @@ export const resolveAssigneeFieldsForImport = async (rows, fields) => {
     const next = { ...row };
     assigneeFields.forEach((f) => {
       if (!(f.key in next)) return;
-      const multi = f.dataType === 'multiselect' || Boolean(f.allowMultiple);
+      const multi = f.dataType === 'multiselect' || f.dataType === 'tags';
       const partsList = partsListOf(next[f.key]);
       if (!partsList.length) {
         // Explicit empty paste — clear.

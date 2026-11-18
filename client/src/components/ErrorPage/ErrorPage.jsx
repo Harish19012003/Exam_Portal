@@ -67,6 +67,8 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
   const [refCopied, setRefCopied] = useState(false);
   const detailsId = useId();
   const when = useMemo(() => new Date(), []);
+  // First line of the raw error, shown right in the card so the cause is visible without opening the panel.
+  const summary = useMemo(() => String(info.details || '').split('\n')[0].trim().slice(0, 220), [info.details]);
   const pagePath = typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '';
 
   useEffect(() => {
@@ -110,6 +112,18 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
           <ErrorIllustration kind={info.kind} />
           <h1 className="app-error-title">{info.title}</h1>
           <p className="app-error-message">{info.message}</p>
+
+          {info.kind === 'generic' && summary && (
+            <button
+              type="button"
+              className="app-error-summary"
+              onClick={() => setShowDetails(true)}
+              title="Show technical details"
+            >
+              <span className="app-error-summary-label">What happened</span>
+              <code>{summary}</code>
+            </button>
+          )}
 
           <div className="app-error-actions">
             {!primaryIsDashboard && (

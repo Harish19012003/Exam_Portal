@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { isCompositeColumn, isFieldColumn } from './types';
 import type { CellRendererProps, ColumnConfig, CompositeColumnDef, AttachmentItem } from './types';
-import { STATUS_COLORS, avatarColor, countryToFlag, formatCurrency, formatDate, formatDatetime, formatTime, formatNumber, getInitials } from './utils';
+import { resolveStatusColors, avatarColor, countryToFlag, formatCurrency, formatDate, formatDatetime, formatTime, formatNumber, getInitials } from './utils';
 import { evaluateFormulaHelper, normalizeFormulaResult } from './utils/evaluateFormula';
 import { Icon } from '@iconify/react';
 import { getAssigneeLabel } from './editors/assigneeLabels';
@@ -37,18 +37,21 @@ const getBadgeColors = (text: string, isDarkMode: boolean) => {
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 export function StatusBadge({ value, isDarkMode }: { value: string; isDarkMode: boolean }) {
-  const colors = STATUS_COLORS[value] ?? {
+  const colors = resolveStatusColors(value) ?? {
     light: 'bg-gray-100 text-gray-600',
     dark: 'bg-gray-800 text-gray-400',
     dot: 'bg-gray-400',
   };
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide select-none
+      className={`dt-status-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide select-none
         ${isDarkMode ? colors.dark : colors.light}`}
       aria-label={`Status: ${value}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${colors.dot}`} aria-hidden="true" />
+      <span
+        className={`dt-status-dot w-2 h-2 rounded-full flex-shrink-0 ${colors.dot}`}
+        aria-hidden="true"
+      />
       {value}
     </span>
   );
@@ -304,12 +307,18 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
 
   switch (column.dataType) {
     case 'text':
+      // Formula Max Status (resultType text) and similar → same colored status chips.
+      if (str && resolveStatusColors(str)) {
+        return <StatusBadge value={str} isDarkMode={isDarkMode} />;
+      }
       return (
         <div
           className={`text-[13px] truncate block ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}
           title={str.includes('\n') ? str : undefined}
         >
-          {(str.includes('\n') ? str.replace(/\s*\n+\s*/g, ' ↵ ') : str) || <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>}
+          {(str.includes('\n') ? str.replace(/\s*\n+\s*/g, ' ↵ ') : str) || (
+            <span className={`italic ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`}>—</span>
+          )}
         </div>
       );
 
@@ -418,13 +427,33 @@ export function CellRenderer({ value, row, column, allColumns: _allColumns, isDa
     case 'status':
       return str ? <StatusBadge value={str} isDarkMode={isDarkMode} /> : null;
 
-    case 'dropdown':
+    case 'dropdown': {
+      // User-tag Dropdown: same chip + id→name resolve as Multiselect (one person).
+      if (isFieldColumn(column) && column.userTags) {
+        const raw = str;
+        const looksLikeUserId =
+          /^[a-f0-9]{24}$/i.test(raw) ||
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw);
+        const label = !raw ? '' : looksLikeUserId ? getAssigneeLabel(raw) || '…' : raw;
+        return label ? (
+          <div className="flex flex-wrap gap-1 items-center min-w-0">
+            <span
+              className={`max-w-full truncate px-1.5 py-0.5 rounded text-[11px] font-medium
+              ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}
+              title={label}
+            >
+              {label}
+            </span>
+          </div>
+        ) : null;
+      }
       return str ? (
         <span className={`inline-flex px-2 py-0.5 rounded-md text-[12px] font-medium
           ${isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
           {str}
         </span>
       ) : null;
+    }
 
     case 'multiselect': {
       const tags = Array.isArray(value) ? (value as string[]) : str ? [str] : [];

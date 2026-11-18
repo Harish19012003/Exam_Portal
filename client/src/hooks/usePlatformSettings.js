@@ -24,6 +24,7 @@ export const useSetPlatformSettingsCache = () => {
       portal_name: next?.portal_name || PLATFORM_DEFAULTS.portal_name,
       logo_url: next?.logo_url || '',
       favicon_url: next?.favicon_url || '',
+      heading_font: next?.heading_font || '',
     });
   };
 };

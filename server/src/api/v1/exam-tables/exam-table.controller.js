@@ -64,12 +64,49 @@ export const listRows = handle(async (req) => {
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const page = req.query?.page;
   const limit = req.query?.limit;
-  const result = await service.listRows(req.params.examId, { page, limit });
+  const all =
+    req.query?.all === true ||
+    req.query?.all === 1 ||
+    req.query?.all === '1' ||
+    String(req.query?.all || '').toLowerCase() === 'true';
+  const search = typeof req.query?.search === 'string' ? req.query.search : '';
+  const searchKeysRaw = req.query?.searchKeys;
+  const searchKeys = Array.isArray(searchKeysRaw)
+    ? searchKeysRaw.map(String)
+    : typeof searchKeysRaw === 'string' && searchKeysRaw
+      ? String(searchKeysRaw)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
+  let filters;
+  const filtersRaw = req.query?.filters;
+  if (typeof filtersRaw === 'string' && filtersRaw.trim()) {
+    try {
+      const parsed = JSON.parse(filtersRaw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) filters = parsed;
+    } catch {
+      filters = undefined;
+    }
+  } else if (filtersRaw && typeof filtersRaw === 'object' && !Array.isArray(filtersRaw)) {
+    filters = filtersRaw;
+  }
+  // `all` is for Unique import rollups that must see every center (not capped at page size 500).
+  // `view` scopes Exam Day rows vs shared center rows.
+  const result = await service.listRows(req.params.examId, {
+    page,
+    limit,
+    search,
+    searchKeys,
+    filters,
+    view: viewOf(req),
+    ...(all ? { all: true } : {}),
+  });
   const fields = allFields || [];
   const rows = (result.rows || [])
     .filter((row) => rowVisible(req, TABLE, ruleValues(req, row), fields))
     .map((row) => forClient(req, row));
-  // Keep DB total for pagination; ACL may hide a few rows on the current page.
+  // When searching, total is already the match count. Otherwise keep DB total for pagination.
   return { ...result, rows };
 });
 

@@ -67,9 +67,12 @@ const MODIFY_BY_KEYS = new Set([
 export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
   (fields || []).map((field, index) => {
     const userTagsField = isUserTagsField(field);
-    // User-tag assignees: Multiselect dropdown (or allowMultiple) → multi; Dropdown → one person.
+    // User-tag assignees follow the field type only: Dropdown/Status = one person;
+    // Multiselect/Tags = many. Ignore stale allowMultiple (older saves forced multi).
+    const userTagsMultiple =
+      userTagsField && (field.dataType === 'multiselect' || field.dataType === 'tags');
     const dataType = userTagsField
-      ? field.dataType === 'multiselect' || field.allowMultiple
+      ? userTagsMultiple
         ? 'multiselect'
         : 'dropdown'
       : toTableDataType(field);
@@ -104,6 +107,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
           }
         : {}),
       // Linked / fromExam / combined / shared-from-another-tab values are display-only here.
+      // Exam Day status + First/Last T. are derived from Reached (not user-edited).
       editable:
         !isAuto &&
         dataType !== 'formula' &&
@@ -111,8 +115,15 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
         field.dataType !== 'linked' &&
         field.dataType !== 'fromExam' &&
         !isCombinedField(field) &&
-        !isSharedImportedField(field),
+        !isSharedImportedField(field) &&
+        String(field.examDayImportRole || '') !== 'shiftStatus' &&
+        String(field.examDayImportRole || '') !== 'shiftFirstT' &&
+        String(field.examDayImportRole || '') !== 'shiftLastT',
       sharedFromView: isSharedImportedField(field) || isCombinedField(field) ? field.sharedFromView : undefined,
+      sharedFromLabel:
+        isSharedImportedField(field) || isCombinedField(field)
+          ? field.sharedFromLabel || undefined
+          : undefined,
       combined: isCombinedField(field) ? field.combine : undefined,
       lookup: isTableSourceField(field)
         ? {
@@ -126,7 +137,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
       userTags: userTagsField
         ? {
             tagIds: (field.userTagIds || []).map(String),
-            multiple: field.dataType === 'multiselect' || Boolean(field.allowMultiple),
+            multiple: Boolean(userTagsMultiple),
           }
         : undefined,
       required: Boolean(field.required) && !isAuto,
@@ -134,7 +145,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
       sortable: true,
       options: options.length ? options : undefined,
       formula: field.formula,
-      resultType: dataType === 'formula' ? 'text' : undefined,
+      resultType: dataType === 'formula' ? field.resultType || 'text' : undefined,
       // All day / Summary accent from field.color or features.dateShifts.
       ...(accentColor ? { accentColor } : {}),
     };
@@ -156,10 +167,22 @@ const isAuditLikeKey = (key) => {
 /** Build exam DynamicTable columns: builder fields plus the audit columns (always last). */
 export const buildExamTableColumns = (fields = [], options = {}) => {
   const dynamic = buildFieldColumns(fields, options);
+  const fieldByKey = new Map((fields || []).map((f) => [String(f?.key || ''), f]));
   const body = [];
+  const timestamps = [];
   const auditFromBuilder = [];
   dynamic.forEach((c) => {
-    if (isAuditLikeKey(c.key)) auditFromBuilder.push(c);
+    if (isAuditLikeKey(c.key)) {
+      auditFromBuilder.push(c);
+      return;
+    }
+    const src = fieldByKey.get(String(c.key || ''));
+    const isTs =
+      String(src?.examDayImportRole || '') === 'shiftFirstT' ||
+      String(src?.examDayImportRole || '') === 'shiftLastT' ||
+      /_first_t$/i.test(String(c.key || '')) ||
+      /_last_t$/i.test(String(c.key || ''));
+    if (isTs) timestamps.push(c);
     else body.push(c);
   });
 
@@ -175,7 +198,8 @@ export const buildExamTableColumns = (fields = [], options = {}) => {
     if (c.key === '__updated_by' && hasModifyByField) return false;
     return true;
   });
-  return [...body, ...auditFromBuilder, ...audit];
+  // First/Last T. stay together at the end of data columns, just before audit.
+  return [...body, ...timestamps, ...auditFromBuilder, ...audit];
 };
 
 const resolveActorLabel = (label, email, fallback) =>

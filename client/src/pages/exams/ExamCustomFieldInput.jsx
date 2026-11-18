@@ -58,10 +58,11 @@ const AttachmentUploadField = ({ id, value, onChange, required }) => {
   );
 };
 
-/** Multi-assign people filtered by the field's user tags (create / edit form). */
+/** Assign people filtered by the field's user tags (create / edit form). */
 const UserAssigneeField = ({ field, value, onChange }) => {
   const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(false);
+  const multiple = field.dataType === 'multiselect' || field.dataType === 'tags';
   const selected = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
   const tagIds = field.userTagIds || [];
 
@@ -89,6 +90,10 @@ const UserAssigneeField = ({ field, value, onChange }) => {
   }, [JSON.stringify(tagIds)]);
 
   const toggle = (id) => {
+    if (!multiple) {
+      onChange(selected.includes(id) ? '' : id);
+      return;
+    }
     const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
     onChange(next);
   };
@@ -99,7 +104,11 @@ const UserAssigneeField = ({ field, value, onChange }) => {
         {field.label}
         {field.required ? ' *' : ''}
       </span>
-      <p className="exams-config-empty-hint">Assign one or more people with the tags configured on this field.</p>
+      <p className="exams-config-empty-hint">
+        {multiple
+          ? 'Assign one or more people with the tags configured on this field.'
+          : 'Assign one person with the tags configured on this field.'}
+      </p>
       {loading && <p className="exams-config-empty-hint">Loading people…</p>}
       {!loading && people.length === 0 && (
         <p className="exams-config-empty-hint">No people match the selected tags.</p>
@@ -107,7 +116,12 @@ const UserAssigneeField = ({ field, value, onChange }) => {
       <div className="exams-fill-grid" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {people.map((p) => (
           <label key={p.id} className="exams-check-row" style={{ minHeight: 40 }}>
-            <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} />
+            <input
+              type={multiple ? 'checkbox' : 'radio'}
+              name={multiple ? undefined : `assignee-${field.key}`}
+              checked={selected.includes(p.id)}
+              onChange={() => toggle(p.id)}
+            />
             <span>
               {p.name}
               {p.email ? ` · ${p.email}` : ''}
@@ -115,7 +129,9 @@ const UserAssigneeField = ({ field, value, onChange }) => {
           </label>
         ))}
       </div>
-      <p className="exams-config-empty-hint">{selected.length} selected</p>
+      <p className="exams-config-empty-hint">
+        {multiple ? `${selected.length} selected` : selected.length ? '1 selected' : 'None selected'}
+      </p>
     </div>
   );
 };

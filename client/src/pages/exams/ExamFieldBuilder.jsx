@@ -1,5 +1,5 @@
 import { useConfirm } from '../../feedback';
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
   Settings2,
   Plus,
@@ -50,7 +50,7 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { TagMultiPicker } from './TagMultiPicker';
-import { examViewLabel, isSharedImportedField } from '@exam-view/shared';
+import { examViewLabel, importedSourceLabel, isSharedImportedField, sourceNameInitials } from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
@@ -58,6 +58,8 @@ import { SearchableSelect } from './SearchableSelect';
 import { BulkFieldsModal } from './BulkFieldsModal';
 import { ColumnGroupsModal } from './ColumnGroupsModal';
 import { humanizeGroup } from './tableLookupApi';
+import { ensureFocusDateFields } from './dateShiftsConfig';
+import { focusDateTargetsFromAggregates } from './examUniqueRows';
 
 const TYPE_ICONS = {
   text: Type,
@@ -153,18 +155,26 @@ export const ExamFieldBuilder = ({
   currentView = null,
   /** Enables Bulk add → Import from preset (Settings → Field presets). */
   presetSources = null,
+  /** Current preset service — resolves import badges to the matching source preset name. */
+  currentServiceValue = '',
   /** Shown in Bulk add so the user knows which preset / exam page they are editing. */
   bulkWorkingContext = '',
   /** Date × shift template from features.dateShifts (Bulk add → Date shifts). */
   dateShifts = null,
   onDateShiftsChange = null,
   /** Composite unique row keys from Bulk add → Unique import (`features.uniqueRowKeys`). */
+  uniqueRowKeys = null,
+  uniqueRowAggregates = null,
   onUniqueRowKeysChange = null,
+  /** Apply unique keys + count/sum as soon as Import finishes (Field presets). */
+  onUniqueImportChange = null,
   /**
    * Date shifts are for exam Center-list setup only.
    * Field presets pass false. Exam Center list omits this (defaults from currentView).
    */
   enableDateShifts = null,
+  /** Center-list–hidden shift ids — Exam Day checklist / Add missing skip those families. */
+  hiddenExamDayShiftIds = null,
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -178,6 +188,9 @@ export const ExamFieldBuilder = ({
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [lookupSources, setLookupSources] = useState([]);
   const [fieldSearch, setFieldSearch] = useState('');
+  // Multi-select mode for deleting several fields with one confirmation.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -208,6 +221,21 @@ export const ExamFieldBuilder = ({
       label: f.label,
     })),
   ];
+
+  // Add Date Total Center / Date Max All Day when Unique import gains count / Max-all-day.
+  // Do not depend on `fields` — re-running after a delete was undeleting those columns.
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+  useEffect(() => {
+    if (!open) return;
+    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(uniqueRowAggregates);
+    if (!countTargetKey && !sumTargetKey) return;
+    const { fields: next, changed } = ensureFocusDateFields(fieldsRef.current, {
+      countTargetKey,
+      sumTargetKey,
+    });
+    if (changed) onChange(next);
+  }, [open, uniqueRowAggregates, onChange]);
 
   useEffect(() => {
     if (!open) {
@@ -287,11 +315,19 @@ export const ExamFieldBuilder = ({
     }
     if (isLinkedField(field)) parts.push(`from ${field.linkedFrom.fieldKey}.${field.linkedFrom.column}`);
     if (field.dataType === 'fromExam' && field.examFieldKey) parts.push(`exam.${field.examFieldKey}`);
-    if (isSharedImportedField(field)) parts.push(`Shared from ${examViewLabel(field.sharedFromView)}`);
+    if (isSharedImportedField(field)) {
+      parts.push(
+        `Shared from ${importedSourceLabel(field, { presets: presetSources, preferredService: currentServiceValue })}`,
+      );
+    }
     if (isCombinedField(field)) {
+      const src = importedSourceLabel(field, {
+        presets: presetSources,
+        preferredService: currentServiceValue,
+      });
       parts.push(
         `Combined (${field.combine.keys.join(field.combine.separator ?? ', ')})` +
-        (field.sharedFromView ? ` · ${examViewLabel(field.sharedFromView)}` : ''),
+        (src ? ` · ${src}` : ''),
       );
     }
     if (field.scheduleRole === 'start') parts.push('Schedule start');
@@ -300,6 +336,8 @@ export const ExamFieldBuilder = ({
     if (field.sameAsFieldKey) parts.push('Same-as');
     if (field.required) parts.push('Required');
     if (field.unique) parts.push('Unique');
+    if (field.focusDateColumn === 'totalCenter') parts.push('Date count');
+    if (field.focusDateColumn === 'maxAllDay') parts.push('Date max');
     if (field.layout === 'half') parts.push('Half');
     return parts.join(' · ');
   };
@@ -385,23 +423,77 @@ export const ExamFieldBuilder = ({
       (Array.isArray(newFields) && newFields.length > 0) ||
       (Array.isArray(updatedFields) && updatedFields.length > 0) ||
       (Array.isArray(removedIds) && removedIds.length > 0);
-    if (hasFieldEdits) {
-      const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
-      const gone = new Set(removedIds);
-      const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter((f) => !gone.has(f.id));
+    const applyOrder = (list) => {
+      if (!Array.isArray(order) || !order.length) return list;
       // The bulk grid's row order is the field order (`id:<id>` for existing, `key:<key>` for new).
       const rank = new Map(order.map((token, i) => [token, i]));
       const rankOf = (f, i) => rank.get(`id:${f.id}`) ?? rank.get(`key:${f.key}`) ?? order.length + i;
-      const ordered = order.length
-        ? merged.map((f, i) => ({ f, r: rankOf(f, i) })).sort((a, b) => a.r - b.r).map((x) => x.f)
-        : merged;
-      onChange(ordered.map((f, i) => ({ ...f, order: i + 1 })));
+      return list
+        .map((f, i) => ({ f, r: rankOf(f, i) }))
+        .sort((a, b) => a.r - b.r)
+        .map((x) => x.f);
+    };
+    if (hasFieldEdits) {
+      const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
+      const gone = new Set(removedIds);
+      const existingKeys = new Set(
+        fields.map((f) => String(f?.key || '').trim()).filter(Boolean),
+      );
+      // Skip "new" rows whose key already exists on the parent (Unique-import ensure race).
+      const safeNew = (Array.isArray(newFields) ? newFields : []).filter((f) => {
+        const k = String(f?.key || '').trim();
+        return k && !existingKeys.has(k);
+      });
+      const merged = [...fields.map((f) => updatedById.get(f.id) || f), ...safeNew].filter(
+        (f) => !gone.has(f.id),
+      );
+      // Prefer existing id when the same key appears twice.
+      const byKey = new Map();
+      for (const f of merged) {
+        const k = String(f?.key || '').trim();
+        if (!k) continue;
+        const prev = byKey.get(k);
+        if (!prev || (f.id && !prev.id)) byKey.set(k, f);
+      }
+      const deduped = Array.from(byKey.values());
+      onChange(applyOrder(deduped).map((f, i) => ({ ...f, order: i + 1 })));
+    } else if (Array.isArray(order) && order.length) {
+      // Reorder-only save from Bulk add.
+      onChange(applyOrder([...fields]).map((f, i) => ({ ...f, order: i + 1 })));
     }
     if (meta?.dateShifts !== undefined) {
       onDateShiftsChange?.(meta.dateShifts);
     }
-    if (meta?.uniqueRowKeys !== undefined) {
-      onUniqueRowKeysChange?.(meta.uniqueRowKeys);
+    if (meta?.uniqueRowKeys !== undefined || meta?.uniqueRowAggregates !== undefined) {
+      const nextAggregates =
+        meta?.uniqueRowAggregates !== undefined
+          ? meta.uniqueRowAggregates
+          : uniqueRowAggregates;
+      onUniqueImportChange?.({
+        ...(meta?.uniqueRowKeys !== undefined ? { uniqueRowKeys: meta.uniqueRowKeys } : {}),
+        ...(meta?.uniqueRowAggregates !== undefined
+          ? { uniqueRowAggregates: meta.uniqueRowAggregates }
+          : {}),
+      });
+      if (meta?.uniqueRowKeys !== undefined) onUniqueRowKeysChange?.(meta.uniqueRowKeys);
+      // Preset/page fields: attach date columns when Unique import has count + Max all day.
+      const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(nextAggregates);
+      if (countTargetKey || sumTargetKey) {
+        const updatedById = new Map(updatedFields.map((f) => [f.id, f]));
+        const gone = new Set(removedIds);
+        const listForEnsure = hasFieldEdits
+          ? applyOrder(
+              [...fields.map((f) => updatedById.get(f.id) || f), ...newFields].filter(
+                (f) => !gone.has(f.id),
+              ),
+            )
+          : fields;
+        const { fields: ensured, changed } = ensureFocusDateFields(listForEnsure, {
+          countTargetKey,
+          sumTargetKey,
+        });
+        if (changed) onChange(ensured.map((f, i) => ({ ...f, order: i + 1 })));
+      }
     }
     closeBulk();
   };
@@ -629,6 +721,46 @@ export const ExamFieldBuilder = ({
     );
   };
 
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+  const toggleSelected = (id) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleDeleteSelected = async () => {
+    const targets = fields.filter((f) => selectedIds.has(f.id));
+    if (targets.length === 0) return;
+    const notes = [...new Set(targets.map((t) => (deleteConfirm ? deleteConfirm(t) : '')).filter(Boolean))];
+    const names = targets.slice(0, 5).map((t) => `"${t.label}"`).join(', ') + (targets.length > 5 ? ` and ${targets.length - 5} more` : '');
+    const message = deleteConfirm && notes.length
+      ? `Delete ${targets.length} fields (${names})?\n\n${notes.slice(0, 3).join('\n\n')}`
+      : `Delete ${targets.length} field${targets.length === 1 ? '' : 's'}: ${names}?`;
+    const ok = await confirm({
+      title: `Delete ${targets.length} field${targets.length === 1 ? '' : 's'}?`,
+      message,
+      confirmLabel: `Delete ${targets.length}`,
+      destructive: true,
+    });
+    if (!ok) return;
+    const removedKeys = new Set(targets.map((t) => t.key));
+    onChange(
+      fields
+        .filter((f) => !selectedIds.has(f.id) && !(isLinkedField(f) && removedKeys.has(f.linkedFrom.fieldKey)))
+        .map((f, i) => ({
+          ...f,
+          order: i + 1,
+          sameAsFieldKey: removedKeys.has(f.sameAsFieldKey) ? '' : f.sameAsFieldKey,
+        })),
+    );
+    exitSelectMode();
+  };
+
   const reorderFields = (fromId, toId) => {
     if (!fromId || !toId || fromId === toId) return;
     const fromIndex = fields.findIndex((f) => f.id === fromId);
@@ -690,6 +822,15 @@ export const ExamFieldBuilder = ({
                           : fields.length}
                       </span>
                       <span className="exams-field-section-actions">
+                        <button
+                          type="button"
+                          className="exams-text-add-btn"
+                          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                          aria-pressed={selectMode}
+                        >
+                          <SquareCheck size={13} />
+                          {selectMode ? 'Cancel' : 'Select'}
+                        </button>
                         <button type="button" className="exams-text-add-btn" onClick={openBulk}>
                           <ListPlus size={13} />
                           Bulk add
@@ -733,6 +874,34 @@ export const ExamFieldBuilder = ({
                       )}
                     </div>
 
+                    {selectMode && (
+                      <div className="exams-field-select-bar" role="toolbar" aria-label="Bulk field actions">
+                        <label className="exams-field-select-all">
+                          <input
+                            type="checkbox"
+                            checked={visibleFields.length > 0 && visibleFields.every((f) => selectedIds.has(f.id))}
+                            onChange={(e) =>
+                              setSelectedIds((prev) => {
+                                const next = new Set(prev);
+                                visibleFields.forEach((f) => (e.target.checked ? next.add(f.id) : next.delete(f.id)));
+                                return next;
+                              })
+                            }
+                          />
+                          <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}</span>
+                        </label>
+                        <button
+                          type="button"
+                          className="exams-field-select-delete"
+                          disabled={selectedIds.size === 0}
+                          onClick={handleDeleteSelected}
+                        >
+                          <Trash2 size={13} />
+                          Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                        </button>
+                      </div>
+                    )}
+
                     {visibleFields.length === 0 ? (
                       <p className="exams-field-list-empty">No fields match “{fieldSearch.trim()}”.</p>
                     ) : (
@@ -745,7 +914,7 @@ export const ExamFieldBuilder = ({
                           return (
                             <li
                               key={field.id}
-                              className={`exams-field-row${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
+                              className={`exams-field-row${selectMode && selectedIds.has(field.id) ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
                               onDragOver={
                                 canReorder
                                   ? (e) => {
@@ -774,6 +943,15 @@ export const ExamFieldBuilder = ({
                                   : undefined
                               }
                             >
+                              {selectMode && (
+                                <input
+                                  type="checkbox"
+                                  className="exams-field-row-check"
+                                  checked={selectedIds.has(field.id)}
+                                  onChange={() => toggleSelected(field.id)}
+                                  aria-label={`Select ${field.label}`}
+                                />
+                              )}
                               <button
                                 type="button"
                                 className="exams-field-drag-handle"
@@ -802,7 +980,7 @@ export const ExamFieldBuilder = ({
                               <button
                                 type="button"
                                 className="exams-field-row-main"
-                                onClick={() => openEdit(field)}
+                                onClick={() => (selectMode ? toggleSelected(field.id) : openEdit(field))}
                                 title={`Edit ${field.label}`}
                               >
                                 <span className="exams-field-icon-wrap" aria-hidden="true">
@@ -811,29 +989,35 @@ export const ExamFieldBuilder = ({
                                 <span className="exams-field-text">
                                   <span className="exams-field-row-label">
                                     {field.label}
-                                    {(isSharedImportedField(field) || isCombinedField(field)) && (
-                                      <span
-                                        className="exams-field-imported-badge"
-                                        title={
-                                          field.sharedFromView
-                                            ? `Imported · shared from ${examViewLabel(field.sharedFromView)}`
-                                            : 'Imported'
-                                        }
-                                        aria-label={
-                                          field.sharedFromView
-                                            ? `Imported · shared from ${examViewLabel(field.sharedFromView)}`
-                                            : 'Imported'
-                                        }
-                                      >
-                                        <Link2 size={12} strokeWidth={2.25} aria-hidden="true" />
-                                      </span>
-                                    )}
+                                    {(isSharedImportedField(field) ||
+                                      isCombinedField(field) ||
+                                      field.sharedFromLabel) && (() => {
+                                      const src = importedSourceLabel(field, {
+                                        presets: presetSources,
+                                        preferredService: currentServiceValue,
+                                      });
+                                      const abbr = sourceNameInitials(src);
+                                      return (
+                                        <span
+                                          className="exams-field-imported-badge"
+                                          title={src ? `Imported · from ${src}` : 'Imported'}
+                                          aria-label={src ? `Imported · from ${src}` : 'Imported'}
+                                        >
+                                          <Link2 size={12} strokeWidth={2.25} aria-hidden="true" />
+                                          {abbr ? (
+                                            <span className="exams-field-imported-abbr" aria-hidden="true">
+                                              {abbr}
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                      );
+                                    })()}
                                   </span>
                                   <span className="exams-field-row-meta">{fieldMeta(field)}</span>
                                 </span>
                               </button>
 
-                              <div className="exams-field-row-actions">
+                              <div className="exams-field-row-actions" hidden={selectMode}>
                                 <button
                                   type="button"
                                   className="exams-icon-btn"
@@ -1504,11 +1688,25 @@ export const ExamFieldBuilder = ({
           examId={examId}
           currentView={currentView}
           presetSources={presetSources}
+          currentServiceValue={currentServiceValue}
           dateShifts={dateShifts}
           enableDateShifts={enableDateShifts}
+          hiddenExamDayShiftIds={hiddenExamDayShiftIds}
+          uniqueRowKeys={uniqueRowKeys}
+          uniqueRowAggregates={uniqueRowAggregates}
+          onUniqueImportChange={onUniqueImportChange}
           workingContext={bulkWorkingContext || bulkModalProps?.workingContext || ''}
           onClose={closeBulk}
           onAdd={handleBulkAdd}
+          onFieldRemoved={(fieldId) => {
+            const id = String(fieldId || '').trim();
+            if (!id) return;
+            onChange(
+              fields
+                .filter((f) => String(f.id) !== id)
+                .map((f, i) => ({ ...f, order: i + 1 })),
+            );
+          }}
         />
       )}
     </>

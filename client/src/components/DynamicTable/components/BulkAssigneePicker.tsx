@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Search, X } from 'lucide-react';
 import type { FieldColumn } from '../types';
-import { listAssignableUsers } from '../../../pages/exams/assigneeApi';
+import { useAssignablePeople } from '../../../pages/exams/useAssignablePeople';
 import { formatAssigneeDisplay, seedAssigneeLabels } from '../editors/assigneeLabels';
 import { DYNAMIC_DROPDOWN_PORTAL_CLASS } from '../../DynamicData/fields';
 import '../editors/UserAssigneeEditor.css';
-
-type Person = { id: string; name: string; email: string; user_code?: string };
 
 const idsOf = (value: unknown): string[] =>
   (Array.isArray(value) ? value : value ? [value] : []).map(String).filter(Boolean);
@@ -38,22 +36,25 @@ interface BulkAssigneePickerProps {
 /** Mass-edit people picker — portal menu overlays sibling fields (same users as cell editor). */
 export function BulkAssigneePicker({ column, value, isDarkMode, onPick }: BulkAssigneePickerProps) {
   const tagIds = column.userTags?.tagIds || [];
-  const multiple = column.userTags?.multiple !== false;
+  // Explicit true only — Dropdown + User tags = one person.
+  const multiple = column.userTags?.multiple === true;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string[]>(() => {
     const ids = idsOf(value);
     return multiple ? ids : ids.slice(0, 1);
   });
-  const [labels, setLabels] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [pos, setPos] = useState<MenuPos | null>(null);
+
+  // Paginated + server search (shared cache with cell editor).
+  const { people, labels, loading, loadingMore, hasMore, loadMore, error, total } = useAssignablePeople(
+    tagIds,
+    { enabled: open, search: query },
+  );
 
   useEffect(() => {
     const ids = idsOf(value);
@@ -87,38 +88,11 @@ export function BulkAssigneePicker({ column, value, isDarkMode, onPick }: BulkAs
     }
   }, []);
 
-  const load = useCallback(async () => {
-    if (!tagIds.length) {
-      setPeople([]);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const rows = await listAssignableUsers(tagIds);
-      setPeople(rows);
-      seedAssigneeLabels(rows);
-      setLabels((prev) => {
-        const next = { ...prev };
-        rows.forEach((p) => {
-          next[p.id] = formatAssigneeDisplay(p) || p.id;
-        });
-        return next;
-      });
-    } catch (err) {
-      const e = err as { response?: { data?: { message?: string } }; message?: string };
-      setError(e?.response?.data?.message || e?.message || 'Could not load people');
-    } finally {
-      setLoading(false);
-    }
-  }, [tagIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     if (!open) return;
-    void load();
     const t = window.setTimeout(() => searchRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
-  }, [open, load]);
+  }, [open]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -158,18 +132,11 @@ export function BulkAssigneePicker({ column, value, isDarkMode, onPick }: BulkAs
     };
   }, [open]);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.email.toLowerCase().includes(q) ||
-        String(p.user_code || '')
-          .toLowerCase()
-          .includes(q),
-    );
-  }, [people, query]);
+  const onListScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (!hasMore || loadingMore) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) loadMore();
+  };
 
   const commit = (ids: string[]) => {
     const nextLabels: Record<string, string> = {};
@@ -284,9 +251,9 @@ export function BulkAssigneePicker({ column, value, isDarkMode, onPick }: BulkAs
                 className="flex-1 min-w-0 bg-transparent outline-none text-[13px]"
               />
             </div>
-            <div className="ua-menu__list" style={{ flex: 1, minHeight: 0 }}>
+            <div className="ua-menu__list" style={{ flex: 1, minHeight: 0 }} onScroll={onListScroll}>
               {!tagIds.length && <div className="ua-menu__empty">No tags configured on this field.</div>}
-              {shown.map((p) => {
+              {people.map((p) => {
                 const on = selected.includes(p.id);
                 return (
                   <button
@@ -309,7 +276,10 @@ export function BulkAssigneePicker({ column, value, isDarkMode, onPick }: BulkAs
                       );
                     }}
                   >
-                    <span className={`ua-menu__check${on ? ' is-on' : ''}`} aria-hidden="true" />
+                    <span
+                      className={`ua-menu__check${multiple ? '' : ' is-radio'}${on ? ' is-on' : ''}`}
+                      aria-hidden="true"
+                    />
                     <span className="ua-menu__meta">
                       <span className="ua-menu__name">
                         {p.name}
@@ -320,14 +290,22 @@ export function BulkAssigneePicker({ column, value, isDarkMode, onPick }: BulkAs
                   </button>
                 );
               })}
-              {loading && <div className="ua-menu__empty">Loading…</div>}
+              {loading && people.length === 0 && <div className="ua-menu__empty">Loading…</div>}
+              {loadingMore && <div className="ua-menu__empty">Loading more…</div>}
+              {!loading && !loadingMore && hasMore && (
+                <button type="button" className="ua-menu__empty ua-menu__more" onClick={loadMore}>
+                  Show more{total ? ` (${people.length}/${total})` : ''}
+                </button>
+              )}
               {!loading && error && (
                 <div className="ua-menu__empty is-error" role="alert">
                   {error}
                 </div>
               )}
-              {!loading && !error && tagIds.length > 0 && shown.length === 0 && (
-                <div className="ua-menu__empty">No people with those tags</div>
+              {!loading && !error && tagIds.length > 0 && people.length === 0 && (
+                <div className="ua-menu__empty">
+                  {query.trim() ? 'No people match that search' : 'No people with those tags'}
+                </div>
               )}
             </div>
             {multiple && (

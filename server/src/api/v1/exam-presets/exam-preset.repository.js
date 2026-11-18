@@ -48,6 +48,7 @@ const mapPreset = (row) => {
     fieldCount: fields.length,
     features: row.features ?? null,
     layout: row.layout ?? null,
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 };

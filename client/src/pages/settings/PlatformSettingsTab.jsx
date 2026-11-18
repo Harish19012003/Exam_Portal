@@ -15,6 +15,7 @@ import {
   Cloud,
   Bell,
   MessageCircle,
+  Type,
 } from 'lucide-react';
 import { DynamicDropdown } from '../../components/DynamicData';
 import { usePlatformSettings, useSetPlatformSettingsCache } from '../../hooks/usePlatformSettings';
@@ -26,6 +27,7 @@ import { savePlatformSettings, requestBrandingSignature, TIMEZONE_OPTIONS } from
 import { ImageCropDialog } from '../../components/ImageCropDialog';
 import { uploadAvatarToCloudinary } from '../../api/avatarApi';
 import { optimizedLogoUrl, optimizedFaviconUrl, validateBrandingFile } from '../../utils/brandingImage';
+import { FONT_OPTIONS, FONT_FALLBACK, ensureFontLink } from '../../constants/headingFonts';
 import './PlatformSettingsTab.css';
 
 const TIMEZONE_LABELS = TIMEZONE_OPTIONS.map((o) => o.label);
@@ -268,6 +270,38 @@ const GeneralSettings = ({ isDarkMode }) => {
         </section>
 
         </div>
+        <section className="ps-card ps-card--wide">
+          <header className="ps-card-head">
+            <span className="ps-card-icon"><Type size={18} aria-hidden="true" /></span>
+            <div>
+              <h3 className="ps-card-title">Heading font</h3>
+              <p className="ps-card-desc">Used for page headings and branding for everyone. Tables and popups stay Inter.</p>
+            </div>
+          </header>
+          <div className="ps-fonts" role="radiogroup" aria-label="Heading font">
+            {[{ name: '', note: 'Manrope, the built-in look' }, ...FONT_OPTIONS].map((f) => {
+              const on = (form.heading_font || '') === f.name;
+              return (
+                <button
+                  key={f.name || 'default'}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  className={`ps-font${on ? ' ps-font--on' : ''}`}
+                  onMouseEnter={() => f.query && ensureFontLink(f.query)}
+                  onFocus={() => f.query && ensureFontLink(f.query)}
+                  onClick={() => set({ heading_font: f.name })}
+                >
+                  <span className="ps-font-name" style={f.name ? { fontFamily: `'${f.name}', ${FONT_FALLBACK}` } : { fontFamily: 'var(--font-display)' }}>
+                    {f.name || 'Project default'}
+                  </span>
+                  <span className="ps-font-note">{f.note}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         <section className="ps-card ps-card--wide">
           <header className="ps-card-head">
             <span className="ps-card-icon"><Megaphone size={18} aria-hidden="true" /></span>

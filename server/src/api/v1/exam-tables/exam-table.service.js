@@ -3,7 +3,11 @@ import {
   CENTER_CODE_KEY,
   DEFAULT_EXAM_VIEW,
   ERROR_CODES,
+  EXAM_DATE_KEY,
+  EXAM_DAY_META_KEY,
+  EXAM_DAY_VIEW,
   isExamViewKey,
+  isOwnRowSetView,
   isSharedImportedField,
 } from '@exam-view/shared';
 import * as repo from './exam-table.repository.js';
@@ -245,6 +249,17 @@ export const cleanRowValues = (fields, input) => {
   fields.forEach((f) => {
     if (Object.prototype.hasOwnProperty.call(source, f.key)) out[f.key] = cleanCell(f, source[f.key]);
   });
+  // Exam Day per-date status / timestamps live on the Center list row (same spreadsheet).
+  if (Object.prototype.hasOwnProperty.call(source, EXAM_DAY_META_KEY)) {
+    const meta = source[EXAM_DAY_META_KEY];
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      out[EXAM_DAY_META_KEY] = meta;
+    } else if (meta == null) {
+      out[EXAM_DAY_META_KEY] = {};
+    } else {
+      throw validationError('Exam Day meta must be an object');
+    }
+  }
   return out;
 };
 
@@ -259,13 +274,14 @@ const tableAndViewFields = async (examId, view) => {
   return { table, view: viewKey, fields: await repo.listFields(table.id, viewKey), allFields: await repo.listAllFields(table.id) };
 };
 
-const assertUniqueCenterCode = async (tableId, allFields, values, excludeRowId = null) => {
+const assertUniqueCenterCode = async (tableId, allFields, values, excludeRowId = null, view = DEFAULT_EXAM_VIEW) => {
+  if (isOwnRowSetView(view)) return;
   if (!allFields.some((f) => f.key === CENTER_CODE_KEY)) return;
   if (!Object.prototype.hasOwnProperty.call(values || {}, CENTER_CODE_KEY)) return;
   const code = values[CENTER_CODE_KEY];
   if (isEmpty(code)) return;
   const wanted = String(code).trim().toLowerCase();
-  const existing = await repo.listCenterCodes(tableId, CENTER_CODE_KEY);
+  const existing = await repo.listCenterCodes(tableId, CENTER_CODE_KEY, { view: DEFAULT_EXAM_VIEW });
   const clash = existing.find((row) => {
     if (excludeRowId && String(row.id) === String(excludeRowId)) return false;
     return String(row.code ?? '').trim().toLowerCase() === wanted;
@@ -273,10 +289,41 @@ const assertUniqueCenterCode = async (tableId, allFields, values, excludeRowId =
   if (clash) throw validationError(`Center code "${code}" is already used on this exam`);
 };
 
+const pairKey = (code, examDate) =>
+  `${String(code ?? '').trim().toLowerCase()}\0${String(examDate ?? '').trim().toLowerCase()}`;
+
+/** Exam Day: unique (center_code + exam_date). */
+const assertUniqueCenterDate = async (tableId, fields, values, excludeRowId = null) => {
+  if (!fields.some((f) => f.key === CENTER_CODE_KEY)) return;
+  if (!Object.prototype.hasOwnProperty.call(values || {}, CENTER_CODE_KEY)) return;
+  const code = values[CENTER_CODE_KEY];
+  if (isEmpty(code)) return;
+  const dateField = fields.find((f) => f.key === EXAM_DATE_KEY) || fields.find((f) => f.dataType === 'date');
+  const dateKey = dateField?.key || EXAM_DATE_KEY;
+  const examDate = values[dateKey];
+  if (isEmpty(examDate)) return;
+  const wanted = pairKey(code, examDate);
+  const existing = await repo.listCenterDatePairs(tableId, {
+    centerKey: CENTER_CODE_KEY,
+    dateKey,
+    view: EXAM_DAY_VIEW,
+  });
+  const clash = existing.find((row) => {
+    if (excludeRowId && String(row.id) === String(excludeRowId)) return false;
+    return pairKey(row.code, row.examDate) === wanted;
+  });
+  if (clash) {
+    throw validationError(
+      `Center code "${code}" already has an Exam Day row for ${String(examDate).trim()}`,
+    );
+  }
+};
+
 export const listRows = (examId, options = {}) =>
   withMeta(async () => {
+    const viewKey = normalizeView(options.view);
     const { table, fields } = await tableAndAllFields(examId);
-    return repo.listRows(table.id, fields, options);
+    return repo.listRows(table.id, fields, { ...options, view: viewKey });
   });
 
 export const getRow = (examId, rowId) =>
@@ -290,20 +337,31 @@ export const getRow = (examId, rowId) =>
 const isCombinedField = (field) =>
   field?.dataType === 'combined' && Array.isArray(field?.combine?.keys) && field.combine.keys.length >= 2;
 
-/** Shared imports + combined (display-only join) are never persisted from this tab. */
-const writableViewFields = (fields) =>
-  (fields || []).filter((f) => !isSharedImportedField(f) && !isCombinedField(f));
+/**
+ * Shared imports + combined are display-only on shared tabs.
+ * Exam Day is a live Center list view — writes go to center-list rows (+ `__exam_day` meta).
+ */
+const writableViewFields = (fields, view = DEFAULT_EXAM_VIEW) =>
+  (fields || []).filter((f) => {
+    if (isCombinedField(f)) return false;
+    if (isOwnRowSetView(view)) return true;
+    return !isSharedImportedField(f);
+  });
 
 export const createRow = (examId, body, userId) =>
   withMeta(async () => {
     const viewKey = normalizeView(body?.view);
     const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
     if (!fields.length) throw validationError('Add at least one column before adding rows');
-    const writable = writableViewFields(fields);
+    const writable = writableViewFields(fields, viewKey);
     if (!writable.length) throw validationError('Add at least one editable column before adding rows');
     const cleaned = cleanRowValues(writable, body?.values);
-    await assertUniqueCenterCode(table.id, allFields, cleaned);
-    const id = await repo.insertRow(table.id, writable, cleaned, userId);
+    if (isOwnRowSetView(viewKey)) {
+      await assertUniqueCenterDate(table.id, fields, cleaned);
+    } else {
+      await assertUniqueCenterCode(table.id, allFields, cleaned, null, viewKey);
+    }
+    const id = await repo.insertRow(table.id, writable, cleaned, userId, { view: viewKey });
     return repo.findRow(table.id, allFields, id);
   });
 
@@ -313,29 +371,66 @@ export const createRows = (examId, body, userId) =>
     const viewKey = normalizeView(body?.view);
     const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
     if (!fields.length) throw validationError('Add at least one column before adding rows');
-    const writable = writableViewFields(fields);
+    const writable = writableViewFields(fields, viewKey);
     if (!writable.length) throw validationError('Add at least one editable column before adding rows');
     const input = Array.isArray(body?.rows) ? body.rows : [];
+    const ownRows = isOwnRowSetView(viewKey);
 
-    const checkCode = allFields.some((f) => f.key === CENTER_CODE_KEY);
+    const checkCode = allFields.some((f) => f.key === CENTER_CODE_KEY) || fields.some((f) => f.key === CENTER_CODE_KEY);
     const seen = new Set();
     if (checkCode) {
-      const existing = await repo.listCenterCodes(table.id, CENTER_CODE_KEY);
-      existing.forEach((r) => {
-        const c = String(r.code ?? '').trim().toLowerCase();
-        if (c) seen.add(c);
-      });
+      if (ownRows) {
+        const dateField =
+          fields.find((f) => f.key === EXAM_DATE_KEY) || fields.find((f) => f.dataType === 'date');
+        const dateKey = dateField?.key || EXAM_DATE_KEY;
+        const existing = await repo.listCenterDatePairs(table.id, {
+          centerKey: CENTER_CODE_KEY,
+          dateKey,
+          view: EXAM_DAY_VIEW,
+        });
+        existing.forEach((r) => {
+          const k = pairKey(r.code, r.examDate);
+          if (k !== '\0') seen.add(k);
+        });
+      } else {
+        const existing = await repo.listCenterCodes(table.id, CENTER_CODE_KEY, {
+          view: DEFAULT_EXAM_VIEW,
+        });
+        existing.forEach((r) => {
+          const c = String(r.code ?? '').trim().toLowerCase();
+          if (c) seen.add(c);
+        });
+      }
     }
 
     const valid = [];
     const failures = [];
+    const dateField =
+      fields.find((f) => f.key === EXAM_DATE_KEY) || fields.find((f) => f.dataType === 'date');
+    const dateKey = dateField?.key || EXAM_DATE_KEY;
     input.forEach((raw, index) => {
       try {
         const cleaned = cleanRowValues(writable, raw);
-        if (checkCode && Object.prototype.hasOwnProperty.call(cleaned, CENTER_CODE_KEY) && !isEmpty(cleaned[CENTER_CODE_KEY])) {
-          const code = String(cleaned[CENTER_CODE_KEY]).trim().toLowerCase();
-          if (seen.has(code)) throw validationError(`Center code "${cleaned[CENTER_CODE_KEY]}" is already used on this exam`);
-          seen.add(code);
+        if (
+          checkCode &&
+          Object.prototype.hasOwnProperty.call(cleaned, CENTER_CODE_KEY) &&
+          !isEmpty(cleaned[CENTER_CODE_KEY])
+        ) {
+          if (ownRows) {
+            const k = pairKey(cleaned[CENTER_CODE_KEY], cleaned[dateKey]);
+            if (seen.has(k)) {
+              throw validationError(
+                `Center code "${cleaned[CENTER_CODE_KEY]}" already has an Exam Day row for ${String(cleaned[dateKey] ?? '').trim() || '(no date)'}`,
+              );
+            }
+            seen.add(k);
+          } else {
+            const code = String(cleaned[CENTER_CODE_KEY]).trim().toLowerCase();
+            if (seen.has(code)) {
+              throw validationError(`Center code "${cleaned[CENTER_CODE_KEY]}" is already used on this exam`);
+            }
+            seen.add(code);
+          }
         }
         valid.push(cleaned);
       } catch (err) {
@@ -343,7 +438,9 @@ export const createRows = (examId, body, userId) =>
       }
     });
 
-    const created = valid.length ? await repo.insertRows(table.id, writable, valid, userId) : 0;
+    const created = valid.length
+      ? await repo.insertRows(table.id, writable, valid, userId, { view: viewKey })
+      : 0;
     return { created, failures };
   });
 
@@ -351,9 +448,13 @@ export const updateRow = (examId, rowId, body, userId) =>
   withMeta(async () => {
     const viewKey = normalizeView(body?.view);
     const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
-    const writableFields = writableViewFields(fields);
+    const writableFields = writableViewFields(fields, viewKey);
     const cleaned = cleanRowValues(writableFields, body?.values);
-    await assertUniqueCenterCode(table.id, allFields, cleaned, rowId);
+    if (isOwnRowSetView(viewKey)) {
+      await assertUniqueCenterDate(table.id, fields, cleaned, rowId);
+    } else {
+      await assertUniqueCenterCode(table.id, allFields, cleaned, rowId, viewKey);
+    }
     if (!(await repo.updateRow(table.id, writableFields, rowId, cleaned, userId))) {
       throw notFound('Row not found');
     }
@@ -370,7 +471,7 @@ export const bulkUpdateRows = (examId, body, userId) =>
   withMeta(async () => {
     const viewKey = normalizeView(body?.view);
     const { table, fields } = await tableAndViewFields(examId, viewKey);
-    const writableFields = writableViewFields(fields);
+    const writableFields = writableViewFields(fields, viewKey);
     if (!writableFields.length) throw validationError('No editable columns on this tab');
     const cleaned = cleanRowValues(writableFields, body?.values);
     if (!Object.keys(cleaned).length) throw validationError('No field values to update');
@@ -391,13 +492,21 @@ export const bulkUpdateRows = (examId, body, userId) =>
     }
 
     let targetIds = all ? null : ids;
-    if (useFilter) {
-      const listed = await repo.listRowValues(table.id, fields);
-      targetIds = listed
-        .filter((row) => rowMatchesQuery(row.values, filterQuery))
-        .map((row) => row.id);
-      if (!targetIds.length) {
-        return { updated: 0, all: false, filtered: true, ids: [] };
+    if (useFilter || all) {
+      // Scope mass-edit to this tab’s row set (Exam Day vs shared centers).
+      const listed = await repo.listRowValues(table.id, fields, { view: viewKey });
+      if (useFilter) {
+        targetIds = listed
+          .filter((row) => rowMatchesQuery(row.values, filterQuery))
+          .map((row) => row.id);
+        if (!targetIds.length) {
+          return { updated: 0, all: false, filtered: true, ids: [] };
+        }
+      } else if (all) {
+        targetIds = listed.map((row) => row.id);
+        if (!targetIds.length) {
+          return { updated: 0, all: true, filtered: false, ids: [] };
+        }
       }
     }
 

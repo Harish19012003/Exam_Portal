@@ -475,10 +475,7 @@ function TableDataRowComponent({
             aria-readonly={!canEdit}
           >
             <div
-              className={`flex items-center outline-none relative min-h-0 overflow-hidden
-                ${focusedCell?.rowId === row.rowId && focusedCell?.colKey === col.key && !isEditingThisCell
-                  ? 'after:content-[""] after:absolute after:right-3 after:top-1/2 after:-translate-y-1/2 after:h-[16px] after:w-[2px] after:bg-[#13C296] after:animate-pulse'
-                  : ''}`}
+              className="flex items-center outline-none relative min-h-0 overflow-hidden"
               style={{
                 height: Math.max(24, rowHeight - 1),
                 minHeight: Math.max(24, rowHeight - 1),
@@ -489,6 +486,14 @@ function TableDataRowComponent({
               onClick={() => {
                 onSetFocusedCell({ rowId: row.rowId, colKey: col.key });
                 scrollWrapperRef.current?.focus();
+                // Assignees: one click opens the picker.
+                if (
+                  canEdit &&
+                  isFieldColumn(targetColConfig) &&
+                  targetColConfig.userTags
+                ) {
+                  onSetEditingCell({ rowId: row.rowId, colKey: col.key });
+                }
               }}
             >
               {isEditingThisCell ? (

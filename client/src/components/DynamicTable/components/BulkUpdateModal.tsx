@@ -220,7 +220,7 @@ export function BulkUpdateModal({
           value={value}
           isDarkMode={isDarkMode}
           onPick={(ids, meta) => {
-            handleValueChange(col.key, col.userTags?.multiple === false ? ids[0] || '' : ids);
+            handleValueChange(col.key, col.userTags?.multiple === true ? ids : ids[0] || '');
             setAssigneePicks((prev) => ({ ...prev, [meta.columnKey]: meta }));
           }}
         />

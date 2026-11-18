@@ -25,6 +25,92 @@ class UserRepository extends BaseRepository {
     });
   }
 
+  /**
+   * People who have at least one of `tagIds` (Mongo array $in).
+   * Optional `search` filters name / email / user_code. Supports page+limit for the picker.
+   */
+  async findAssignableByTagIds(tagIds = [], { search = '', page = 1, limit = 40, all = false } = {}) {
+    const wanted = [...new Set((tagIds || []).map(String).filter(Boolean))];
+    if (!wanted.length) {
+      return { rows: [], total: 0, page: 1, limit: 0, hasMore: false };
+    }
+
+    const filter = {
+      tag_ids: { $in: wanted },
+      // Missing status counts as active; only drop explicitly disabled accounts.
+      status: { $nin: ['disabled', 'Disabled'] },
+    };
+    const q = String(search || '').trim();
+    if (q) {
+      const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const tokens = q.split(/\s+/).map(escapeRe).filter(Boolean);
+      const fieldMatch = (re) => ({
+        $or: [{ first_name: re }, { last_name: re }, { email: re }, { user_code: re }],
+      });
+      if (tokens.length <= 1) {
+        Object.assign(filter, fieldMatch(new RegExp(tokens[0] || escapeRe(q), 'i')));
+      } else {
+        // "Aadarsh Mishra" → each token must hit name / email / code somewhere.
+        filter.$and = tokens.map((tok) => fieldMatch(new RegExp(tok, 'i')));
+      }
+    }
+
+    const fields = ['email', 'first_name', 'last_name', 'user_code', 'tag_ids', 'status'];
+    const orderBy = { first_name: 'ASC', email: 'ASC' };
+    const total = await this.repo().count(filter);
+
+    if (all) {
+      const rows = await this.repo().find(filter, {
+        fields,
+        orderBy,
+        limit: Math.min(total || 10000, 10000),
+      });
+      const mapped = rows.map((r) => {
+        const plain = this.toPlain(r);
+        const { password_hash, ...safe } = plain;
+        return { ...safe, id: String(r._id) };
+      });
+      return { rows: mapped, total: mapped.length, page: 1, limit: mapped.length, hasMore: false };
+    }
+
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 40));
+    const offset = (pageNum - 1) * pageSize;
+    const rows = await this.repo().find(filter, {
+      fields,
+      orderBy,
+      limit: pageSize,
+      offset,
+    });
+    const mapped = rows.map((r) => {
+      const plain = this.toPlain(r);
+      const { password_hash, ...safe } = plain;
+      return { ...safe, id: String(r._id) };
+    });
+    return {
+      rows: mapped,
+      total,
+      page: pageNum,
+      limit: pageSize,
+      hasMore: offset + mapped.length < total,
+    };
+  }
+
+  /** Resolve a small set of user ids for assignee chips (no full-table scan). */
+  async findAssignableByIds(ids = []) {
+    const wanted = [...new Set((ids || []).map(String).filter(Boolean))];
+    if (!wanted.length) return [];
+    const rows = await this.repo().find(
+      { _id: { $in: wanted } },
+      { fields: ['email', 'first_name', 'last_name', 'user_code', 'tag_ids', 'status'] },
+    );
+    return rows.map((r) => {
+      const plain = this.toPlain(r);
+      const { password_hash, ...safe } = plain;
+      return { ...safe, id: String(r._id) };
+    });
+  }
+
   async findById(id) {
     const row = await this.repo().findOne({ _id: String(id) });
     return row ? this.toPlain(row) : null;

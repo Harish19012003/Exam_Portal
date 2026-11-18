@@ -73,8 +73,12 @@ export const listAssignable = async (req, res, next) => {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
-    const users = await userService.listAssignableByTags(tagIds);
-    return successResponse(res, users, 200);
+    const search = typeof req.query?.search === 'string' ? req.query.search : '';
+    const page = req.query?.page;
+    const limit = req.query?.limit;
+    const all = req.query?.all === '1' || req.query?.all === 'true';
+    const result = await userService.listAssignableByTags(tagIds, { search, page, limit, all });
+    return successResponse(res, result, 200);
   } catch (error) {
     next(error);
   }

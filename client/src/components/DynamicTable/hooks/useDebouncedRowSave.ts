@@ -16,7 +16,6 @@ const DEFAULT_DEBOUNCE_MS = 450;
 
 /**
  * Coalesce rapid inline cell edits into one PATCH per row.
- * UI still updates immediately; the network call waits for a quiet window.
  */
 export function useDebouncedRowSave(
   onRowUpdate: SaveFn | undefined,
@@ -37,7 +36,8 @@ export function useDebouncedRowSave(
     if (!pending) return;
     pendingRef.current.delete(rowId);
     const save = onRowUpdateRef.current;
-    if (save) void save(rowId, pending.values, pending.row);
+    if (!save) return;
+    void Promise.resolve(save(rowId, pending.values, pending.row));
   }, []);
 
   const flushAll = useCallback(() => {
@@ -54,7 +54,11 @@ export function useDebouncedRowSave(
       const mergedValues = { ...(prev?.values || {}), ...patch };
       pendingRef.current.set(rowId, {
         values: mergedValues,
-        row: { ...row, values: { ...row.values, ...mergedValues } },
+        row: {
+          ...row,
+          values: { ...row.values },
+          rawValues: { ...(row.rawValues || {}), ...mergedValues },
+        },
       });
 
       const existing = timersRef.current.get(rowId);
@@ -76,7 +80,6 @@ export function useDebouncedRowSave(
     pendingRef.current.delete(rowId);
   }, []);
 
-  // Flush before unload / unmount so debounced edits are not lost.
   useEffect(() => {
     const onLeave = () => flushAll();
     window.addEventListener('beforeunload', onLeave);

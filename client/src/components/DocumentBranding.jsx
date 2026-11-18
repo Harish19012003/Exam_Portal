@@ -3,9 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../api/queryKeys';
 import { fetchPublicBranding, PLATFORM_DEFAULTS } from '../api/platformSettingsApi';
 import { optimizedFaviconUrl } from '../utils/brandingImage';
+import { applyHeadingFont } from '../constants/headingFonts';
 
 /**
- * Applies portal name + favicon on every route (including /login).
+ * Applies portal name, favicon + heading font on every route (including /login).
  * Uses the public branding endpoint so it works before sign-in.
  */
 export const DocumentBranding = () => {
@@ -15,6 +16,12 @@ export const DocumentBranding = () => {
   });
   const portalName = data?.portal_name || PLATFORM_DEFAULTS.portal_name;
   const faviconUrl = data?.favicon_url || '';
+  const headingFont = data?.heading_font || '';
+
+  useEffect(() => {
+    applyHeadingFont(headingFont);
+    return () => applyHeadingFont('');
+  }, [headingFont]);
 
   useEffect(() => {
     document.title = portalName;

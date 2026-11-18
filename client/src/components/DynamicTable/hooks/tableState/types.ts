@@ -60,7 +60,7 @@ export interface TableStateHandlers {
   handleCellSave: (rowId: string, colKey: string, val: unknown) => void;
   handleDeleteRow: (rowId: string) => void;
   handleUndoDelete: () => void;
-  handleDeleteSelected: () => void;
+  handleDeleteSelected: (explicitIds?: string[]) => void;
   handleAddRow: () => void;
 
   // Context menu

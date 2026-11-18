@@ -14,12 +14,15 @@ export const queryKeys = {
     all: ['exams'],
     list: () => [...queryKeys.exams.all, 'list'],
     config: () => [...queryKeys.exams.all, 'config'],
-    rows: (examId, page = 1, limit = 100) => [
+    rows: (examId, page = 1, limit = 100, search = '', filtersSig = '', all = false, view = 'center-list') => [
       ...queryKeys.exams.all,
       'rows',
       String(examId || ''),
-      Number(page) || 1,
-      Number(limit) || 100,
+      String(view || 'center-list'),
+      all ? 'all' : Number(page) || 1,
+      all ? 'all' : Number(limit) || 100,
+      String(search || '').trim(),
+      String(filtersSig || ''),
     ],
     details: () => [...queryKeys.exams.all, 'detail'],
     detail: (examId) => [...queryKeys.exams.details(), String(examId || '')],
@@ -50,4 +53,12 @@ export const queryKeys = {
     tags: () => [...queryKeys.users.all, 'tags'],
     groups: () => [...queryKeys.users.all, 'groups'],
   },
+  /** Assignee picker people for a set of user-tag ids (sig = sorted join). */
+  assignableUsers: (tagSig = '') => ['assignable-users', String(tagSig || '')],
+  /** Paginated assignee pages — include search so each query stays distinct. */
+  assignableUsersPage: (tagSig = '', search = '') => [
+    'assignable-users-page',
+    String(tagSig || ''),
+    String(search || ''),
+  ],
 };

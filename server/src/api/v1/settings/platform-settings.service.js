@@ -21,12 +21,27 @@ export const ALLOWED_TIMEZONES = [
   'Asia/Singapore',
 ];
 
+/** Heading fonts an admin can pick ('' = the project default). Keep in sync with client/src/constants/headingFonts.js. */
+export const ALLOWED_HEADING_FONTS = [
+  'Sora',
+  'Bricolage Grotesque',
+  'Fraunces',
+  'Outfit',
+  'Plus Jakarta Sans',
+  'Manrope',
+  'Space Grotesk',
+  'Lexend',
+  'Playfair Display',
+  'DM Serif Display',
+];
+
 export const PLATFORM_DEFAULTS = Object.freeze({
   portal_name: 'Exam View',
   support_email: '',
   logo_url: '',
   favicon_url: '',
   default_timezone: 'Asia/Kolkata',
+  heading_font: '',
   maintenance: Object.freeze({ enabled: false, message: '' }),
 });
 
@@ -46,6 +61,7 @@ const withDefaults = (raw) => {
     default_timezone: ALLOWED_TIMEZONES.includes(input.default_timezone)
       ? input.default_timezone
       : PLATFORM_DEFAULTS.default_timezone,
+    heading_font: ALLOWED_HEADING_FONTS.includes(input.heading_font) ? input.heading_font : '',
     maintenance: {
       enabled: Boolean(maintenance.enabled),
       message: str(maintenance.message),
@@ -80,6 +96,7 @@ export const getPublicBranding = async () => {
     portal_name: s.portal_name,
     logo_url: s.logo_url,
     favicon_url: s.favicon_url,
+    heading_font: s.heading_font,
   };
 };
 
@@ -115,6 +132,12 @@ export const validatePlatformPatch = (body) => {
   if (body.default_timezone !== undefined) {
     if (!ALLOWED_TIMEZONES.includes(body.default_timezone)) {throw invalid('Unsupported timezone');}
     patch.default_timezone = body.default_timezone;
+  }
+
+  if (body.heading_font !== undefined) {
+    const font = str(body.heading_font);
+    if (font && !ALLOWED_HEADING_FONTS.includes(font)) {throw invalid('Unsupported heading font');}
+    patch.heading_font = font;
   }
 
   if (body.maintenance !== undefined) {
