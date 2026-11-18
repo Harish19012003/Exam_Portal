@@ -51,7 +51,15 @@ export const isExamDayPerDateStoredField = (field) => {
   if (!field) return false;
   const role = String(field.examDayImportRole || '');
   if (isExamDayLiveCountRole(role) || role === 'maxStatus') return false;
-  if (role === 'shiftStatus' || role === 'shiftFirstT' || role === 'shiftLastT') return true;
+  // Status is derived from Requested + Reached (written on persist / expand); still stored.
+  if (
+    role === 'shiftReached' ||
+    role === 'shiftStatus' ||
+    role === 'shiftFirstT' ||
+    role === 'shiftLastT'
+  ) {
+    return true;
+  }
   if (isSharedImportedField(field)) return false;
   if (field.key === CENTER_CODE_KEY || field.key === EXAM_DATE_KEY || field.key === MAX_DAY_N_KEY) {
     return false;
@@ -61,6 +69,84 @@ export const isExamDayPerDateStoredField = (field) => {
   if (String(field.key || '').startsWith('ds_')) return false;
   // Exam Day–only columns (not shared from Center list).
   return !isSharedImportedField(field);
+};
+
+/** True for auto-derived / system-stamped Exam Day columns (not user-edited). */
+export const isExamDayDerivedRole = (role) => {
+  const r = String(role || '');
+  return (
+    r === 'shiftStatus' ||
+    r === 'shiftFirstT' ||
+    r === 'shiftLastT' ||
+    r === 'maxStatus'
+  );
+};
+
+/** Per-shift Exam Day family: Requested, Reached, Status, First T., Last T. */
+export const isExamDayShiftFamilyRole = (role) => {
+  const r = String(role || '');
+  return (
+    r === 'shift' ||
+    r === 'shiftReached' ||
+    r === 'shiftStatus' ||
+    r === 'shiftFirstT' ||
+    r === 'shiftLastT'
+  );
+};
+
+/**
+ * Exam Day field keys that belong to Center-list–hidden shifts
+ * (count + reached + status + first/last T.).
+ */
+export const examDayFieldKeysForHiddenShifts = ({
+  fields = [],
+  centerListDateShifts = null,
+  hiddenShiftIds = null,
+} = {}) => {
+  const hidden = hiddenShiftIds instanceof Set ? hiddenShiftIds : new Set(hiddenShiftIds || []);
+  const keys = new Set();
+  if (!hidden.size) return keys;
+  const list = Array.isArray(fields) ? fields : [];
+  const suggestions = examDayShiftSuggestions(centerListDateShifts);
+  suggestions.forEach((shift) => {
+    if (!hidden.has(String(shift.id))) return;
+    const matched = [
+      matchExamDayShiftField(list, shift),
+      matchExamDayShiftReachedField(list, shift),
+      matchExamDayShiftStatusField(list, shift),
+      matchExamDayShiftFirstTField(list, shift),
+      matchExamDayShiftLastTField(list, shift),
+    ];
+    matched.forEach((f) => {
+      const key = String(f?.key || '').trim();
+      if (key) keys.add(key);
+    });
+    // Also hide by examDayShiftId even if matchers miss (manual key renames).
+    list.forEach((f) => {
+      if (String(f?.examDayShiftId || '').trim() !== String(shift.id)) return;
+      if (!isExamDayShiftFamilyRole(f?.examDayImportRole) && f?.examDayImportRole) return;
+      const key = String(f?.key || '').trim();
+      if (key) keys.add(key);
+    });
+  });
+  return keys;
+};
+
+/** Status keys for shifts that are still visible on Center list (for Max Status formula). */
+export const examDayVisibleStatusKeys = ({
+  fields = [],
+  centerListDateShifts = null,
+  hiddenShiftIds = null,
+} = {}) => {
+  const hidden = hiddenShiftIds instanceof Set ? hiddenShiftIds : new Set(hiddenShiftIds || []);
+  const list = Array.isArray(fields) ? fields : [];
+  const keys = [];
+  examDayShiftSuggestions(centerListDateShifts).forEach((shift) => {
+    if (hidden.has(String(shift.id))) return;
+    const matched = matchExamDayShiftStatusField(list, shift);
+    keys.push(matched?.key || examDayShiftStatusKey(shift));
+  });
+  return keys.filter(Boolean);
 };
 import {
   normalizeDateShiftsConfig,
@@ -131,6 +217,30 @@ const shiftMatchTokens = (shift) => {
  * Pick the Exam Day field that should receive a Center list shift value.
  * Prefers `examDayShiftId` meta, then key/label token match.
  */
+const isShiftCountLikeField = (f) => {
+  const role = String(f?.examDayImportRole || '');
+  if (
+    role === 'shiftStatus' ||
+    role === 'shiftReached' ||
+    role === 'shiftFirstT' ||
+    role === 'shiftLastT' ||
+    role === 'maxStatus' ||
+    role === 'examDate' ||
+    role === 'maxDayN'
+  ) {
+    return false;
+  }
+  const key = String(f?.key || '').trim();
+  if (!key) return false;
+  if (key === CENTER_CODE_KEY || key === EXAM_DATE_KEY || key === MAX_DAY_N_KEY) return false;
+  if (key === MAX_STATUS_KEY) return false;
+  if (/_status$/i.test(key) || /_reached$/i.test(key) || /_first_t$/i.test(key) || /_last_t$/i.test(key)) {
+    return false;
+  }
+  if (String(f?.dataType || '') === 'formula') return false;
+  return true;
+};
+
 export const matchExamDayShiftField = (fields, shift) => {
   const list = Array.isArray(fields) ? fields : [];
   const shiftId = String(shift?.id || '').trim();
@@ -138,20 +248,21 @@ export const matchExamDayShiftField = (fields, shift) => {
     const byMeta = list.find(
       (f) =>
         String(f?.examDayShiftId || '').trim() === shiftId &&
-        String(f?.examDayImportRole || '') !== 'shiftStatus' &&
-        !/_status$/i.test(String(f?.key || '')),
+        (String(f?.examDayImportRole || '') === 'shift' ||
+          (!String(f?.examDayImportRole || '').trim() && isShiftCountLikeField(f))),
     );
     if (byMeta) return byMeta;
+    const byMetaLoose = list.find(
+      (f) => String(f?.examDayShiftId || '').trim() === shiftId && isShiftCountLikeField(f),
+    );
+    if (byMetaLoose) return byMetaLoose;
   }
   const tokens = shiftMatchTokens(shift);
   if (!tokens.length) return null;
   return (
     list.find((f) => {
+      if (!isShiftCountLikeField(f)) return false;
       const key = String(f?.key || '').trim();
-      if (key === CENTER_CODE_KEY || key === EXAM_DATE_KEY || key === MAX_DAY_N_KEY) return false;
-      if (key === MAX_STATUS_KEY || /_status$/i.test(key)) return false;
-      if (String(f?.examDayImportRole || '') === 'shiftStatus') return false;
-      if (String(f?.dataType || '') === 'formula') return false;
       const k = normalizeShiftToken(key);
       const l = normalizeShiftToken(f?.label);
       return tokens.some((t) => t && (k === t || l === t || k.startsWith(t) || l.startsWith(t)));
@@ -159,10 +270,123 @@ export const matchExamDayShiftField = (fields, shift) => {
   );
 };
 
+const shiftBaseKey = (shift) =>
+  String(shift?.key || suggestedKeyFromShiftLabel(shift?.label, 0) || 's')
+    .trim()
+    .replace(/_status$/i, '')
+    .replace(/_reached$/i, '')
+    .replace(/_first_t$/i, '')
+    .replace(/_last_t$/i, '');
+
 /** Suggested key for a shift’s status column (`s1` → `s1_status`). */
 export const examDayShiftStatusKey = (shift) => {
-  const base = String(shift?.key || suggestedKeyFromShiftLabel(shift?.label, 0) || 's').trim();
+  const base = shiftBaseKey(shift);
   return base.endsWith('_status') ? base : `${base}_status`;
+};
+
+/** Suggested key for a shift’s reached column (`s1` → `s1_reached`). */
+export const examDayShiftReachedKey = (shift) => `${shiftBaseKey(shift)}_reached`;
+
+/**
+ * Per-shift status from Requested (count) vs Reached.
+ * Reached >= Requested → completed; empty Reached or shortfall → pending.
+ */
+export const computeExamDayShiftStatus = (requested, reached) => {
+  const rch = toShiftNumber(reached);
+  if (rch == null) return 'pending';
+  const req = toShiftNumber(requested);
+  if (req == null) return 'pending';
+  return rch >= req ? 'completed' : 'pending';
+};
+
+const shiftHintFromReachedField = (reachedField) => {
+  const shiftId = String(reachedField?.examDayShiftId || '').trim();
+  const reachedKey = String(reachedField?.key || '').trim();
+  const base = reachedKey.replace(/_reached$/i, '');
+  return {
+    id: shiftId,
+    key: base,
+    label:
+      String(reachedField?.label || '')
+        .replace(/\s*reached\s*$/i, '')
+        .trim() || base,
+  };
+};
+
+/**
+ * Recompute every shift Status from Requested vs Reached on a values bag.
+ * Pairs by role / examDayShiftId / key suffix — does not depend on Center shift order.
+ */
+export const applyExamDayDerivedStatuses = (values = {}, fields = []) => {
+  const list = Array.isArray(fields) ? fields : [];
+  const next = values && typeof values === 'object' ? { ...values } : {};
+
+  list.forEach((reachedField) => {
+    const reachedKey = String(reachedField?.key || '').trim();
+    if (!reachedKey) return;
+    const role = String(reachedField?.examDayImportRole || '');
+    if (role !== 'shiftReached' && !/_reached$/i.test(reachedKey)) return;
+
+    const hint = shiftHintFromReachedField(reachedField);
+    const statusKeyGuess = `${hint.key}_status`;
+    const statusField =
+      matchExamDayShiftStatusField(list, hint) ||
+      list.find((f) => String(f?.key || '').trim() === statusKeyGuess) ||
+      list.find(
+        (f) =>
+          String(f?.examDayImportRole || '') === 'shiftStatus' &&
+          hint.id &&
+          String(f?.examDayShiftId || '').trim() === hint.id,
+      );
+    if (!statusField?.key) return;
+
+    const countField =
+      matchExamDayShiftField(list, hint) ||
+      list.find(
+        (f) => String(f?.key || '').trim() === hint.key && isShiftCountLikeField(f),
+      ) ||
+      list.find(
+        (f) =>
+          String(f?.examDayImportRole || '') === 'shift' &&
+          hint.id &&
+          String(f?.examDayShiftId || '').trim() === hint.id,
+      );
+
+    next[statusField.key] = computeExamDayShiftStatus(
+      countField?.key ? next[countField.key] : null,
+      next[reachedKey],
+    );
+  });
+
+  return next;
+};
+
+/** Match OP S1 Reached / s1_reached for a shift. */
+export const matchExamDayShiftReachedField = (fields, shift) => {
+  const list = Array.isArray(fields) ? fields : [];
+  const shiftId = String(shift?.id || '').trim();
+  if (shiftId) {
+    const byMeta = list.find(
+      (f) =>
+        String(f?.examDayImportRole || '') === 'shiftReached' &&
+        String(f?.examDayShiftId || '').trim() === shiftId,
+    );
+    if (byMeta) return byMeta;
+  }
+  const wantKey = examDayShiftReachedKey(shift);
+  const byKey = list.find((f) => String(f?.key || '').trim() === wantKey);
+  if (byKey) return byKey;
+  const wantLabel = normalizeShiftToken(`${shift?.label || ''} reached`);
+  return (
+    list.find((f) => {
+      if (String(f?.examDayImportRole || '') === 'shiftReached') {
+        const l = normalizeShiftToken(f?.label);
+        return Boolean(wantLabel) && l === wantLabel;
+      }
+      const l = normalizeShiftToken(f?.label);
+      return Boolean(wantLabel) && l === wantLabel;
+    }) || null
+  );
 };
 
 /** Match OP S1 status / s1_status for a shift. */
@@ -217,11 +441,6 @@ export const matchMaxStatusField = (fields) => {
   return list.find((f) => /max\s*status/i.test(String(f?.label || ''))) || null;
 };
 
-const shiftBaseKey = (shift) =>
-  String(shift?.key || suggestedKeyFromShiftLabel(shift?.label, 0) || 's')
-    .trim()
-    .replace(/_status$/i, '');
-
 /** `s1` → `s1_first_t` (OP S1 First T.). */
 export const examDayShiftFirstTKey = (shift) => `${shiftBaseKey(shift)}_first_t`;
 
@@ -254,43 +473,49 @@ export const matchExamDayShiftFirstTField = (fields, shift) =>
 export const matchExamDayShiftLastTField = (fields, shift) =>
   matchTimestampField(fields, shift, 'shiftLastT', examDayShiftLastTKey, 'last t');
 
-const statusValueEqual = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
+const cellValueEqual = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
+
+const isReachedEmpty = (value) => {
+  if (value == null) return true;
+  if (typeof value === 'string' && value.trim() === '') return true;
+  return false;
+};
 
 /**
- * When a shift status cell changes: set Last T. always; set First T. once
- * when status first becomes non-blank (leave timestamps if cleared later).
+ * When a shift Reached cell changes:
+ * - Last T. always updates (including clear)
+ * - First T. set once when Reached first becomes non-empty; kept on clear
+ * - Status auto-filled from Requested (count) vs Reached
+ *
+ * `rowValues` should include live count keys (e.g. s1) for Requested comparison.
  */
-export const applyExamDayStatusTimestamps = ({
+export const applyExamDayReachedSideEffects = ({
   fields = [],
   previousValues = {},
   nextPatch = {},
+  rowValues = {},
   now = new Date().toISOString(),
 } = {}) => {
   const list = Array.isArray(fields) ? fields : [];
   const prev = previousValues && typeof previousValues === 'object' ? previousValues : {};
   const patch = nextPatch && typeof nextPatch === 'object' ? nextPatch : {};
-  const stamps = {};
+  const row = rowValues && typeof rowValues === 'object' ? rowValues : {};
+  const out = {};
 
-  const statusFields = list.filter((f) => {
+  const reachedFields = list.filter((f) => {
     const role = String(f?.examDayImportRole || '');
     const key = String(f?.key || '').trim();
-    if (role === 'shiftStatus') return true;
-    if (!key || key === MAX_STATUS_KEY) return false;
-    return /_status$/i.test(key);
+    if (role === 'shiftReached') return true;
+    return Boolean(key) && /_reached$/i.test(key);
   });
 
-  statusFields.forEach((statusField) => {
-    const statusKey = String(statusField.key || '').trim();
-    if (!statusKey || !Object.prototype.hasOwnProperty.call(patch, statusKey)) return;
-    if (statusValueEqual(prev[statusKey], patch[statusKey])) return;
+  reachedFields.forEach((reachedField) => {
+    const reachedKey = String(reachedField.key || '').trim();
+    if (!reachedKey || !Object.prototype.hasOwnProperty.call(patch, reachedKey)) return;
+    if (cellValueEqual(prev[reachedKey], patch[reachedKey])) return;
 
-    const shiftId = String(statusField.examDayShiftId || '').trim();
-    const baseFromStatus = statusKey.replace(/_status$/i, '');
-    const shiftHint = {
-      id: shiftId,
-      key: baseFromStatus,
-      label: String(statusField.label || '').replace(/\s*status\s*$/i, '').trim() || baseFromStatus,
-    };
+    const shiftHint = shiftHintFromReachedField(reachedField);
+    const shiftId = String(shiftHint.id || '').trim();
 
     const lastField =
       matchExamDayShiftLastTField(list, shiftHint) ||
@@ -310,17 +535,37 @@ export const applyExamDayStatusTimestamps = ({
             ? String(f?.examDayShiftId || '').trim() === shiftId
             : String(f?.key || '') === examDayShiftFirstTKey(shiftHint)),
       );
+    const statusField = matchExamDayShiftStatusField(list, shiftHint);
+    const countField = matchExamDayShiftField(list, shiftHint);
 
-    if (lastField?.key) stamps[lastField.key] = now;
+    if (lastField?.key) out[lastField.key] = now;
 
-    const nextStatus = String(patch[statusKey] ?? '').trim();
-    if (firstField?.key && nextStatus && !String(prev[firstField.key] ?? '').trim()) {
-      stamps[firstField.key] = now;
+    const nextReached = patch[reachedKey];
+    if (
+      firstField?.key &&
+      !isReachedEmpty(nextReached) &&
+      !String(prev[firstField.key] ?? '').trim()
+    ) {
+      out[firstField.key] = now;
+    }
+
+    if (statusField?.key) {
+      const requested =
+        countField?.key && Object.prototype.hasOwnProperty.call(row, countField.key)
+          ? row[countField.key]
+          : countField?.key
+            ? prev[countField.key]
+            : null;
+      out[statusField.key] = computeExamDayShiftStatus(requested, nextReached);
     }
   });
 
-  return stamps;
+  return out;
 };
+
+/** @deprecated Use applyExamDayReachedSideEffects — timestamps now follow Reached, not status. */
+export const applyExamDayStatusTimestamps = (args = {}) =>
+  applyExamDayReachedSideEffects(args);
 
 export const isExamDayTimestampRole = (role) => {
   const r = String(role || '');
@@ -335,23 +580,101 @@ export const isExamDayTimestampField = (field) => {
   return /_first_t$/.test(key) || /_last_t$/.test(key);
 };
 
+/** Sort key from OP S1 / s1 / s1_reached → 1. */
+const examDayShiftSortIndex = (field) => {
+  const key = String(field?.key || '');
+  const label = String(field?.label || '');
+  const m =
+    key.match(/s(\d+)/i) ||
+    label.match(/\bs\s*(\d+)\b/i) ||
+    String(field?.examDayShiftId || '').match(/s(\d+)/i);
+  return m ? Number(m[1]) : 9999;
+};
+
+const classifyExamDayImportBucket = (field) => {
+  const role = String(field?.examDayImportRole || '').trim();
+  const key = String(field?.key || '').trim().toLowerCase();
+  const label = String(field?.label || '');
+  if (isExamDayTimestampField(field) || role === 'shiftFirstT' || role === 'shiftLastT') {
+    return 'timestamps';
+  }
+  if (role === 'maxStatus' || key === MAX_STATUS_KEY || /max\s*status/i.test(label)) {
+    return 'maxStatus';
+  }
+  if (role === 'maxDayN' || key === MAX_DAY_N_KEY || /max\s*day/i.test(label)) {
+    return 'maxDayN';
+  }
+  if (role === 'shiftReached' || /_reached$/i.test(key) || /\breached\b/i.test(label)) {
+    return 'reached';
+  }
+  if (role === 'shiftStatus' || (/_status$/i.test(key) && key !== MAX_STATUS_KEY)) {
+    return 'status';
+  }
+  if (role === 'shift') return 'shift';
+  if (/^s\d+$/i.test(key)) return 'shift';
+  if (/^op\s*s\s*\d+$/i.test(label.trim())) return 'shift';
+  return 'other';
+};
+
 /**
- * Keep non-timestamp fields in place; move all First/Last T. columns to the end
- * (Exam Day table still appends Created by / Modify by after these).
- * Relative order inside each group is preserved so the user can reorder timestamps.
+ * Canonical Exam Day import column order:
+ * other fields → OP S1..Sn (counts) → Max Day N → Reached… → Status… → Max Status → First/Last T.
+ * Within each shift family, sort by shift number (S1, S2, …).
  */
-export const orderExamDayFieldsTimestampsLast = (fields = []) => {
+export const orderExamDayImportFields = (fields = []) => {
   const list = Array.isArray(fields) ? fields : [];
   if (!list.length) return list;
-  const rest = [];
-  const timestamps = [];
-  list.forEach((f) => {
-    if (isExamDayTimestampField(f)) timestamps.push(f);
-    else rest.push(f);
+
+  const buckets = {
+    other: [],
+    shift: [],
+    maxDayN: [],
+    reached: [],
+    status: [],
+    maxStatus: [],
+    timestamps: [],
+  };
+
+  list.forEach((f, index) => {
+    buckets[classifyExamDayImportBucket(f)].push({ f, index });
   });
-  if (!timestamps.length) return list;
-  return [...rest, ...timestamps];
+
+  const byShiftThenIndex = (a, b) => {
+    const sa = examDayShiftSortIndex(a.f);
+    const sb = examDayShiftSortIndex(b.f);
+    if (sa !== sb) return sa - sb;
+    return a.index - b.index;
+  };
+
+  const byTimestampOrder = (a, b) => {
+    const sa = examDayShiftSortIndex(a.f);
+    const sb = examDayShiftSortIndex(b.f);
+    if (sa !== sb) return sa - sb;
+    const aFirst =
+      String(a.f?.examDayImportRole || '') === 'shiftFirstT' ||
+      /_first_t$/i.test(String(a.f?.key || '')) ||
+      /first\s*t/i.test(String(a.f?.label || ''));
+    const bFirst =
+      String(b.f?.examDayImportRole || '') === 'shiftFirstT' ||
+      /_first_t$/i.test(String(b.f?.key || '')) ||
+      /first\s*t/i.test(String(b.f?.label || ''));
+    if (aFirst !== bFirst) return aFirst ? -1 : 1;
+    return a.index - b.index;
+  };
+
+  return [
+    ...buckets.other.map((x) => x.f),
+    ...buckets.shift.sort(byShiftThenIndex).map((x) => x.f),
+    ...buckets.maxDayN.map((x) => x.f),
+    ...buckets.reached.sort(byShiftThenIndex).map((x) => x.f),
+    ...buckets.status.sort(byShiftThenIndex).map((x) => x.f),
+    ...buckets.maxStatus.map((x) => x.f),
+    ...buckets.timestamps.sort(byTimestampOrder).map((x) => x.f),
+  ];
 };
+
+/** @deprecated Prefer orderExamDayImportFields — same canonical Exam Day order. */
+export const orderExamDayFieldsTimestampsLast = orderExamDayImportFields;
 
 /** Prefer key `exam_date`, else first date-typed field. */
 export const resolveExamDateFieldKey = (fields) => {
@@ -385,9 +708,16 @@ const fieldMatchesExamDate = (fields) => {
  * Includes per-shift status + Max Status rollup.
  * @returns {{ items: Array, missing: Array, ready: boolean, shiftSuggestions: Array, statusKeys: string[] }}
  */
-export const getExamDayImportFieldPlan = ({ fields = [], centerListDateShifts = null } = {}) => {
+export const getExamDayImportFieldPlan = ({
+  fields = [],
+  centerListDateShifts = null,
+  hiddenShiftIds = null,
+} = {}) => {
   const list = Array.isArray(fields) ? fields : [];
-  const shiftSuggestions = examDayShiftSuggestions(centerListDateShifts);
+  const hidden = hiddenShiftIds instanceof Set ? hiddenShiftIds : new Set(hiddenShiftIds || []);
+  const shiftSuggestions = examDayShiftSuggestions(centerListDateShifts).filter(
+    (s) => !hidden.has(String(s.id)),
+  );
   const items = [];
   const statusKeys = [];
 
@@ -416,7 +746,21 @@ export const getExamDayImportFieldPlan = ({ fields = [], centerListDateShifts = 
       examDayShiftId: shift.id,
       present: Boolean(matched),
       matchedKey: matched?.key || '',
-      hint: `Filled from Center list “${shift.label}” for that date`,
+      hint: `Requested count from Center list “${shift.label}” for that date`,
+    });
+
+    const reachedMatched = matchExamDayShiftReachedField(list, shift);
+    items.push({
+      id: `shift_reached_${shift.id}`,
+      role: 'shiftReached',
+      required: true,
+      label: `${shift.label} Reached`,
+      key: examDayShiftReachedKey(shift),
+      dataType: 'number',
+      examDayShiftId: shift.id,
+      present: Boolean(reachedMatched),
+      matchedKey: reachedMatched?.key || '',
+      hint: `Actual reached count for ${shift.label} (drives status + First/Last T.)`,
     });
 
     const statusMatched = matchExamDayShiftStatusField(list, shift);
@@ -433,7 +777,7 @@ export const getExamDayImportFieldPlan = ({ fields = [], centerListDateShifts = 
       examDayShiftId: shift.id,
       present: Boolean(statusMatched),
       matchedKey: statusMatched?.key || '',
-      hint: `Manual status for ${shift.label} (completed / pending)`,
+      hint: `Auto · completed when Reached ≥ Requested for ${shift.label}`,
     });
 
     const firstTMatched = matchExamDayShiftFirstTField(list, shift);
@@ -447,7 +791,7 @@ export const getExamDayImportFieldPlan = ({ fields = [], centerListDateShifts = 
       examDayShiftId: shift.id,
       present: Boolean(firstTMatched),
       matchedKey: firstTMatched?.key || '',
-      hint: `Set once when ${shift.label} status is first filled (read-only)`,
+      hint: `Set once when ${shift.label} Reached is first filled (kept on clear)`,
     });
 
     const lastTMatched = matchExamDayShiftLastTField(list, shift);
@@ -461,7 +805,7 @@ export const getExamDayImportFieldPlan = ({ fields = [], centerListDateShifts = 
       examDayShiftId: shift.id,
       present: Boolean(lastTMatched),
       matchedKey: lastTMatched?.key || '',
-      hint: `Updated every time ${shift.label} status changes (read-only)`,
+      hint: `Updated every time ${shift.label} Reached changes (including clear)`,
     });
   });
 
@@ -505,9 +849,13 @@ export const getExamDayImportFieldPlan = ({ fields = [], centerListDateShifts = 
   };
 };
 
-/** Field defs to insert for missing Exam Day import columns (incl. status + Max Status). */
-export const buildMissingExamDayImportFields = ({ fields = [], centerListDateShifts = null } = {}) => {
-  const plan = getExamDayImportFieldPlan({ fields, centerListDateShifts });
+/** Field defs to insert for missing Exam Day import columns (Reached, status, times, Max Status). */
+export const buildMissingExamDayImportFields = ({
+  fields = [],
+  centerListDateShifts = null,
+  hiddenShiftIds = null,
+} = {}) => {
+  const plan = getExamDayImportFieldPlan({ fields, centerListDateShifts, hiddenShiftIds });
   const usedKeys = new Set(
     (Array.isArray(fields) ? fields : []).map((f) => String(f?.key || '').trim()).filter(Boolean),
   );
@@ -599,7 +947,8 @@ const copyableCenterKeys = (targetFields, dateShiftKeys) => {
 /**
  * Live Exam Day view rows from Center list (source of truth).
  * One display row per center × exam date (skip Max Day N = 0).
- * Per-date status / First T. / Last T. come from `values.__exam_day[dateId]`.
+ * Per-date Reached / First T. / Last T. come from `values.__exam_day[dateId]`;
+ * status is derived from Requested (live count) vs Reached when Reached exists.
  *
  * @returns {{ rows: object[], skipped: number, datesUsed: number }}
  */
@@ -671,9 +1020,12 @@ export const expandCenterRowsToExamDay = ({
         if (Object.prototype.hasOwnProperty.call(dateMeta, key)) values[key] = dateMeta[key];
       });
 
+      // Always derive Status from Requested vs Reached (ignore stale meta status).
+      const withStatus = applyExamDayDerivedStatuses(values, fields);
+
       out.push({
         id: makeExamDayRowId(sourceRowId, date.id),
-        values,
+        values: withStatus,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         createdByLabel: row.createdByLabel,
@@ -702,6 +1054,28 @@ export const expandCenterRowsToExamDay = ({
   return { rows: out, skipped, datesUsed: dates.length };
 };
 
+/** Live Requested counts for one exam date from Center list date×shift cells. */
+export const resolveExamDayLiveCountsForDate = ({
+  fields = [],
+  dateShiftsConfig = null,
+  dateId,
+  centerValues = {},
+} = {}) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  const bag = centerValues && typeof centerValues === 'object' ? centerValues : {};
+  const dayKeys = shiftKeysForDate(cfg, dateId);
+  const out = {};
+  (cfg.shifts || []).forEach((shift, i) => {
+    const field = matchExamDayShiftField(fields, shift);
+    if (!field?.key) return;
+    const sourceKey = dayKeys[i];
+    if (!sourceKey) return;
+    const num = toShiftNumber(bag[sourceKey]);
+    out[field.key] = num == null ? 0 : num;
+  });
+  return out;
+};
+
 /**
  * Split an Exam Day cell patch into Center list root values vs per-date meta.
  * Live count keys are ignored (always derived from date×shift cells).
@@ -711,6 +1085,7 @@ export const splitExamDayPersistPatch = ({
   dateId,
   previousCenterValues = {},
   patch = {},
+  dateShiftsConfig = null,
 } = {}) => {
   const list = Array.isArray(fields) ? fields : [];
   const fieldByKey = new Map(list.map((f) => [String(f.key || ''), f]));
@@ -722,7 +1097,9 @@ export const splitExamDayPersistPatch = ({
     const field = fieldByKey.get(key);
     if (!field) return;
     const role = String(field.examDayImportRole || '');
+    // Live counts + derived status/timestamps/max are not user-written here.
     if (isExamDayLiveCountRole(role) || role === 'maxStatus') return;
+    if (role === 'shiftStatus' || isExamDayTimestampRole(role)) return;
     if (isExamDayPerDateStoredField(field)) {
       datePatch[key] = val;
       return;
@@ -731,14 +1108,41 @@ export const splitExamDayPersistPatch = ({
     rootPatch[key] = val;
   });
 
-  const stamped = applyExamDayStatusTimestamps({
+  const prevDateMeta = readExamDayDateMeta(previousCenterValues, dateId);
+  const liveCounts = resolveExamDayLiveCountsForDate({
     fields: list,
-    previousValues: {
-      ...readExamDayDateMeta(previousCenterValues, dateId),
-    },
-    nextPatch: datePatch,
+    dateShiftsConfig,
+    dateId,
+    centerValues: previousCenterValues,
   });
-  Object.assign(datePatch, stamped);
+  // Prefer live Center counts, then full Exam Day patch (includes Requested), then meta.
+  const rowValues = {
+    ...prevDateMeta,
+    ...(patch || {}),
+    ...liveCounts,
+  };
+  const sideEffects = applyExamDayReachedSideEffects({
+    fields: list,
+    previousValues: prevDateMeta,
+    nextPatch: datePatch,
+    rowValues,
+  });
+  Object.assign(datePatch, sideEffects);
+
+  // Always refresh every shift Status from Requested vs Reached (fixes stale “completed”).
+  const merged = { ...rowValues, ...datePatch };
+  const derived = applyExamDayDerivedStatuses(merged, list);
+  list.forEach((f) => {
+    const role = String(f?.examDayImportRole || '');
+    const key = String(f?.key || '').trim();
+    if (!key) return;
+    const isStatus =
+      role === 'shiftStatus' || (/_status$/i.test(key) && key !== MAX_STATUS_KEY);
+    if (!isStatus) return;
+    if (Object.prototype.hasOwnProperty.call(derived, key)) {
+      datePatch[key] = derived[key];
+    }
+  });
 
   let nextMeta = null;
   if (Object.keys(datePatch).length) {

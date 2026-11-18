@@ -41,9 +41,9 @@ const emptyForm = () => ({
 const pairKey = (serviceValue, view) =>
   `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
 
-/** Stable JSON payload for Export / Import round-trips. */
 const SORT_KEYS = ['default', 'name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'fields-desc', 'fields-asc', 'service-asc'];
 
+/** Stable JSON payload for Export / Import round-trips. */
 export const buildFieldPresetsExportPayload = (presets) =>
   (Array.isArray(presets) ? presets : [])
     .map((p) => {

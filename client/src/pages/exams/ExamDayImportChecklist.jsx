@@ -3,6 +3,7 @@ import { CheckCircle2, CircleDashed } from 'lucide-react';
 
 const SHIFT_COLUMNS = [
   { role: 'shift', label: 'Count' },
+  { role: 'shiftReached', label: 'Reached' },
   { role: 'shiftStatus', label: 'Status' },
   { role: 'shiftFirstT', label: 'First T.' },
   { role: 'shiftLastT', label: 'Last T.' },

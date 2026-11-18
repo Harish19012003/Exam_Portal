@@ -13,7 +13,7 @@ import {
   buildMissingExamDayImportFields,
   getExamDayImportFieldPlan,
   isExamDayTimestampField,
-  orderExamDayFieldsTimestampsLast,
+  orderExamDayImportFields,
 } from './examDayExpand';
 import { useConfirm } from '../../feedback';
 import {
@@ -669,6 +669,8 @@ export const BulkFieldsModal = ({
    * Pass false to hide even on Center list.
    */
   enableDateShifts = null,
+  /** Center-list–hidden shift ids — skip those families in Exam Day import checklist. */
+  hiddenExamDayShiftIds = null,
 }) => {
   const examFieldOptions = (examSourceFields || [])
     .filter((f) => f?.key)
@@ -678,7 +680,7 @@ export const BulkFieldsModal = ({
     preferredService: currentServiceValue,
   };
   const initialRows = () => {
-    const existing = fields
+    let existing = fields
       .filter(
         (f) =>
           f.dataType === 'linked' ||
@@ -696,6 +698,10 @@ export const BulkFieldsModal = ({
         }
         return row;
       });
+    // Exam Day: counts → Max Day N → Reached → Status → Max Status → First/Last T.
+    if (String(currentView || '') === EXAM_DAY_VIEW) {
+      existing = orderExamDayImportFields(existing);
+    }
     // A Linked value points at the row (field) it reads from.
     existing.forEach((r) => {
       if (r.linkedKey) r.linkedRid = existing.find((x) => x.key === r.linkedKey)?.rid || '';
@@ -758,8 +764,9 @@ export const BulkFieldsModal = ({
     return getExamDayImportFieldPlan({
       fields: fieldLike,
       centerListDateShifts: centerListDateShiftsForExamDay,
+      hiddenShiftIds: hiddenExamDayShiftIds,
     });
-  }, [showExamDayImport, rows, centerListDateShiftsForExamDay]);
+  }, [showExamDayImport, rows, centerListDateShiftsForExamDay, hiddenExamDayShiftIds]);
 
   const addExamDayImportColumns = () => {
     if (!examDayImportPlan) return;
@@ -776,6 +783,7 @@ export const BulkFieldsModal = ({
     const missing = buildMissingExamDayImportFields({
       fields: fieldLike,
       centerListDateShifts: centerListDateShiftsForExamDay,
+      hiddenShiftIds: hiddenExamDayShiftIds,
     });
     setRows((prev) => {
       const used = new Set(prev.map((r) => String(r.key || '').trim()).filter(Boolean));
@@ -832,7 +840,7 @@ export const BulkFieldsModal = ({
         uniqueFilled.push(r);
       });
       next = [
-        ...orderExamDayFieldsTimestampsLast(uniqueFilled),
+        ...orderExamDayImportFields(uniqueFilled),
         ...(blanks.length ? blanks : [newRow()]),
       ];
       const focusAdd = additions.find((a) => !isExamDayTimestampField(a)) || additions[0];
@@ -2088,7 +2096,7 @@ export const BulkFieldsModal = ({
                     >
                       {examDayImportPlan.ready
                         ? 'Ready — on the Exam Day tab, use Import from Center list to fill rows.'
-                        : 'Needed so Import from Center list can fill exam date, shift counts and status.'}
+                        : 'Needed so Import from Center list can fill exam date, shift counts, Reached, and status.'}
                     </span>
                   ) : null}
                 </span>

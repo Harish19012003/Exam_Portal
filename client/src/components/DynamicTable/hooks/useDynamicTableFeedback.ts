@@ -9,17 +9,17 @@ export interface DynamicTableFeedbackState {
   pendingEdit: PendingEdit | null;
   setPendingEdit: (value: PendingEdit | null) => void;
   handleUndoEdit: () => void;
-  showBulkConfirm: boolean;
-  setShowBulkConfirm: (value: boolean) => void;
-  handleDeleteSelected: () => void;
-  selectedRows: Set<string>;
+  /** Bulk delete confirm is owned by BulkDeleteModal in DynamicTable (Selected/Filtered/All). */
+  showBulkConfirm?: boolean;
+  setShowBulkConfirm?: (value: boolean) => void;
+  handleDeleteSelected?: (explicitIds?: string[]) => void;
+  selectedRows?: Set<string>;
 }
 
 export function useDynamicTableFeedback(state: DynamicTableFeedbackState) {
   const feedback = useFeedback();
   const undoDeleteToastRef = useRef<string | null>(null);
   const undoEditToastRef = useRef<string | null>(null);
-  const bulkConfirmIdRef = useRef<string | null>(null);
 
   const showSuccess = useCallback(
     (message: string, title = 'Success') => {
@@ -76,35 +76,6 @@ export function useDynamicTableFeedback(state: DynamicTableFeedbackState) {
     });
     undoEditToastRef.current = id ?? null;
   }, [state.pendingEdit?.id, feedback, state.handleUndoEdit, state.setPendingEdit]);
-
-  useEffect(() => {
-    if (!state.showBulkConfirm) {
-      if (bulkConfirmIdRef.current) {
-        feedback.dismiss(bulkConfirmIdRef.current);
-        bulkConfirmIdRef.current = null;
-      }
-      return;
-    }
-
-    if (bulkConfirmIdRef.current) return;
-
-    const count = state.selectedRows.size;
-    const id = feedback.show('confirm.delete', {
-      title: `Delete ${count} ${count === 1 ? 'row' : 'rows'}?`,
-      message: `This will permanently remove ${count} selected ${count === 1 ? 'row' : 'rows'}.`,
-      tertiary: 'This action cannot be undone.',
-      confirmLabel: count === 1 ? 'Delete row' : `Delete ${count} rows`,
-      onConfirm: () => state.handleDeleteSelected(),
-      onCancel: () => state.setShowBulkConfirm(false),
-    });
-    bulkConfirmIdRef.current = id ?? null;
-  }, [
-    state.showBulkConfirm,
-    state.selectedRows.size,
-    feedback,
-    state.handleDeleteSelected,
-    state.setShowBulkConfirm,
-  ]);
 
   return { showSuccess, showNotice };
 }
