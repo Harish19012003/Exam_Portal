@@ -60,3 +60,23 @@
   margin: 0 8px;
   opacity: 0.6;
 }
+
+/* Phones: one centred line that never wraps or gets clipped by the desktop's 64px right padding */
+@media (max-width: 640px) {
+  .app-footer--bar {
+    padding: 0 8px;
+    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .app-footer--bar .app-footer-support {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .app-footer--bar .app-footer-sep {
+    margin: 0 4px;
+  }
+}

@@ -28,6 +28,8 @@ import { ImageCropDialog } from '../../components/ImageCropDialog';
 import { uploadAvatarToCloudinary } from '../../api/avatarApi';
 import { optimizedLogoUrl, optimizedFaviconUrl, validateBrandingFile } from '../../utils/brandingImage';
 import { FONT_OPTIONS, FONT_FALLBACK, ensureFontLink } from '../../constants/headingFonts';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { FormCardsSkeleton } from '../../components/ui/SettingsSkeletons';
 import './PlatformSettingsTab.css';
 
 const TIMEZONE_LABELS = TIMEZONE_OPTIONS.map((o) => o.label);
@@ -159,12 +161,9 @@ const GeneralSettings = ({ isDarkMode }) => {
     }
   };
 
-  if (isLoading) {
-    return <div className="platform-settings platform-settings--loading">Loading platform settings…</div>;
-  }
-
   return (
-    <form className="platform-settings" onSubmit={handleSave}>
+    <BoneSkeleton name="settings-platform-general" loading={isLoading} fallback={<FormCardsSkeleton cards={[4, 3]} />}>
+      <form className="platform-settings" onSubmit={handleSave}>
       {isError && (
         <div className="ps-alert error" role="alert">
           <AlertCircle size={18} aria-hidden="true" />
@@ -348,13 +347,14 @@ const GeneralSettings = ({ isDarkMode }) => {
               Discard
             </button>
           )}
-          <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty}>
+          <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty} aria-label="Save changes" title="Save changes">
             <Save size={16} aria-hidden="true" />
             <span>{saving ? 'Saving…' : 'Save changes'}</span>
           </button>
         </div>
       </div>
-    </form>
+      </form>
+    </BoneSkeleton>
   );
 };
 

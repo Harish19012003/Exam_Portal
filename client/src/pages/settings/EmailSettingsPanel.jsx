@@ -9,6 +9,8 @@ import {
   saveEmailSettings,
   sendTestEmail,
 } from '../../api/emailSettingsApi';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { FormCardsSkeleton } from '../../components/ui/SettingsSkeletons';
 import './PlatformSettingsTab.css';
 
 const PROVIDER_LABELS = EMAIL_PROVIDER_OPTIONS.map((o) => o.label);
@@ -90,7 +92,6 @@ export const EmailSettingsPanel = ({ isDarkMode }) => {
     }
   };
 
-  if (isLoading) return <div className="platform-settings platform-settings--loading">Loading email settings…</div>;
   if (isError) {
     return (
       <div className="ps-alert error" role="alert">
@@ -104,7 +105,8 @@ export const EmailSettingsPanel = ({ isDarkMode }) => {
   const isGmail = form.provider === 'google';
 
   return (
-    <form className="platform-settings" onSubmit={handleSave}>
+    <BoneSkeleton name="settings-platform-email" loading={isLoading} fallback={<FormCardsSkeleton note cards={[3, 3]} wideCard={1} />}>
+      <form className="platform-settings" onSubmit={handleSave}>
       {notice && (
         <div className={`ps-alert ${notice.type}`} role="status">
           {notice.type === 'success' ? <CheckCircle2 size={18} aria-hidden="true" /> : <AlertCircle size={18} aria-hidden="true" />}
@@ -270,13 +272,14 @@ export const EmailSettingsPanel = ({ isDarkMode }) => {
               Discard
             </button>
           )}
-          <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty}>
+          <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty} aria-label="Save changes" title="Save changes">
             <Save size={16} aria-hidden="true" />
             <span>{saving ? 'Saving…' : 'Save changes'}</span>
           </button>
         </div>
       </div>
-    </form>
+      </form>
+    </BoneSkeleton>
   );
 };
 

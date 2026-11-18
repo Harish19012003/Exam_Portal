@@ -13,7 +13,11 @@ import {
   X,
 } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel, isExamViewKey } from '@exam-view/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { CardGridSkeleton } from '../../components/ui/SettingsSkeletons';
 import { useUrlState } from '../../hooks/useUrlState';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
@@ -41,6 +45,7 @@ const emptyForm = () => ({
 const pairKey = (serviceValue, view) =>
   `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
 
+const NO_PRESETS = [];
 const SORT_KEYS = ['default', 'name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'fields-desc', 'fields-asc', 'service-asc'];
 
 /** Stable JSON payload for Export / Import round-trips. */
@@ -125,9 +130,13 @@ export const FieldPresetsPanel = ({
   const confirm = useConfirm();
   const formId = useId();
   const importFileRef = useRef(null);
-  const [presets, setPresets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const queryClient = useQueryClient();
+  // Shared with the Exam explore page, so presets load once and both pages reuse the cache.
+  const presetsQuery = useQuery({ queryKey: queryKeys.exams.presets(), queryFn: listExamPresets });
+  const presets = presetsQuery.data ?? NO_PRESETS;
+  const loading = presetsQuery.isLoading;
+  const [actionError, setActionError] = useState('');
+  const loadError = actionError || (presetsQuery.error ? apiErrorMessage(presetsQuery.error, 'Could not load presets') : '');
   const [serviceOptions, setServiceOptions] = useState([]);
   const [form, setForm] = useState(null); // null = editor closed
   const [formError, setFormError] = useState('');
@@ -141,22 +150,14 @@ export const FieldPresetsPanel = ({
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
-    try {
-      setPresets(await listExamPresets());
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'Could not load presets'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.exams.presets() }),
+    [queryClient],
+  );
 
   useEffect(() => {
-    load();
     loadServiceOptions().then(setServiceOptions);
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     onPresetCountChange?.(presets.length);
@@ -294,7 +295,7 @@ export const FieldPresetsPanel = ({
       await deleteExamPreset(preset.id);
       await load();
     } catch (err) {
-      setLoadError(apiErrorMessage(err, 'Could not delete the preset'));
+      setActionError(apiErrorMessage(err, 'Could not delete the preset'));
     }
   };
 
@@ -388,9 +389,8 @@ export const FieldPresetsPanel = ({
     <div className="fpp">
       {loadError && <div className="fpp-error" role="alert">{loadError}</div>}
 
-      {loading ? (
-        <p className="fpp-muted">Loading presets…</p>
-      ) : presets.length === 0 ? (
+      <BoneSkeleton name="settings-field-presets" loading={loading} fallback={<CardGridSkeleton count={6} filters />}>
+      {loading ? null : presets.length === 0 ? (
         <div className="config-empty-state">
           <LayoutTemplate size={22} />
           <div>
@@ -506,6 +506,7 @@ export const FieldPresetsPanel = ({
         )}
         </>
       )}
+      </BoneSkeleton>
 
       {!loading && presets.length > 0 && missingCenterList.length > 0 && (
         <p className="fpp-muted">
