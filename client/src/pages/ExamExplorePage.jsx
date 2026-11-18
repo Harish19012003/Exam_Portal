@@ -50,11 +50,16 @@ import {
   updateExamRow,
 } from './exams/examTableApi';
 import {
+  buildMaxStatusFormula,
+  examDayFieldKeysForHiddenShifts,
+  examDayVisibleStatusKeys,
   expandCenterRowsToExamDay,
+  isExamDayDerivedRole,
   isExamDayLiveCountRole,
   parseExamDayRowId,
   splitExamDayPersistPatch,
 } from './exams/examDayExpand';
+import { loadTablePrefs } from '../components/DynamicTable/utils/prefsStorage';
 import {
   listExamPresets,
   updateExamPreset,
@@ -87,6 +92,7 @@ import {
   ensureFocusDateFields,
   focusDateColumnLabels,
   hasDateShiftTemplate,
+  hiddenShiftIdsFromCenterVisibility,
   orderFocusDateColumns,
   mergeDateShiftFields,
   normalizeDateShiftsConfig,
@@ -328,6 +334,14 @@ export const ExamExplorePage = () => {
     onResetLayoutToDefault,
   } = useTableLayoutPrefs(layoutTableId, { enabled: Boolean(layoutTableId) });
 
+  // Exam Day mirrors Center-list shift hide/show (OP S4 off → hide S4 family on Exam Day).
+  const centerListLayoutTableId = tableInfo
+    ? `exam_table_${tableInfo.id}_${DEFAULT_EXAM_VIEW}_v1`
+    : null;
+  const { layoutPrefs: centerListLayoutPrefs } = useTableLayoutPrefs(centerListLayoutTableId, {
+    enabled: Boolean(isExamDayView(view) && centerListLayoutTableId),
+  });
+
   const label = exam ? buildExamLabel(exam) : '';
   const viewPresets = useMemo(() => presetsForView(presets, view), [presets, view]);
   const matchedPreset = useMemo(
@@ -458,6 +472,37 @@ export const ExamExplorePage = () => {
     presetWithDateShifts,
     effectiveDateShifts,
   ]);
+  const centerListFields = useMemo(() => {
+    const fromTable = centerTableQuery.data?.fields;
+    if (Array.isArray(fromTable) && fromTable.length) return fromTable;
+    if (Array.isArray(centerListPreset?.fields) && centerListPreset.fields.length) {
+      return fieldsFromPreset(centerListPreset.fields);
+    }
+    return [];
+  }, [centerTableQuery.data?.fields, centerListPreset]);
+  /** Center-list columnVisibility (saved layout + browser draft) → hidden shift ids for Exam Day. */
+  const hiddenExamDayShiftIds = useMemo(() => {
+    if (!examDayLive) return new Set();
+    const fromServer =
+      (centerListLayoutPrefs && typeof centerListLayoutPrefs === 'object'
+        ? centerListLayoutPrefs.columnVisibility
+        : null) || {};
+    const fromDraft =
+      (centerListLayoutTableId ? loadTablePrefs(centerListLayoutTableId)?.columnVisibility : null) ||
+      {};
+    const columnVisibility = { ...fromServer, ...fromDraft };
+    return hiddenShiftIdsFromCenterVisibility({
+      dateShiftsConfig: centerListDateShifts,
+      centerListFields,
+      columnVisibility,
+    });
+  }, [
+    examDayLive,
+    centerListLayoutPrefs,
+    centerListLayoutTableId,
+    centerListDateShifts,
+    centerListFields,
+  ]);
   const focusDateOptions = useMemo(
     () =>
       (centerListDateShifts?.dates || []).map((d) => ({
@@ -504,22 +549,51 @@ export const ExamExplorePage = () => {
       access,
     );
     const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
-    const mapped = cols.map((c) => {
-      let next = c;
-      if (aggregateTargetKeys.has(c.key)) next = { ...next, editable: false };
-      // Exam Day live counts / exam date / max day come from Center list — read-only here.
-      if (examDayLive) {
-        const role = String(fieldByKey.get(c.key)?.examDayImportRole || '');
-        if (isExamDayLiveCountRole(role)) next = { ...next, editable: false };
-      }
-      // Real fields Date Total Center / Date Max All Day → `{date} …` headers.
-      if (focusLabels && c.key === FOCUS_TOTAL_CENTER_COLUMN_KEY) {
-        next = { ...next, label: focusLabels.totalCenter, editable: false };
-      } else if (focusLabels && c.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY) {
-        next = { ...next, label: focusLabels.maxAllDay, editable: false };
-      }
-      return next;
-    });
+    const hiddenKeys =
+      examDayLive && hiddenExamDayShiftIds.size
+        ? examDayFieldKeysForHiddenShifts({
+            fields,
+            centerListDateShifts,
+            hiddenShiftIds: hiddenExamDayShiftIds,
+          })
+        : null;
+    const visibleStatusKeys =
+      examDayLive && hiddenExamDayShiftIds.size
+        ? examDayVisibleStatusKeys({
+            fields,
+            centerListDateShifts,
+            hiddenShiftIds: hiddenExamDayShiftIds,
+          })
+        : null;
+    const maxStatusFormula =
+      visibleStatusKeys && visibleStatusKeys.length
+        ? buildMaxStatusFormula(visibleStatusKeys)
+        : null;
+    const mapped = cols
+      .filter((c) => !hiddenKeys || !hiddenKeys.has(c.key))
+      .map((c) => {
+        let next = c;
+        if (aggregateTargetKeys.has(c.key)) next = { ...next, editable: false };
+        // Exam Day live counts / derived status+timestamps / max come from Center list or Reached.
+        if (examDayLive) {
+          const field = fieldByKey.get(c.key);
+          const role = String(field?.examDayImportRole || '');
+          if (isExamDayLiveCountRole(role) || isExamDayDerivedRole(role)) {
+            next = { ...next, editable: false };
+          }
+          // Max Status only rolls up shifts still visible on Center list.
+          if (maxStatusFormula && (role === 'maxStatus' || c.key === 'max_status')) {
+            next = { ...next, formula: maxStatusFormula, editable: false };
+          }
+        }
+        // Real fields Date Total Center / Date Max All Day → `{date} …` headers.
+        if (focusLabels && c.key === FOCUS_TOTAL_CENTER_COLUMN_KEY) {
+          next = { ...next, label: focusLabels.totalCenter, editable: false };
+        } else if (focusLabels && c.key === FOCUS_MAX_ALL_DAY_COLUMN_KEY) {
+          next = { ...next, label: focusLabels.maxAllDay, editable: false };
+        }
+        return next;
+      });
     // Always: Days Total Center → All Day Max → date Total Center → date Max All Day.
     return orderFocusDateColumns(mapped, {
       countTargetKey: focusCountTargetKey,
@@ -537,8 +611,15 @@ export const ExamExplorePage = () => {
     focusCountTargetKey,
     focusSumTargetKey,
     examDayLive,
+    hiddenExamDayShiftIds,
+    centerListDateShifts,
   ]);
-  const tablePerms = useMemo(() => tablePermissions(access, 'exam_rows'), [access]);
+  // Exam Day is a live Center-list view — do not offer row delete (would look like wiping centers).
+  const tablePerms = useMemo(() => {
+    const base = tablePermissions(access, 'exam_rows');
+    if (!examDayLive) return base;
+    return { ...base, delete: false };
+  }, [access, examDayLive]);
   const createFields = useMemo(
     () => creatableFields(fields, 'exam_rows', access).filter((f) => !isCombinedField(f)),
     [fields, access],
@@ -720,25 +801,39 @@ export const ExamExplorePage = () => {
 
   /* ---------- Fields drawer: auto-saves field definitions ---------- */
 
+  const fieldsSaveLockRef = useRef(false);
   const saveFields = useCallback(async () => {
+    if (fieldsSaveLockRef.current) return;
     const next = fieldsRef.current;
     const nextKeys = new Set(next.map((f) => f.key));
     const removed = serverFieldsRef.current.filter((f) => !nextKeys.has(f.key));
     if (removed.length) {
-      const names = removed.map((f) => f.label || f.key).join(', ');
-      const ok = await confirm({
-        title: 'Remove column?',
-        message: `Remove ${names}?`,
-        tertiary: 'This permanently deletes the column and all data stored in it. This cannot be undone.',
-        confirmLabel: 'Remove',
-        destructive: true,
-      });
-      if (!ok) {
-        setFields(serverFieldsRef.current);
-        return;
+      fieldsSaveLockRef.current = true;
+      const labels = removed.map((f) => f.label || f.key);
+      const preview =
+        labels.length <= 3
+          ? labels.join(', ')
+          : `${labels.slice(0, 3).join(', ')} and ${labels.length - 3} more`;
+      try {
+        const ok = await confirm({
+          title: labels.length === 1 ? 'Remove column?' : `Remove ${labels.length} columns?`,
+          message: `Remove ${preview}?`,
+          tertiary:
+            'This permanently deletes the column and all data stored in it on this page. This cannot be undone. Tip: to apply a preset, use “Reload from preset” instead of deleting fields one by one.',
+          confirmLabel: labels.length === 1 ? 'Remove' : `Remove ${labels.length}`,
+          destructive: true,
+        });
+        if (!ok) {
+          setFields(serverFieldsRef.current);
+          return;
+        }
+      } finally {
+        fieldsSaveLockRef.current = false;
       }
     }
+    fieldsSaveLockRef.current = true;
     try {
+      setMessage(removed.length ? `Saving — removing ${removed.length} columns…` : 'Saving fields…');
       const snap = await saveExamTableConfig(examId, {
         fields: next,
         confirmDrops: removed.length > 0,
@@ -754,6 +849,8 @@ export const ExamExplorePage = () => {
       } catch {
         // keep local state
       }
+    } finally {
+      fieldsSaveLockRef.current = false;
     }
   }, [examId, view, viewTitle, applySnapshot, loadRows, confirm]);
 
@@ -953,6 +1050,7 @@ export const ExamExplorePage = () => {
         dateId: parsed.dateId,
         previousCenterValues: source.values || {},
         patch: rawPatch,
+        dateShiftsConfig: centerListDateShifts,
       });
       const centerPatch = { ...rootPatch };
       if (nextMeta) centerPatch[EXAM_DAY_META_KEY] = nextMeta;
@@ -1098,13 +1196,19 @@ export const ExamExplorePage = () => {
   };
   examDayPersistRef.current = persistRowValues;
 
-  const handleRowUpdate = async (rowId, values) => {
+  const handleRowUpdate = async (rowId, values, row) => {
     const examDayParsed = examDayLive ? parseExamDayRowId(rowId) : null;
     const original = examDayParsed
       ? rows.find((r) => String(r.id) === String(examDayParsed.sourceRowId))
       : rows.find((r) => r.id === rowId);
     try {
-      await persistRowValues(rowId, values);
+      // Cell saves often send only the changed key — merge full Exam Day row so
+      // Requested counts are available when deriving Status from Reached.
+      const payload =
+        examDayLive && row?.values && typeof row.values === 'object'
+          ? { ...row.values, ...(values || {}) }
+          : values;
+      await persistRowValues(rowId, payload);
     } catch (err) {
       if (original) {
         const matchId = String(original.id);
@@ -1186,8 +1290,11 @@ export const ExamExplorePage = () => {
           const f = fieldByKey.get(key);
           if (!f || isCombinedField(f) || isFromExamField(f) || isLinkedField(f)) return;
           if (isSharedImportedField(f)) return; // home-tab only — skip in bulk for now
-          // Exam Day live counts are derived from Center list — never mass-write them.
-          if (isExamDayLiveCountRole(f.examDayImportRole) || f.examDayImportRole === 'maxStatus') {
+          // Exam Day live counts + auto status/timestamps — never mass-write them.
+          if (
+            isExamDayLiveCountRole(f.examDayImportRole) ||
+            isExamDayDerivedRole(f.examDayImportRole)
+          ) {
             return;
           }
           localPatch[key] = val;
@@ -1384,6 +1491,152 @@ export const ExamExplorePage = () => {
       setMessage(apiErrorMessage(err, 'Could not delete the center'));
     }
   };
+
+  /** Bulk delete Selected / Filtered / All against the database (same scopes as Mass Edit). */
+  const handleRowDeleteByScope = useCallback(
+    async ({ scope, selectedRowIds, filters, search, columns, columnVisibility }) => {
+      if (examDayLive) {
+        setMessage('Delete centers on Center list — Exam Day is a live view of those rows.');
+        await invalidateRows(examId);
+        return;
+      }
+
+      const scopeLabel =
+        scope === 'selected' ? 'selected rows' : scope === 'filtered' ? 'filtered rows' : 'all rows';
+      setMassEditJob({
+        status: 'running',
+        label: 'Deleting rows',
+        detail: `Preparing ${scopeLabel}…`,
+        progress: 10,
+      });
+
+      try {
+        const searchKeys = [];
+        (columns || []).forEach((col) => {
+          if (!col?.key || columnVisibility?.[col.key] === false) return;
+          if (Array.isArray(col.composedOf) && col.composedOf.length) {
+            col.composedOf.forEach((part) => {
+              if (part?.field) searchKeys.push(String(part.field));
+            });
+          } else {
+            searchKeys.push(String(col.key));
+          }
+        });
+
+        let ids = [];
+        if (scope === 'selected') {
+          ids = (selectedRowIds || []).map(String).filter(Boolean);
+        } else if (scope === 'all') {
+          setMassEditJob({
+            status: 'running',
+            label: 'Deleting rows',
+            detail: 'Loading all rows…',
+            progress: 30,
+          });
+          const res = await listExamRows(examId, { all: true, view });
+          ids = (Array.isArray(res?.rows) ? res.rows : []).map((r) => String(r.id)).filter(Boolean);
+        } else {
+          const hasFilter =
+            Boolean(String(search || '').trim()) ||
+            Object.values(filters || {}).some((f) => f != null && f !== '');
+          if (!hasFilter) {
+            setMassEditJob({
+              status: 'running',
+              label: 'Deleting rows',
+              detail: 'Loading all rows…',
+              progress: 30,
+            });
+            const res = await listExamRows(examId, { all: true, view });
+            ids = (Array.isArray(res?.rows) ? res.rows : []).map((r) => String(r.id)).filter(Boolean);
+          } else {
+            setMassEditJob({
+              status: 'running',
+              label: 'Deleting rows',
+              detail: 'Matching filters on the server…',
+              progress: 30,
+            });
+            const collected = [];
+            let page = 1;
+            const limit = 500;
+            for (;;) {
+              const res = await listExamRows(examId, {
+                page,
+                limit,
+                view,
+                search: search || '',
+                searchKeys,
+                filters: filters || {},
+              });
+              const batch = Array.isArray(res?.rows) ? res.rows : [];
+              batch.forEach((r) => {
+                const id = String(r?.id || '').trim();
+                if (id) collected.push(id);
+              });
+              const total = Number(res?.total) || collected.length;
+              if (batch.length < limit || collected.length >= total) break;
+              page += 1;
+              if (page > 200) break;
+            }
+            ids = collected;
+          }
+        }
+
+        if (!ids.length) {
+          setMassEditJob({
+            status: 'error',
+            label: 'Delete failed',
+            detail: 'No rows to delete',
+            progress: 100,
+          });
+          await invalidateRows(examId);
+          return;
+        }
+
+        setMassEditJob({
+          status: 'running',
+          label: 'Deleting rows',
+          detail: `Deleting ${ids.length.toLocaleString()} row${ids.length === 1 ? '' : 's'}…`,
+          progress: 55,
+        });
+
+        const DELETE_CHUNK = 200;
+        let deleted = 0;
+        for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+          const chunk = ids.slice(i, i + DELETE_CHUNK);
+          await deleteExamRows(examId, chunk);
+          deleted += chunk.length;
+          setMassEditJob({
+            status: 'running',
+            label: 'Deleting rows',
+            detail: `Deleted ${deleted.toLocaleString()} of ${ids.length.toLocaleString()}…`,
+            progress: 55 + Math.round((deleted / ids.length) * 35),
+          });
+        }
+
+        setRowsCache(
+          examId,
+          (prev) => prev.filter((r) => !ids.includes(String(r.id))),
+          rowsPageKey,
+        );
+        await invalidateRows(examId);
+        setMassEditJob({
+          status: 'success',
+          label: 'Delete complete',
+          detail: deleted === 1 ? 'Deleted 1 row' : `Deleted ${deleted.toLocaleString()} rows`,
+          progress: 100,
+        });
+      } catch (err) {
+        setMassEditJob({
+          status: 'error',
+          label: 'Delete failed',
+          detail: apiErrorMessage(err, 'Could not delete rows'),
+          progress: 100,
+        });
+        await invalidateRows(examId);
+      }
+    },
+    [examDayLive, examId, view, invalidateRows, rowsPageKey],
+  );
 
   const handleDuplicateRow = async (row) => {
     const source = row?.rawValues || row?.values || {};
@@ -1587,6 +1840,7 @@ export const ExamExplorePage = () => {
       const snap = await saveExamTableConfig(examId, {
         fields: fieldsFromPreset(preset.fields),
         features: nextFeatures,
+        confirmDrops: true,
         view,
       });
       applySnapshot(snap);
@@ -2204,7 +2458,8 @@ export const ExamExplorePage = () => {
               onRowUpdate={handleRowUpdate}
               onBulkUpdate={handleBulkUpdate}
               onBulkUpdateByScope={handleBulkUpdateByScope}
-              onRowDelete={handleRowDelete}
+              onRowDelete={examDayLive ? undefined : handleRowDelete}
+              onRowDeleteByScope={examDayLive ? undefined : handleRowDeleteByScope}
               onDuplicateRow={examDayLive ? undefined : handleDuplicateRow}
               onImportRows={examDayLive ? undefined : handleImportRows}
               importMatchKeys={importMatchKeys}
@@ -2365,6 +2620,7 @@ export const ExamExplorePage = () => {
         enableFromExam
         examId={examId}
         currentView={view}
+        hiddenExamDayShiftIds={examDayLive ? hiddenExamDayShiftIds : null}
         bulkWorkingContext={[label || 'Exam', viewTitle].filter(Boolean).join(' · ')}
         onClose={() => setIsBuilderOpen(false)}
         onChange={handleFieldsChange}

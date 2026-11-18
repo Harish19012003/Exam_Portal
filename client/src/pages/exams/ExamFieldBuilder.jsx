@@ -173,6 +173,8 @@ export const ExamFieldBuilder = ({
    * Field presets pass false. Exam Center list omits this (defaults from currentView).
    */
   enableDateShifts = null,
+  /** Center-list–hidden shift ids — Exam Day checklist / Add missing skip those families. */
+  hiddenExamDayShiftIds = null,
 }) => {
   const formId = useId();
   const confirm = useConfirm();
@@ -1689,6 +1691,7 @@ export const ExamFieldBuilder = ({
           currentServiceValue={currentServiceValue}
           dateShifts={dateShifts}
           enableDateShifts={enableDateShifts}
+          hiddenExamDayShiftIds={hiddenExamDayShiftIds}
           uniqueRowKeys={uniqueRowKeys}
           uniqueRowAggregates={uniqueRowAggregates}
           onUniqueImportChange={onUniqueImportChange}

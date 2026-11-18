@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isFieldColumn } from './types';
 import type { FilterComponentProps } from './types';
-import { STATUS_COLORS } from './utils';
+import { resolveStatusColors } from './utils';
 
 /** Show search in multi-checkbox filters once the list is this long (same idea as SearchableSelect). */
 const SET_FILTER_SEARCH_THRESHOLD = 8;
@@ -189,7 +189,7 @@ export function SetFilter({
           </p>
         ) : (
           filteredOptions.map(opt => {
-            const colors = STATUS_COLORS[opt];
+            const colors = resolveStatusColors(opt);
             const isChecked = selected.includes(opt);
             return (
               <label

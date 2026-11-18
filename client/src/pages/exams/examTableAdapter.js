@@ -107,7 +107,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
           }
         : {}),
       // Linked / fromExam / combined / shared-from-another-tab values are display-only here.
-      // Exam Day First T. / Last T. are system-stamped when status changes.
+      // Exam Day status + First/Last T. are derived from Reached (not user-edited).
       editable:
         !isAuto &&
         dataType !== 'formula' &&
@@ -116,6 +116,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
         field.dataType !== 'fromExam' &&
         !isCombinedField(field) &&
         !isSharedImportedField(field) &&
+        String(field.examDayImportRole || '') !== 'shiftStatus' &&
         String(field.examDayImportRole || '') !== 'shiftFirstT' &&
         String(field.examDayImportRole || '') !== 'shiftLastT',
       sharedFromView: isSharedImportedField(field) || isCombinedField(field) ? field.sharedFromView : undefined,

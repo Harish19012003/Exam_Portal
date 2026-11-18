@@ -40,10 +40,10 @@ export function ConfirmModal({ confirm, isDarkMode, onDismiss }: ConfirmModalPro
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={`confirm-title-${confirm.id}`}
-      className="w-full overflow-hidden rounded-[14px] border border-[var(--border-color,#e6e8eb)] bg-[var(--bg-card,#ffffff)] text-[var(--text-primary,#1e2022)] shadow-[0_24px_60px_rgba(3, 7, 18,0.35)] animate-[slideUp_0.2s_ease-out]"
+      className="w-full max-h-[min(90vh,90dvh)] flex flex-col overflow-hidden rounded-[14px] border border-[var(--border-color,#e6e8eb)] bg-[var(--bg-card,#ffffff)] text-[var(--text-primary,#1e2022)] shadow-[0_24px_60px_rgba(3, 7, 18,0.35)] animate-[slideUp_0.2s_ease-out]"
       onClick={e => e.stopPropagation()}
     >
-      <div className="flex items-start gap-3.5 px-5 pt-5 pb-4">
+      <div className="flex items-start gap-3.5 px-5 pt-5 pb-3 flex-shrink-0">
         <div
           className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl
             ${isDelete ? 'bg-red-500/10' : confirm.variant === 'info' ? 'bg-[var(--primary-light,#f0edff)]' : styles.iconBg}`}
@@ -60,27 +60,36 @@ export function ConfirmModal({ confirm, isDarkMode, onDismiss }: ConfirmModalPro
               {confirm.title}
             </p>
           )}
-          {confirm.message && (
-            <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--text-secondary,#747980)]">{confirm.message}</p>
-          )}
-          {(confirm.tertiary ?? confirm.description) && (
-            <p className="mt-2 text-[12px] leading-snug text-[var(--text-secondary,#747980)] opacity-80">
-              {confirm.tertiary ?? confirm.description}
-            </p>
-          )}
         </div>
 
         <button
           type="button"
           onClick={handleCancel}
-          className={`-mr-1 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary,#747980)] transition-colors hover:bg-[var(--primary-light,#f0edff)] hover:text-[var(--text-primary,#1e2022)] ${FOCUS}`}
+          className={`-mr-1 -mt-1 flex min-h-[44px] min-w-[44px] sm:h-8 sm:w-8 sm:min-h-0 sm:min-w-0 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary,#747980)] transition-colors hover:bg-[var(--primary-light,#f0edff)] hover:text-[var(--text-primary,#1e2022)] ${FOCUS}`}
           aria-label="Close"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className={`px-5 pb-5 flex gap-2 ${isCustom && customActions ? 'flex-wrap justify-end' : 'gap-3'}`}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3">
+        {confirm.message && (
+          <p className="text-[13px] leading-relaxed text-[var(--text-secondary,#747980)] break-words">
+            {confirm.message}
+          </p>
+        )}
+        {(confirm.tertiary ?? confirm.description) && (
+          <p className="mt-2 text-[12px] leading-snug text-[var(--text-secondary,#747980)] opacity-80">
+            {confirm.tertiary ?? confirm.description}
+          </p>
+        )}
+      </div>
+
+      <div
+        className={`flex-shrink-0 px-5 py-4 border-t border-[var(--border-color,#e6e8eb)] flex gap-2 ${
+          isCustom && customActions ? 'flex-wrap justify-end' : 'gap-3'
+        }`}
+      >
         {isCustom && customActions ? (
           customActions.map((action, i) => (
             <button

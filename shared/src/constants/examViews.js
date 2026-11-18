@@ -10,7 +10,7 @@ export const MAX_DAY_N_KEY = 'max_day_n';
 /** Exam Day rollup of per-shift status columns (completed / partial / pending). */
 export const MAX_STATUS_KEY = 'max_status';
 
-/** Fixed options for per-shift Exam Day status dropdowns. */
+/** Fixed options for per-shift Exam Day status (auto from Requested vs Reached). */
 export const EXAM_DAY_STATUS_OPTIONS = ['completed', 'pending'];
 
 /** Default / legacy tab — existing exam tables map here. */
@@ -21,8 +21,8 @@ export const EXAM_DAY_VIEW = 'exam-day';
 
 /**
  * Nested bag on each Center list row for Exam Day–only values per exam date
- * (status, First T., Last T., and other Exam Day fields).
- * Shape: { [dateId]: { s1_status, s1_first_t, … } }
+ * (Reached, status, First T., Last T., and other Exam Day fields).
+ * Shape: { [dateId]: { s1_reached, s1_status, s1_first_t, … } }
  */
 export const EXAM_DAY_META_KEY = '__exam_day';
 

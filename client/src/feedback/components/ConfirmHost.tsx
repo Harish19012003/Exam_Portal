@@ -43,9 +43,9 @@ export function ConfirmHost({ confirm, isDarkMode, confirmPosition, onDismiss }:
         aria-hidden="true"
       />
       <div
-        className={`fixed z-[10051] w-full max-w-[min(100vw-2rem,400px)] pointer-events-none ${positionClasses}`}
+        className={`fixed z-[10051] w-full max-w-[min(100vw-2rem,440px)] max-h-[min(90vh,90dvh)] pointer-events-none ${positionClasses}`}
       >
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto max-h-[min(90vh,90dvh)]">
           <ConfirmModal confirm={confirm} isDarkMode={isDarkMode} onDismiss={onDismiss} />
         </div>
       </div>

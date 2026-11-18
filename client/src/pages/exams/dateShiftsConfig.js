@@ -870,6 +870,32 @@ export const buildDateShiftVisibilityGroups = (dateShiftsConfig, fields) => {
   return groups;
 };
 
+/** True when any key in the group is still visible (`!== false`). */
+export const isDateShiftVisibilityGroupShown = (keys, columnVisibility = {}) =>
+  (Array.isArray(keys) ? keys : []).some((k) => columnVisibility?.[k] !== false);
+
+/**
+ * Shift ids hidden on Center list via columnVisibility (OP S4 chip off → that shiftId).
+ * Used by Exam Day to hide the matching Requested / Reached / Status / First·Last T. family.
+ */
+export const hiddenShiftIdsFromCenterVisibility = ({
+  dateShiftsConfig = null,
+  centerListFields = [],
+  columnVisibility = {},
+} = {}) => {
+  const groups = buildDateShiftVisibilityGroups(dateShiftsConfig, centerListFields);
+  const hidden = new Set();
+  groups.forEach((g) => {
+    if (g?.kind !== 'shift') return;
+    const shiftId = String(g.shiftId || '').trim();
+    if (!shiftId) return;
+    if (!isDateShiftVisibilityGroupShown(g.keys, columnVisibility)) {
+      hidden.add(shiftId);
+    }
+  });
+  return hidden;
+};
+
 /** Match a shift template row for a Center-list field (by id, then by key suffix). */
 const findShiftForField = (field, cfg) => {
   const shiftId = String(field?.dateShift?.shiftId || '').trim();

@@ -818,14 +818,24 @@ export function useTableState(
     setPendingEdit(null);
   }, [pendingEdit]);
 
-  const handleDeleteSelected = useCallback(() => {
-    const ids = Array.from(selectedRows);
-    ids.forEach((id) => cancelRow(id));
-    setRows(prev => prev.filter(r => !selectedRows.has(r.rowId)));
-    setSelectedRows(new Set());
-    setShowBulkConfirm(false);
-    if (ids.length && onRowDelete) void onRowDelete(ids);
-  }, [selectedRows, onRowDelete, cancelRow]);
+  const handleDeleteSelected = useCallback(
+    (explicitIds?: string[]) => {
+      const ids = (Array.isArray(explicitIds) ? explicitIds : Array.from(selectedRows))
+        .map(String)
+        .filter(Boolean);
+      if (!ids.length) {
+        setShowBulkConfirm(false);
+        return;
+      }
+      const idSet = new Set(ids);
+      ids.forEach((id) => cancelRow(id));
+      setRows((prev) => prev.filter((r) => !idSet.has(r.rowId)));
+      setSelectedRows(new Set());
+      setShowBulkConfirm(false);
+      if (onRowDelete) void onRowDelete(ids);
+    },
+    [selectedRows, onRowDelete, cancelRow],
+  );
 
   const handleBulkUpdate = useCallback((
     updates: Record<string, unknown>,

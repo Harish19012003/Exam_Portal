@@ -44,6 +44,7 @@ import { SidebarManager } from './components/SidebarManager';
 import { TableFloatingSidebarTrigger } from './components/TableFloatingSidebarTrigger';
 import { ContextMenu } from './components/ContextMenu';
 import { BulkUpdateModal } from './components/BulkUpdateModal';
+import { BulkDeleteModal, type BulkDeleteScope } from './components/BulkDeleteModal';
 import { RecordModal } from './components/RecordModal';
 import { SubRowNestedPanel } from './components/SubRowNestedPanel';
 import { RecordDetail as RecordEditSidebar } from '../DynamicData';
@@ -123,6 +124,18 @@ interface DynamicTableProps {
     columnVisibility: Record<string, boolean>;
     lookupPicks?: import('./components/BulkLookupPicker').BulkLookupPickMeta[];
     assigneePicks?: import('./components/BulkAssigneePicker').BulkAssigneePickMeta[];
+  }) => Promise<void> | void;
+  /**
+   * DB-scoped bulk delete (Selected / Filtered / All). When set, the page resolves which
+   * database rows to delete — not only the currently loaded page.
+   */
+  onRowDeleteByScope?: (payload: {
+    scope: BulkDeleteScope;
+    selectedRowIds: string[];
+    filters: Record<string, unknown>;
+    search: string;
+    columns: ColumnConfig[];
+    columnVisibility: Record<string, boolean>;
   }) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
   /**
@@ -243,6 +256,7 @@ export function DynamicTable({
   onRowDelete,
   onBulkUpdate,
   onBulkUpdateByScope,
+  onRowDeleteByScope,
   onRefresh,
   onEditRow,
   onDeleteRowRequest,
@@ -1733,6 +1747,59 @@ export function DynamicTable({
           onDelete={() => state.handleDeleteRow(state.contextMenu!.rowId)}
           onDeleteSelected={() => state.setShowBulkConfirm(true)}
           onClose={() => state.setContextMenu(null)}
+        />
+      )}
+
+      {state.showBulkConfirm && (
+        <BulkDeleteModal
+          selectedCount={state.selectedRows.size}
+          filteredCount={
+            serverPagination
+              ? Object.keys(state.filters || {}).length || toolbarSearch
+                ? filteredRows.length
+                : serverPagination.totalRowCount
+              : filteredRows.length
+          }
+          totalCount={serverPagination ? serverPagination.totalRowCount : state.rows.length}
+          serverPaginated={Boolean(serverPagination)}
+          dbScoped={Boolean(onRowDeleteByScope)}
+          isDarkMode={isDarkMode}
+          onClose={() => state.setShowBulkConfirm(false)}
+          onConfirm={(scope) => {
+            const selectedRowIds = Array.from(state.selectedRows);
+            if (onRowDeleteByScope) {
+              const visibleTargets =
+                scope === 'selected'
+                  ? state.rows.filter((r) => selectedRowIds.includes(r.rowId))
+                  : scope === 'filtered'
+                    ? filteredRows
+                    : state.rows;
+              const visibleIds = new Set(visibleTargets.map((r) => r.rowId));
+              if (visibleIds.size) {
+                state.setRows((prev) => prev.filter((r) => !visibleIds.has(r.rowId)));
+              }
+              state.setSelectedRows(new Set());
+              state.setShowBulkConfirm(false);
+              void Promise.resolve(
+                onRowDeleteByScope({
+                  scope,
+                  selectedRowIds,
+                  filters: state.filters || {},
+                  search: toolbarSearch || '',
+                  columns: state.columns,
+                  columnVisibility: state.columnVisibility || {},
+                }),
+              );
+              return;
+            }
+            const targets =
+              scope === 'all'
+                ? state.rows
+                : scope === 'filtered'
+                  ? filteredRows
+                  : state.rows.filter((r) => state.selectedRows.has(r.rowId));
+            state.handleDeleteSelected(targets.map((r) => r.rowId));
+          }}
         />
       )}
 

@@ -1992,9 +1992,11 @@ html.dark .exams-dynamic-table-wrap,
   background: rgba(239, 68, 68, 0.08);
 }
 
-/* Dropdown / status pills — table body only (do not touch Feature Builder) */
-.exams-dynamic-table-wrap table tbody span[class*='rounded-full'],
-.exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
+/* Dropdown / tag pills — table body only (do not touch Feature Builder).
+   Exclude StatusBadge (.dt-status-badge / .dt-status-dot) so completed=green,
+   pending=red, partial=yellow keep their Tailwind colors. */
+.exams-dynamic-table-wrap table tbody span[class*='rounded-full']:not(.dt-status-badge):not(.dt-status-dot),
+.exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.dt-status-badge):not(.dt-status-dot) {
   border: 1px solid rgba(92, 67, 250, 0.12);
   background: rgba(92, 67, 250, 0.06) !important;
   color: var(--text-primary, #030712) !important;
@@ -2020,10 +2022,10 @@ html.dark .exams-dynamic-table-wrap tbody tr:hover td.dt-sticky-cell--right {
   box-shadow: -2px 0 0 0 #1f2937, -1px 0 0 0 #4b5563 !important;
 }
 
-[data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-full'],
-[data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-md'],
-html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-full'],
-html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md'] {
+[data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-full']:not(.dt-status-badge):not(.dt-status-dot),
+[data-theme='dark'] .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.dt-status-badge):not(.dt-status-dot),
+html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-full']:not(.dt-status-badge):not(.dt-status-dot),
+html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.dt-status-badge):not(.dt-status-dot) {
   background: rgba(59, 130, 246, 0.18) !important;
   border-color: rgba(59, 130, 246, 0.3);
 }
