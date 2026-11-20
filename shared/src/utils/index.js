@@ -3,6 +3,8 @@
  * Only pure functions — no Node.js or browser APIs.
  */
 
+export * from './callingExpand.js';
+
 /**
  * Pauses execution for a given number of milliseconds.
  * @param {number} ms

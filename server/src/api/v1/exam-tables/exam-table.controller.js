@@ -93,6 +93,11 @@ export const listRows = handle(async (req) => {
   }
   // `all` is for Unique import rollups that must see every center (not capped at page size 500).
   // `view` scopes Exam Day rows vs shared center rows.
+  const includeHidden =
+    req.query?.includeHidden === true ||
+    req.query?.includeHidden === 1 ||
+    req.query?.includeHidden === '1' ||
+    String(req.query?.includeHidden || '').toLowerCase() === 'true';
   const result = await service.listRows(req.params.examId, {
     page,
     limit,
@@ -101,6 +106,7 @@ export const listRows = handle(async (req) => {
     filters,
     view: viewOf(req),
     ...(all ? { all: true } : {}),
+    ...(includeHidden ? { includeHidden: true } : {}),
   });
   const fields = allFields || [];
   const rows = (result.rows || [])
@@ -204,4 +210,14 @@ export const deleteRows = handle(async (req) => {
   const found = await service.getRowsByIds(req.params.examId, idList);
   found.forEach((row) => assertRowVisible(req, TABLE, ruleValues(req, row), allFields));
   return service.deleteRows(req.params.examId, ids);
+});
+
+/** Expand / soft-hide Op/Guard Calling rows from Center list (preset callingExpand). */
+export const syncCallingRows = handle(async (req) => {
+  await assertExamVisible(req);
+  assertTable(req, TABLE, 'create');
+  return service.syncCallingRows(req.params.examId, req.user?.id, {
+    centerOffset: req.body?.centerOffset,
+    centerLimit: req.body?.centerLimit,
+  });
 });

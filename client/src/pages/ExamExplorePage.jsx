@@ -22,13 +22,19 @@ import {
   X,
 } from 'lucide-react';
 import {
+  CALLING_EXPAND_MODES,
+  CALLING_LABEL_MODES,
   DEFAULT_EXAM_VIEW,
   EXAM_DAY_META_KEY,
   EXAM_DAY_VIEW,
   examViewLabel,
   isExamDayView,
   isExamViewKey,
+  isOperatorGuardCallingView,
   isSharedImportedField,
+  normalizeCallingExpand,
+  normalizeCallingLabel,
+  resolveCallingExpandForLabel,
 } from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
@@ -47,6 +53,7 @@ import {
   getExamTable,
   listExamRows,
   saveExamTableConfig,
+  syncCallingRows,
   updateExamRow,
 } from './exams/examTableApi';
 import {
@@ -288,6 +295,9 @@ export const ExamExplorePage = () => {
   const [isDateShiftsOpen, setIsDateShiftsOpen] = useState(false);
   const [isSavingDateShifts, setIsSavingDateShifts] = useState(false);
   const [importingExamDay, setImportingExamDay] = useState(false);
+  const [syncingCalling, setSyncingCalling] = useState(false);
+  /** { status, progress, detail, created, updated, hidden, centersProcessed, centersTotal } */
+  const [callingSyncJob, setCallingSyncJob] = useState(null);
   const [shiftVisBarOpen, setShiftVisBarOpen] = useState(false);
   const [shiftVisApiEpoch, setShiftVisApiEpoch] = useState(0);
   /** Bumped when date×shift template widths/colors save — forces table remount. */
@@ -407,8 +417,21 @@ export const ExamExplorePage = () => {
   );
 
   const examDayLive = isExamDayView(view);
+  const callingLive = isOperatorGuardCallingView(view);
+  const callingLabel = useMemo(() => {
+    if (features?.callingLabel != null) return normalizeCallingLabel(features.callingLabel);
+    return normalizeCallingLabel(matchedPreset?.features?.callingLabel);
+  }, [features?.callingLabel, matchedPreset?.features?.callingLabel]);
+  const callingExpand = useMemo(() => {
+    const raw =
+      features?.callingExpand != null
+        ? features.callingExpand
+        : matchedPreset?.features?.callingExpand;
+    return resolveCallingExpandForLabel(raw, callingLabel);
+  }, [features?.callingExpand, matchedPreset?.features?.callingExpand, callingLabel]);
   // Unique import / Exam Day: load every shared center (no page-size cap), then page in the UI.
   // Exam Day expands Center list → center×date (same spreadsheet, different view).
+  // Op/Guard Calling: own row bag with server pagination (never all:true).
   const rowsQuery = useExamRows(examId, {
     view: examDayLive ? DEFAULT_EXAM_VIEW : view,
     ...(uniqueImportActive || examDayLive
@@ -1477,6 +1500,15 @@ export const ExamExplorePage = () => {
     return () => window.clearTimeout(t);
   }, [massEditJob]);
 
+  useEffect(() => {
+    if (!callingSyncJob || callingSyncJob.status === 'running') return undefined;
+    const t = window.setTimeout(
+      () => setCallingSyncJob(null),
+      callingSyncJob.status === 'success' ? 5000 : 8000,
+    );
+    return () => window.clearTimeout(t);
+  }, [callingSyncJob]);
+
   const handleRowDelete = async (rowIds) => {
     if (examDayLive) {
       setMessage('Delete centers on Center list — Exam Day is a live view of those rows.');
@@ -1906,6 +1938,182 @@ export const ExamExplorePage = () => {
     }
   }, [examDayLive, examId, loadRows, centerListDateShifts, queryClient]);
 
+  /** Expand / soft-hide Calling rows — chunked sync with progress popup. */
+  const handleSyncCalling = useCallback(async () => {
+    if (!callingLive || !examId || syncingCalling) return;
+    setSyncingCalling(true);
+    setCallingSyncJob({
+      status: 'running',
+      progress: 0,
+      detail: 'Preparing…',
+      created: 0,
+      updated: 0,
+      hidden: 0,
+      centersProcessed: 0,
+      centersTotal: 0,
+    });
+    try {
+      const nextFeatures = tableFeaturesFor({
+        ...(features || {}),
+        callingExpand,
+        callingLabel,
+      });
+      const dirty =
+        JSON.stringify(nextFeatures.callingExpand) !== JSON.stringify(features?.callingExpand) ||
+        JSON.stringify(nextFeatures.callingLabel) !== JSON.stringify(features?.callingLabel);
+      if (dirty) {
+        await saveExamTableConfig(examId, {
+          fields,
+          features: nextFeatures,
+          view,
+        });
+        setFeatures(nextFeatures);
+        lastSavedFeaturesRef.current = nextFeatures;
+        setFeaturesDirty(false);
+        queryClient.setQueryData(queryKeys.exams.table(examId, view), (prev) =>
+          prev ? { ...prev, features: nextFeatures } : prev,
+        );
+      }
+
+      const batchSize = 40;
+      let offset = 0;
+      let totals = { created: 0, updated: 0, hidden: 0 };
+      let last = null;
+      let done = false;
+      while (!done) {
+        const result = await syncCallingRows(examId, {
+          centerOffset: offset,
+          centerLimit: batchSize,
+        });
+        last = result;
+        totals = {
+          created: totals.created + (Number(result?.created) || 0),
+          updated: totals.updated + (Number(result?.updated) || 0),
+          hidden: totals.hidden + (Number(result?.hidden) || 0),
+        };
+        const centersTotal = Number(result?.centersTotal) || 0;
+        const centersProcessed = Number(result?.centersProcessed) || 0;
+        const progress = Number(result?.progress) || 0;
+        setCallingSyncJob({
+          status: 'running',
+          progress,
+          detail:
+            centersTotal > 0
+              ? `Centers ${centersProcessed.toLocaleString()} / ${centersTotal.toLocaleString()} · +${totals.created} created · ${totals.updated} updated`
+              : 'Syncing…',
+          created: totals.created,
+          updated: totals.updated,
+          hidden: totals.hidden,
+          centersProcessed,
+          centersTotal,
+        });
+        done = Boolean(result?.done) || result?.nextOffset == null;
+        if (!done) offset = Number(result.nextOffset) || offset + batchSize;
+      }
+
+      await loadRows();
+      const modeLabel =
+        last?.mode === CALLING_EXPAND_MODES.PER_SHIFT
+          ? 'per shift'
+          : last?.mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS
+            ? 'category counts'
+            : 'Max Day N';
+      setCallingSyncJob({
+        status: 'success',
+        progress: 100,
+        detail: `${modeLabel}: +${totals.created} created · ${totals.updated} updated · ${totals.hidden} hidden`,
+        created: totals.created,
+        updated: totals.updated,
+        hidden: totals.hidden,
+        centersProcessed: last?.centersProcessed || 0,
+        centersTotal: last?.centersTotal || 0,
+      });
+      setMessage(
+        `Calling synced (${modeLabel}): +${totals.created} created · ${totals.updated} updated · ${totals.hidden} hidden`,
+      );
+    } catch (err) {
+      const msg = apiErrorMessage(err, 'Could not sync Op/Guard Calling from Center list');
+      setCallingSyncJob({
+        status: 'error',
+        progress: 0,
+        detail: msg,
+        created: 0,
+        updated: 0,
+        hidden: 0,
+        centersProcessed: 0,
+        centersTotal: 0,
+      });
+      setMessage(msg);
+    } finally {
+      setSyncingCalling(false);
+    }
+  }, [
+    callingLive,
+    examId,
+    syncingCalling,
+    callingExpand,
+    callingLabel,
+    features,
+    fields,
+    view,
+    loadRows,
+    queryClient,
+  ]);
+
+  const handleCallingExpandModeChange = useCallback(
+    async (mode) => {
+      if (!callingLive || !examId) return;
+      let nextMode = CALLING_EXPAND_MODES.MAX_DAY_N;
+      if (mode === CALLING_EXPAND_MODES.PER_SHIFT) nextMode = CALLING_EXPAND_MODES.PER_SHIFT;
+      else if (mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS) {
+        nextMode = CALLING_EXPAND_MODES.CATEGORY_COUNTS;
+      }
+      const nextExpand = normalizeCallingExpand({
+        ...callingExpand,
+        mode: nextMode,
+      });
+      let nextLabel = callingLabel;
+      if (
+        nextMode === CALLING_EXPAND_MODES.CATEGORY_COUNTS &&
+        callingLabel.mode === CALLING_LABEL_MODES.NONE
+      ) {
+        nextLabel = normalizeCallingLabel({
+          ...callingLabel,
+          mode: CALLING_LABEL_MODES.CATEGORY_HEAD,
+        });
+      }
+      const nextFeatures = tableFeaturesFor({
+        ...(features || {}),
+        callingExpand: nextExpand,
+        callingLabel: nextLabel,
+      });
+      setFeatures(nextFeatures);
+      setFeaturesDirty(true);
+      try {
+        await saveExamTableConfig(examId, {
+          fields,
+          features: nextFeatures,
+          view,
+        });
+        lastSavedFeaturesRef.current = nextFeatures;
+        setFeaturesDirty(false);
+        queryClient.setQueryData(queryKeys.exams.table(examId, view), (prev) =>
+          prev ? { ...prev, features: nextFeatures } : prev,
+        );
+        const msg =
+          nextExpand.mode === CALLING_EXPAND_MODES.PER_SHIFT
+            ? 'Per shift'
+            : nextExpand.mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS
+              ? 'Category counts'
+              : 'Max Day N';
+        setMessage(`Calling expand set to ${msg} — run Sync from Center list`);
+      } catch (err) {
+        setMessage(apiErrorMessage(err, 'Could not save Calling expand mode'));
+      }
+    },
+    [callingLive, examId, callingExpand, callingLabel, features, fields, view, queryClient],
+  );
+
   /** CSV / paste import: add, update / upsert by key, or replace all with incoming. */
   const handleImportRows = async (csvRows, handlers) => {
     const mode = handlers?.mode || 'add';
@@ -2247,12 +2455,51 @@ export const ExamExplorePage = () => {
                       )}
                     </IconButton>
                   )}
+                  {callingLive && (
+                    <>
+                      <label className="exam-explore-focus-date">
+                        <span className="exam-explore-focus-date-label">Expand by</span>
+                        <SearchableSelect
+                          ariaLabel="Calling expand mode from Center list"
+                          value={callingExpand.mode}
+                          onChange={handleCallingExpandModeChange}
+                          options={[
+                            {
+                              value: CALLING_EXPAND_MODES.MAX_DAY_N,
+                              label: 'Max Day N slots',
+                            },
+                            {
+                              value: CALLING_EXPAND_MODES.PER_SHIFT,
+                              label: 'Per shift',
+                            },
+                            {
+                              value: CALLING_EXPAND_MODES.CATEGORY_COUNTS,
+                              label: 'Category counts',
+                            },
+                          ]}
+                          searchThreshold={99}
+                          placeholder="Expand mode…"
+                        />
+                      </label>
+                      <IconButton
+                        label="Sync Calling rows from Center list (add / soft-hide)"
+                        onClick={handleSyncCalling}
+                        disabled={syncingCalling || !fields.length}
+                      >
+                        {syncingCalling ? (
+                          <Loader2 size={16} strokeWidth={2} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={16} strokeWidth={2} />
+                        )}
+                      </IconButton>
+                    </>
+                  )}
                 </>
               )}
               {canCreateRow && !examDayLive && (
                 <IconButton
                   variant="primary"
-                  label="Add center"
+                  label={callingLive ? 'Add calling row' : 'Add center'}
                   onClick={openCreate}
                   disabled={createFields.length === 0}
                 >
@@ -2312,6 +2559,78 @@ export const ExamExplorePage = () => {
                 <X className="h-4 w-4" />
               </button>
             ) : null}
+          </div>,
+          document.body,
+        )}
+
+      {callingSyncJob &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[10002] flex items-center justify-center bg-black/40 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Calling sync progress"
+          >
+            <div
+              className={`w-full max-w-[min(420px,92vw)] rounded-2xl border px-5 py-5 shadow-2xl
+                ${isDarkMode ? 'border-gray-600 bg-[#0f1c18] text-gray-100' : 'border-gray-200 bg-white text-gray-900'}`}
+            >
+              <div className="flex items-start gap-3">
+                {callingSyncJob.status === 'running' ? (
+                  <Loader2 className="mt-0.5 h-6 w-6 shrink-0 animate-spin text-[#5c43fa]" />
+                ) : callingSyncJob.status === 'success' ? (
+                  <Check className="mt-0.5 h-6 w-6 shrink-0 text-[#13C296]" strokeWidth={2.5} />
+                ) : (
+                  <X className="mt-0.5 h-6 w-6 shrink-0 text-rose-500" strokeWidth={2.5} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-bold">
+                    {callingSyncJob.status === 'running'
+                      ? 'Syncing Op/Guard Calling'
+                      : callingSyncJob.status === 'success'
+                        ? 'Calling sync complete'
+                        : 'Calling sync failed'}
+                  </p>
+                  <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {callingSyncJob.detail || 'Working…'}
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-2 text-xs font-semibold tabular-nums">
+                    <span>
+                      {Math.min(100, Math.max(0, callingSyncJob.progress || 0))}% complete
+                    </span>
+                    {callingSyncJob.centersTotal > 0 ? (
+                      <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>
+                        {callingSyncJob.centersProcessed.toLocaleString()} /{' '}
+                        {callingSyncJob.centersTotal.toLocaleString()} centers
+                      </span>
+                    ) : null}
+                  </div>
+                  <div
+                    className={`mt-2 h-2.5 overflow-hidden rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}
+                  >
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-300 ${
+                        callingSyncJob.status === 'error' ? 'bg-rose-500' : 'bg-[#5c43fa]'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, Math.max(0, callingSyncJob.progress || 0))}%`,
+                      }}
+                    />
+                  </div>
+                  {callingSyncJob.status !== 'running' ? (
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        className="exams-btn secondary compact"
+                        onClick={() => setCallingSyncJob(null)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>,
           document.body,
         )}
@@ -2382,6 +2701,8 @@ export const ExamExplorePage = () => {
                 ? `An admin needs to set up ${viewTitle.toLowerCase()} for this exam first.`
                 : examDayLive
                   ? 'Load the Exam Day preset for columns. Data comes live from Center list (one row per center × exam date).'
+                  : callingLive
+                    ? 'Load an Op/Guard Calling preset (set Expand by: Max Day N or Per shift), then Sync from Center list.'
                   : matchedPreset
                     ? 'Use the recommended preset for this exam’s service, pick another, or start blank.'
                     : `${exam?.values?.service ? `No preset matches “${exam.values.service}”. ` : ''}Pick a preset to start from, or build the fields yourself.`}
@@ -2424,15 +2745,6 @@ export const ExamExplorePage = () => {
           <TableSkeleton isDarkMode={isDarkMode} columns={Math.max(4, fields.length || 5)} />
         ) : (
           <div className="exams-dynamic-table-wrap">
-            {examDayLive && !rowsLoading && displayTotal === 0 && (
-              <p className="exam-explore-live-hint" role="status">
-                {!hasDateShiftTemplate(centerListDateShifts)
-                  ? 'Add exam dates on Center list (Date shifts) — Exam Day expands those centers live.'
-                  : rows.length === 0
-                    ? 'No centers on Center list yet. Add centers there; Exam Day will show them here.'
-                    : 'No center×date rows to show (Max Day N is 0 for every date, or centers have no code).'}
-              </p>
-            )}
             <DynamicTable
               key={`exam_table_${layoutEpoch}_${savedLayoutPrefs || !presetLayout ? 0 : 1}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
               tableId={layoutTableId}
