@@ -1,6 +1,7 @@
 import type { CellEditorProps } from '../types';
 import { isCompositeColumn, isFieldColumn } from '../types';
 import { TextEditor } from './TextEditor';
+import { PhoneEditor } from './PhoneEditor';
 import { NumberEditor } from './NumberEditor';
 import { DropdownEditor } from './DropdownEditor';
 import { MultiSelectDropdownEditor } from './MultiSelectDropdownEditor';
@@ -59,8 +60,9 @@ export function CellEditor(props: CellEditorProps) {
       return <MultiSelectDropdownEditor {...props} />;
     case 'attachment':
       return <AttachmentEditor {...props} />;
-    case 'email':
     case 'phone':
+      return <PhoneEditor {...props} />;
+    case 'email':
     default:
       return <TextEditor {...props} />;
   }

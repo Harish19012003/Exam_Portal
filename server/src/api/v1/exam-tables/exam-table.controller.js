@@ -201,6 +201,15 @@ export const bulkUpdateRows = handle(async (req) => {
   );
 });
 
+/** Batch update multiple rows with individual value patches (used by Bulk Import / paste). */
+export const bulkPatchRows = handle(async (req) => {
+  await assertExamVisible(req);
+  assertTable(req, TABLE, 'edit');
+  const view = viewOf(req, true);
+  const patches = Array.isArray(req.body?.patches) ? req.body.patches : [];
+  return service.bulkPatchRows(req.params.examId, patches, req.user?.id, { view });
+});
+
 export const deleteRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'delete');

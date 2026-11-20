@@ -627,6 +627,51 @@ export const bulkUpdateRows = (examId, body, userId) =>
     };
   });
 
+/**
+ * Patch multiple rows with individual values in batch (used by Bulk Import / paste update).
+ * @param {string} examId
+ * @param {Array<{ id: string, values: object }>} patches
+ * @param {string} userId
+ * @param {object} [options]
+ */
+export const bulkPatchRows = (examId, patches, userId, options = {}) =>
+  withMeta(async () => {
+    const viewKey = normalizeView(options?.view);
+    const { table, fields } = await tableAndViewFields(examId, viewKey);
+    const writableFields = writableViewFields(fields, viewKey);
+    if (!writableFields.length) throw validationError('No editable columns on this tab');
+    const list = Array.isArray(patches) ? patches.filter((p) => p?.id) : [];
+    if (!list.length) return { updated: 0 };
+
+    const cleanedPatches = [];
+    for (const p of list) {
+      const cleaned = cleanRowValues(writableFields, p.values);
+      if (Object.keys(cleaned).length > 0) {
+        cleanedPatches.push({ id: p.id, values: cleaned });
+      }
+    }
+
+    if (isOperatorGuardCallingView(viewKey)) {
+      const updated = await callingRepo.updateRowsIndividual(
+        examId,
+        writableFields,
+        cleanedPatches,
+        userId,
+        { chunkSize: 200 },
+      );
+      return { updated };
+    }
+
+    const updated = await repo.updateRowsIndividual(
+      table.id,
+      writableFields,
+      cleanedPatches,
+      userId,
+      { chunkSize: 200 },
+    );
+    return { updated };
+  });
+
 export const getRowsByIds = (examId, rowIds) =>
   withMeta(async () => {
     const { table, fields } = await tableAndAllFields(examId);

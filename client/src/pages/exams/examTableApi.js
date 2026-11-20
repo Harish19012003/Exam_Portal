@@ -83,6 +83,19 @@ export const updateExamRow = async (examId, rowId, values, view = DEFAULT_EXAM_V
     }),
   );
 
+/** Batch update multiple rows with individual value patches in one HTTP call. */
+export const updateExamRowsBulkIndividual = async (
+  examId,
+  patches,
+  view = DEFAULT_EXAM_VIEW,
+) =>
+  unwrap(
+    await apiClient.post(`${base(examId)}/rows/bulk-patch`, {
+      patches,
+      ...withView(view),
+    }),
+  );
+
 /**
  * Mass Edit against the database.
  * - `{ all: true, values }` → every row in the exam table

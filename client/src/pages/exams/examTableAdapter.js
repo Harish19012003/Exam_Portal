@@ -7,7 +7,7 @@ import {
   resolveDateShiftFieldAccent,
   resolveDateShiftWidthForField,
 } from './dateShiftsConfig';
-import { getEffectiveDataType, resolveFieldOptions } from './examFieldTypes';
+import { getEffectiveDataType, resolveFieldOptions, resolvePhoneValidation } from './examFieldTypes';
 import {
   isTableSourceField,
   isUserTagsField,
@@ -146,6 +146,12 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
       options: options.length ? options : undefined,
       formula: field.formula,
       resultType: dataType === 'formula' ? field.resultType || 'text' : undefined,
+      phoneValidation: field.phoneValidation
+        ? {
+            ...field.phoneValidation,
+            ...resolvePhoneValidation(field),
+          }
+        : undefined,
       // All day / Summary accent from field.color or features.dateShifts.
       ...(accentColor ? { accentColor } : {}),
     };

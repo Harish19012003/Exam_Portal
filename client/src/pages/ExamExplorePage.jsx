@@ -55,6 +55,7 @@ import {
   saveExamTableConfig,
   syncCallingRows,
   updateExamRow,
+  updateExamRowsBulkIndividual,
 } from './exams/examTableApi';
 import {
   buildMaxStatusFormula,
@@ -2287,22 +2288,27 @@ export const ExamExplorePage = () => {
       handlers?.onProgress?.(finished, Math.max(totalWork, 1));
     };
 
-    // Parallelism capped so we don’t stampede the API.
-    const UPDATE_CONCURRENCY = 6;
-    for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
-      const slice = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
-      await Promise.all(
-        slice.map(async ({ id, values }) => {
+    // Batch updates in chunks of 200 for high speed and minimal backend load
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+      const batch = toUpdate.slice(i, i + BATCH_SIZE);
+      try {
+        const res = await updateExamRowsBulkIndividual(examId, batch, view);
+        updated += res?.updated ?? batch.length;
+      } catch (err) {
+        // Fallback to per-row updates if batch endpoint encounters an error
+        for (const item of batch) {
           try {
-            await updateExamRow(examId, id, values, view);
+            await updateExamRow(examId, item.id, item.values, view);
             updated += 1;
-          } catch (err) {
-            failures.push(`${id}: ${apiErrorMessage(err, 'could not be updated')}`);
-          } finally {
-            bump();
+          } catch (subErr) {
+            failures.push(`${item.id}: ${apiErrorMessage(subErr, 'could not be updated')}`);
           }
-        }),
-      );
+        }
+      } finally {
+        finished += batch.length;
+        handlers?.onProgress?.(Math.min(finished, totalWork), Math.max(totalWork, 1));
+      }
     }
 
     await createBatches(toCreate);

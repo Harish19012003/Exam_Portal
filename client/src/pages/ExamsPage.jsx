@@ -74,6 +74,7 @@ import {
   buildEmptyForm,
   mergeDraftIntoForm,
   validateFormFields,
+  validatePhoneFieldValue,
 } from './exams/examTableHelpers';
 import { LinkExamsDialog } from './exams/LinkExamsDialog';
 import './ExamsPage.css';
@@ -520,6 +521,15 @@ export const ExamsPage = () => {
   };
 
   const handleRowUpdate = async (rowId, updatedValues) => {
+    for (const field of formFields || []) {
+      if (field.key in updatedValues && field.dataType === 'phone') {
+        const phoneError = validatePhoneFieldValue(field, updatedValues[field.key]);
+        if (phoneError) {
+          setPageMessage(phoneError);
+          return;
+        }
+      }
+    }
     const original = exams.find((exam) => exam.id === rowId);
     const patchedValues = restoreLookupIds(updatedValues, original?.values, formFields, rowId);
     // Paint group / linked lookup fields from seeds before the save round-trip finishes.

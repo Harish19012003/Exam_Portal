@@ -810,6 +810,11 @@ export function DynamicTable({
     state.handlePinColumn(key, pin);
   }, [featureConfig.isTransposed, state.handlePinColumn]);
 
+  const handlePinColumnsUntil = useCallback((key: string) => {
+    if (featureConfig.isTransposed) return;
+    state.handlePinColumnsUntil(key);
+  }, [featureConfig.isTransposed, state.handlePinColumnsUntil]);
+
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, rowId: string) => {
       e.preventDefault();
@@ -1138,6 +1143,7 @@ export function DynamicTable({
                 onColumnWidthsChange={state.handleColumnWidthsChange}
                 onColumnReorder={state.handleColumnReorder}
                 onPinColumn={handlePinColumn}
+                onPinColumnsUntil={handlePinColumnsUntil}
                 onDeleteCompositeColumn={state.handleDeleteCompositeColumn}
                 onHideColumn={(key) => state.handlePatchColumnVisibility({ [key]: false })}
                 dragColKey={state.dragColKey}
