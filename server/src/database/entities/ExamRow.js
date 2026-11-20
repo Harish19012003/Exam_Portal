@@ -11,8 +11,9 @@ export const ExamRowSchema = new EntitySchema({
     id: { type: 'string', serializedPrimaryKey: true },
     exam_id: { type: 'string' },
     /**
-     * null / missing / center-list → shared center rows (Center list + Unique-import tabs).
-     * 'exam-day' → Exam Day only (one row per center × date).
+     * null / missing / center-list → shared center rows (Center list + Unique-import + Exam Day live).
+     * 'exam-day' → legacy Exam Day snapshots (excluded from shared bag).
+     * Op/Guard Calling is only in `exam_calling_rows` — never stored via row_view here.
      */
     row_view: { type: 'string', nullable: true },
     values: { type: 'json', default: {} },

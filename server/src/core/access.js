@@ -2,6 +2,7 @@ import {
   ERROR_CODES,
   EXAM_DAY_META_KEY,
   ROLES,
+  isCallingSystemKey,
   resolveAccess,
   canAction,
   canPage,
@@ -112,7 +113,13 @@ export const stripHidden = (req, tableId, values) => {
   if (req.access?.superAdmin || !values || typeof values !== 'object') return values;
   const out = {};
   Object.entries(values).forEach(([key, val]) => {
-    if (key === EXAM_DAY_META_KEY || columnLevel(req.access, tableId, key) !== 'hidden') out[key] = val;
+    if (
+      key === EXAM_DAY_META_KEY ||
+      isCallingSystemKey(key) ||
+      columnLevel(req.access, tableId, key) !== 'hidden'
+    ) {
+      out[key] = val;
+    }
   });
   return out;
 };
@@ -124,8 +131,8 @@ export const stripHidden = (req, tableId, values) => {
 export const assertWritable = (req, tableId, values, previous = null) => {
   if (req.access?.superAdmin || !values || typeof values !== 'object') return;
   const blocked = Object.keys(values).filter((key) => {
-    // Exam Day per-date bag on Center list rows (not a configured column).
-    if (key === EXAM_DAY_META_KEY) return false;
+    // Exam Day / Calling system bags (not configured columns).
+    if (key === EXAM_DAY_META_KEY || isCallingSystemKey(key)) return false;
     if (columnLevel(req.access, tableId, key) === 'edit') return false;
     if (previous && JSON.stringify(previous[key] ?? null) === JSON.stringify(values[key] ?? null)) return false;
     return true;
@@ -144,6 +151,7 @@ export const writableValues = (req, tableId, values, autoKeys = []) => {
     Object.entries(values).filter(
       ([key]) =>
         key === EXAM_DAY_META_KEY ||
+        isCallingSystemKey(key) ||
         auto.has(key) ||
         columnLevel(req.access, tableId, key) === 'edit',
     ),

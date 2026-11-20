@@ -116,6 +116,18 @@ export const bulkUpdateExamRows = async (
 export const deleteExamRows = async (examId, ids) =>
   unwrap(await apiClient.post(`${base(examId)}/rows/delete`, { ids }));
 
+/** Expand / soft-hide Op/Guard Calling rows (chunked — pass centerOffset/centerLimit for progress). */
+export const syncCallingRows = async (
+  examId,
+  { centerOffset = 0, centerLimit = 40 } = {},
+) =>
+  unwrap(
+    await apiClient.post(`${base(examId)}/rows/sync-calling`, {
+      centerOffset,
+      centerLimit,
+    }),
+  );
+
 /** Server validation message if present, else a generic fallback. */
 export const apiErrorMessage = (error, fallback) =>
   error?.response?.data?.message || error?.response?.data?.error?.message || fallback;

@@ -2186,7 +2186,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title="Aggregates each date’s Summary (Max Day N) only — not individual shifts or shift Max. Turn Summary on. Placed before all date columns."
+                      title="With Summary on: aggregates each date’s Summary (Max Day N). With Summary off: aggregates all shift cells across dates. Does not use shift Max columns. Placed before all date columns."
                       aria-label="About all-day column"
                     >
                       <Info size={13} />
@@ -2484,18 +2484,18 @@ export const BulkFieldsModal = ({
                       const colCount = Math.max(labels.length + (summaryOn ? 1 : 0), 1);
                       const sampleVals = (di) => labels.map((_, i) => 8 + ((di + i) % 3));
                       const summaryType = shiftDraft.summaryColumn?.type || 'max';
-                      // All day looks up Summary (Max Day N) only — not shifts / shift Max.
+                      // Summary on → All day from day Summaries; off → from all shift cells.
                       const daySummaryVals = summaryOn
                         ? days.map((_, di) =>
                             aggregateShiftValues(summaryType, sampleVals(di)),
                           )
                         : [];
-                      const allDaySample = summaryOn
-                        ? aggregateShiftValues(
-                            shiftDraft.allDayColumn?.type || 'max',
-                            daySummaryVals.filter((v) => typeof v === 'number'),
-                          )
-                        : '—';
+                      const allShiftVals = days.flatMap((_, di) => sampleVals(di));
+                      const allDaySourceVals = summaryOn ? daySummaryVals : allShiftVals;
+                      const allDaySample = aggregateShiftValues(
+                        shiftDraft.allDayColumn?.type || 'max',
+                        allDaySourceVals.filter((v) => typeof v === 'number'),
+                      );
                       const emptyDay = labels.length === 0 && !summaryOn;
                       const allDayColor = normalizeColumnColor(shiftDraft.allDayColumn?.color);
                       const summaryColor = normalizeColumnColor(shiftDraft.summaryColumn?.color);

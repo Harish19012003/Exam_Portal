@@ -110,23 +110,6 @@
   line-height: 1.45;
 }
 
-.exam-explore-live-hint {
-  margin: 0 0 0.75rem;
-  max-width: 42rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--primary-color, #5c43fa) 28%, transparent);
-  background: color-mix(in srgb, var(--primary-color, #5c43fa) 8%, transparent);
-  font-size: 0.875rem;
-  line-height: 1.45;
-  color: var(--text-primary, #030712);
-}
-
-[data-theme='dark'] .exam-explore-live-hint {
-  border-color: color-mix(in srgb, var(--primary-color, #8b7cff) 35%, transparent);
-  background: color-mix(in srgb, var(--primary-color, #8b7cff) 12%, transparent);
-}
-
 .exam-explore-create {
   min-height: 44px;
   padding: 0 18px;

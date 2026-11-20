@@ -13,11 +13,26 @@ export const DATE_SHIFT_SUMMARY_TYPES = [
   { value: 'counta', label: 'CountA', hint: 'Count of filled shift cells that day (read-only)' },
 ];
 
-/** Same types as per-day summary; All day aggregates Summary (Max Day N) only — not shifts / shift Max. */
+/**
+ * All day types. With Summary on → aggregates each date’s Summary (Max Day N).
+ * With Summary off → aggregates all shift cells across dates directly.
+ */
 export const DATE_SHIFT_ALL_DAY_TYPES = [
-  { value: 'max', label: 'Max', hint: 'Highest of each date’s Summary (Max Day N) values' },
-  { value: 'sum', label: 'Sum', hint: 'Total of each date’s Summary (Max Day N) values' },
-  { value: 'counta', label: 'CountA', hint: 'Count of filled Summary (Max Day N) cells' },
+  {
+    value: 'max',
+    label: 'Max',
+    hint: 'Highest Summary across dates — or max of all shifts when Summary is off',
+  },
+  {
+    value: 'sum',
+    label: 'Sum',
+    hint: 'Total of Summaries across dates — or sum of all shifts when Summary is off',
+  },
+  {
+    value: 'counta',
+    label: 'CountA',
+    hint: 'Count of filled Summaries — or filled shift cells when Summary is off',
+  },
   { value: 'custom', label: 'Custom', hint: 'Type your own column name (manual entry)' },
 ];
 
@@ -298,22 +313,48 @@ export const shiftKeysForDate = (dateShiftsConfig, dateId) => {
   return cfg.shifts.map((shift) => makeKey(id, shift.id));
 };
 
+/** All shift cell keys across every selected exam date (not Summary / All day / shift Max). */
+export const allShiftKeysForConfig = (dateShiftsConfig) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  if (!cfg.dates.length || !cfg.shifts.length) return [];
+  return cfg.dates.flatMap((date) => cfg.shifts.map((shift) => makeKey(date.id, shift.id)));
+};
+
 /**
- * Live Max/Sum/CountA all-day value from Summary (Max Day N) only — never raw
- * shifts or per-shift Max columns. Used when `ds_allday` is formula-only.
+ * Keys All day formulas reference:
+ * - Summary on → each date’s Summary (Max Day N)
+ * - Summary off → every shift cell across dates
+ */
+export const allDaySourceKeysForConfig = (dateShiftsConfig) => {
+  const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
+  if (cfg.summaryColumn?.enabled) return summaryKeysForConfig(cfg);
+  return allShiftKeysForConfig(cfg);
+};
+
+/**
+ * Live Max/Sum/CountA all-day value.
+ * Summary on → aggregates Summary (Max Day N) values (recomputes from shifts if needed).
+ * Summary off → aggregates all shift cells across dates directly.
+ * Never includes per-shift Max columns.
  */
 export const resolveAllDayValueFromRow = (values, dateShiftsConfig = null) => {
   const cfg = normalizeDateShiftsConfig(dateShiftsConfig);
   const type = cfg.allDayColumn?.enabled ? cfg.allDayColumn.type || 'max' : 'max';
   if (type === 'custom') return null;
   const bag = values && typeof values === 'object' ? values : {};
-  const summaryKeys = summaryKeysForConfig(cfg);
-  let nums = summaryKeys.map((k) => toShiftNumber(bag[k])).filter((n) => n != null);
-  // If Summary cells are not stored yet, recompute each day’s Summary from shifts.
-  if (!nums.length && cfg.dates.length) {
-    nums = cfg.dates
-      .map((date) => resolveDayAggregateFromRow(bag, cfg, date.id))
-      .filter((n) => n != null);
+  let nums;
+  if (cfg.summaryColumn?.enabled) {
+    const summaryKeys = summaryKeysForConfig(cfg);
+    nums = summaryKeys.map((k) => toShiftNumber(bag[k])).filter((n) => n != null);
+    // If Summary cells are not stored yet, recompute each day’s Summary from shifts.
+    if (!nums.length && cfg.dates.length) {
+      nums = cfg.dates
+        .map((date) => resolveDayAggregateFromRow(bag, cfg, date.id))
+        .filter((n) => n != null);
+    }
+  } else {
+    const shiftKeys = allShiftKeysForConfig(cfg);
+    nums = shiftKeys.map((k) => toShiftNumber(bag[k])).filter((n) => n != null);
   }
   const result = aggregateShiftValues(type, nums);
   return typeof result === 'number' && Number.isFinite(result) ? result : null;
@@ -689,13 +730,14 @@ export const buildDateShiftFields = (input) => {
   if (cfg.allDayColumn.enabled) {
     const type = cfg.allDayColumn.type || 'max';
     const allDayColor = normalizeColumnColor(cfg.allDayColumn.color);
-    // All day looks up Summary (Max Day N) only — not shifts or shift Max.
+    // Summary on → Summary keys; Summary off → all shift cells across dates.
+    const allDayKeys = cfg.summaryColumn.enabled ? summaryKeys : allShiftKeysForConfig(cfg);
     out.push({
       id: fieldId(),
       key: makeKey('allday'),
       label: allDayColumnLabel(cfg.allDayColumn),
       dataType: type === 'custom' ? 'number' : 'formula',
-      formula: type === 'custom' ? undefined : formulaFor(type, summaryKeys),
+      formula: type === 'custom' ? undefined : formulaFor(type, allDayKeys),
       required: false,
       layout: 'full',
       autoFill: 'none',
