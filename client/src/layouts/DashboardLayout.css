@@ -828,6 +828,13 @@
   overflow: hidden;
   padding: 8px 6px 0;
 }
+/* Settings on phones: 4px page gutter instead of 24px */
+@media (max-width: 768px) {
+  .main-content:has(.settings-page) {
+    padding: 4px 4px 2px;
+  }
+}
+
 /* Shown in place of a page the user's groups don't include */
 .page-gate {
   display: flex;

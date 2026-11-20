@@ -7,6 +7,10 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  // Pre-bundle at startup so adding it later doesn't leave the dev server with a stale dependency cache.
+  optimizeDeps: {
+    include: ['boneyard-js/react'],
+  },
   plugins: [
     tailwindcss(),
     react(),

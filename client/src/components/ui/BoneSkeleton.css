@@ -1,0 +1,81 @@
+/* Fallback shown while a section loads and its real layout has not been captured yet. */
+.bone-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: clamp(14px, 3vw, 24px);
+  border: 1px solid var(--border-color, #e6e8eb);
+  border-radius: 16px;
+  background: var(--bg-card, #fff);
+}
+
+.bone-fallback__bar {
+  display: block;
+  max-width: 100%;
+  height: 16px;
+  border-radius: 8px;
+  background: linear-gradient(110deg, #e6e8ee 30%, #f4f5f8 50%, #e6e8ee 70%);
+  background-size: 200% 100%;
+  animation: boneFallbackShimmer 1.6s linear infinite;
+}
+
+.bone-fallback__bar--title {
+  width: 38%;
+  height: 22px;
+}
+
+[data-theme='dark'] .bone-fallback__bar {
+  background: linear-gradient(110deg, #1f2937 30%, #2b3648 50%, #1f2937 70%);
+  background-size: 200% 100%;
+}
+
+@keyframes boneFallbackShimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone-fallback__bar { animation: none; }
+}
+
+/* ── Settings panel skeletons (SettingsSkeletons.jsx) ─────────────────────────────────── */
+.sk-bar {
+  display: block;
+  flex-shrink: 0;
+  max-width: 100%;
+  background: linear-gradient(110deg, #e6e8ee 30%, #f4f5f8 50%, #e6e8ee 70%);
+  background-size: 200% 100%;
+  animation: boneFallbackShimmer 1.6s linear infinite;
+}
+
+[data-theme='dark'] .sk-bar {
+  background: linear-gradient(110deg, #1f2937 30%, #2b3648 50%, #1f2937 70%);
+  background-size: 200% 100%;
+}
+
+.sk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.sk-savebar { display: flex; justify-content: flex-end; }
+.sk-filters { display: flex; flex-wrap: wrap; gap: 10px; padding: clamp(10px, 1.6vw, 16px) clamp(10px, 1.6vw, 16px) 0; }
+.sk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sk-editor { display: flex; flex-direction: column; gap: 12px; padding: clamp(14px, 2.5vw, 22px); }
+
+/* Cards must not catch hover styles while they are only placeholders */
+.sk-root .fpp-card:hover { border-color: var(--border-color, #e5e7eb); box-shadow: none; }
+
+@media (max-width: 768px) {
+  .msg-templates-container.sk-root .msg-studio-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-bar { animation: none; }
+}

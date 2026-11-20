@@ -18,6 +18,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { queryKeys } from '../../api/queryKeys';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { TemplatesSkeleton } from '../../components/ui/SettingsSkeletons';
 import {
   fetchMessageTemplates,
   saveMessageTemplate,
@@ -165,6 +167,7 @@ export const MessageTemplatesTab = ({ actionsSlot = null }) => {
           setTestEmailOpen(true);
         }}
         disabled={!server}
+        aria-label="Send test email"
         title="Send the saved version of this email to an address you choose"
       >
         <Send size={14} aria-hidden="true" />
@@ -172,7 +175,8 @@ export const MessageTemplatesTab = ({ actionsSlot = null }) => {
       </button>
       <button
         type="button"
-        className="config-add-btn"
+        className="config-add-btn primary"
+        aria-label="Save template"
         onClick={handleSave}
         disabled={!dirty || saving}
         title={dirty ? 'Save changes to this template' : 'No changes to save'}
@@ -183,10 +187,7 @@ export const MessageTemplatesTab = ({ actionsSlot = null }) => {
     </div>
   );
 
-  if (isLoading) {
-    return <div className="msg-templates-container msg-state">Loading templates…</div>;
-  }
-  if (isError || !current) {
+  if (!isLoading && (isError || !current)) {
     return (
       <div className="msg-templates-container msg-state" role="alert">
         <AlertCircle size={18} aria-hidden="true" />
@@ -196,7 +197,10 @@ export const MessageTemplatesTab = ({ actionsSlot = null }) => {
     );
   }
 
+  // While loading nothing renders (there is no template yet); the skeleton shows the captured layout.
   return (
+    <BoneSkeleton name="settings-message-templates" loading={isLoading} fallback={<TemplatesSkeleton />}>
+      {isLoading ? null : (
     <div className="msg-templates-container">
       {actionsSlot ? createPortal(headerActions, actionsSlot) : <div className="msg-templates-header">{headerActions}</div>}
 
@@ -401,6 +405,8 @@ export const MessageTemplatesTab = ({ actionsSlot = null }) => {
         </div>
       )}
     </div>
+      )}
+    </BoneSkeleton>
   );
 };
 
