@@ -147,6 +147,7 @@ export const validateRequiredFields = (fields, values) => {
 };
 
 /** Required + phone pattern checks for create/edit forms. */
+export { validatePhoneFieldValue };
 export const validateFormFields = (fields, values) => {
   const requiredError = validateRequiredFields(fields, values);
   if (requiredError) return requiredError;

@@ -8,7 +8,8 @@
  * @param {Record<string, unknown>[]} opts.rows — prepared value objects
  * @param {{ id: string, values?: Record<string, unknown>|null }[]} opts.existingRows
  * @param {(batch: Record<string, unknown>[]) => Promise<void>} opts.createBatch
- * @param {(id: string, values: Record<string, unknown>) => Promise<void>} opts.updateOne
+ * @param {(patches: Array<{ id: string, values: Record<string, unknown> }>) => Promise<void>} [opts.updateBatch]
+ * @param {(id: string, values: Record<string, unknown>) => Promise<void>} [opts.updateOne]
  * @param {(ids: string[]) => Promise<void>} opts.deleteMany
  * @param {(done: number, total: number) => void} [opts.onProgress]
  * @param {number} [opts.chunkSize]
@@ -20,6 +21,7 @@ export async function runModeAwareImport({
   rows = [],
   existingRows = [],
   createBatch,
+  updateBatch,
   updateOne,
   deleteMany,
   onProgress,
@@ -98,21 +100,37 @@ export async function runModeAwareImport({
     onProgress?.(finished, Math.max(totalWork, 1));
   };
 
-  const UPDATE_CONCURRENCY = 6;
-  for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
-    const slice = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
-    await Promise.all(
-      slice.map(async ({ id, values }) => {
-        try {
-          await updateOne(id, values);
-          updated += 1;
-        } catch (err) {
-          failures.push(`${id}: ${err?.message || 'could not be updated'}`);
-        } finally {
-          bump();
-        }
-      }),
-    );
+  if (typeof updateBatch === 'function') {
+    const BATCH_SIZE = chunkSize || 200;
+    for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+      const batch = toUpdate.slice(i, i + BATCH_SIZE);
+      try {
+        await updateBatch(batch);
+        updated += batch.length;
+      } catch (err) {
+        failures.push(`batch ${i + 1}-${i + batch.length}: ${err?.message || 'could not be updated'}`);
+      } finally {
+        finished += batch.length;
+        onProgress?.(Math.min(finished, totalWork), Math.max(totalWork, 1));
+      }
+    }
+  } else if (typeof updateOne === 'function') {
+    const UPDATE_CONCURRENCY = 6;
+    for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
+      const slice = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
+      await Promise.all(
+        slice.map(async ({ id, values }) => {
+          try {
+            await updateOne(id, values);
+            updated += 1;
+          } catch (err) {
+            failures.push(`${id}: ${err?.message || 'could not be updated'}`);
+          } finally {
+            bump();
+          }
+        }),
+      );
+    }
   }
 
   if (toCreate.length) {

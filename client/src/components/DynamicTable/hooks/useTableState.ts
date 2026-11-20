@@ -1002,6 +1002,17 @@ export function useTableState(
     setColumns(prev => prev.map(c => c.key === key ? { ...c, pinned: pin } : c));
   }, []);
 
+  const handlePinColumnsUntil = useCallback((key: string) => {
+    setColumns(prev => {
+      const idx = prev.findIndex(c => c.key === key);
+      if (idx === -1) return prev;
+      return prev.map((c, i) => ({
+        ...c,
+        pinned: i <= idx ? 'left' : (c.pinned === 'left' ? null : c.pinned),
+      }));
+    });
+  }, []);
+
   // ── Resets ─────────────────────────────────────────────────────────────────
   const handleResetPins = useCallback(() => {
     setColumns(prev => prev.map(c => {
@@ -1151,7 +1162,7 @@ export function useTableState(
     pendingEdit, setPendingEdit, handleUndoEdit,
     columnWidths, columnOrder, columnVisibility, highlightedColKey, transitioningCols,
     handleColumnWidthChange, handleColumnWidthsChange, handleColumnReorder,
-    handleToggleColumnVisibility, handlePatchColumnVisibility, handlePinColumn, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
+    handleToggleColumnVisibility, handlePatchColumnVisibility, handlePinColumn, handlePinColumnsUntil, handleAddCompositeColumn, handleAddCompositeColumnAndContinue,
     handleDeleteCompositeColumn, handleUpdateCompositeColumn,
     handleResetPins, handleResetVisibility, handleResetOrder, handleResetWidths, handleFactoryReset,
     openFilterKey, setOpenFilterKey,

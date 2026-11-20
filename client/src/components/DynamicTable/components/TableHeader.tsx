@@ -37,6 +37,8 @@ interface TableHeaderProps {
   onColumnWidthsChange?: (updates: Record<string, number>) => void;
   onColumnReorder: (fromKey: string, toKey: string) => void;
   onPinColumn: (key: string, pin: 'left' | 'right' | null) => void;
+  /** Pin all columns from column 1 up to and including this column to the left. */
+  onPinColumnsUntil?: (key: string) => void;
   onDeleteCompositeColumn: (key: string) => void;
   /** Hide this column (column picker / shift chips can show it again). */
   onHideColumn?: (key: string) => void;
@@ -76,6 +78,7 @@ export function TableHeader({
   onColumnWidthsChange,
   onColumnReorder,
   onPinColumn,
+  onPinColumnsUntil,
   onDeleteCompositeColumn,
   onHideColumn,
   dragColKey,
@@ -942,6 +945,28 @@ export function TableHeader({
           <Pin className="w-3.5 h-3.5" aria-hidden="true" />
           {menuCol.pinned === 'left' ? 'Unpin' : 'Pin left'}
         </button>
+        {/* Pin up to here: pin this column + all columns to its left */}
+        {onPinColumnsUntil && (() => {
+          const colIdx = columns.findIndex(c => c.key === menuCol.key);
+          // Show only when the column is not the first column and not already the last left-pinned
+          const leftPinnedCount = columns.filter(c => c.pinned === 'left').length;
+          const allUpToPinned = colIdx >= 0 && columns.slice(0, colIdx + 1).every(c => c.pinned === 'left');
+          if (colIdx <= 0 || allUpToPinned) return null;
+          return (
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemCls}
+              onClick={() => {
+                closeMenu();
+                onPinColumnsUntil(menuCol.key);
+              }}
+            >
+              <Pin className="w-3.5 h-3.5" aria-hidden="true" />
+              Pin columns up to here ({colIdx + 1})
+            </button>
+          );
+        })()}
         {/* Pin right — hidden for now; restore this button when needed again.
         <button
           type="button"

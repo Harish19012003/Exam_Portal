@@ -94,6 +94,11 @@ export interface FieldColumn extends BaseColumn {
   allowCustom?: boolean; // Allow custom inputs for dropdown, status, multiselect
   required?: boolean;
   maxLength?: number;
+  phoneValidation?: {
+    mode?: string;
+    pattern?: string;
+    message?: string;
+  };
   aggregation?: AggregationType;
   formula?: string;
   resultType?: DataType;

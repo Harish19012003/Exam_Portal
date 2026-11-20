@@ -85,6 +85,8 @@ export interface TableStateHandlers {
   handleColumnReorder: (fromKey: string, toKey: string) => void;
   handleToggleColumnVisibility: (key: string) => void;
   handlePinColumn: (key: string, pin: 'left' | 'right' | null) => void;
+  /** Pin all columns from the first up to and including `key` to the left; unpin all after. */
+  handlePinColumnsUntil: (key: string) => void;
   handleAddCompositeColumn: (col: ColumnConfig) => void;
   handleAddCompositeColumnAndContinue: (col: ColumnConfig) => void;
   handleDeleteCompositeColumn: (compositeKey: string) => void;
