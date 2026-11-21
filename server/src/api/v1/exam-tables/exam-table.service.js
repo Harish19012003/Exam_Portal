@@ -757,6 +757,7 @@ export const syncCallingRows = (examId, userId, options = {}) =>
     const isFirstBatch = centerOffset === 0;
 
     let legacy = { migrated: 0, deleted: 0 };
+    let sortBackfilled = 0;
     if (isFirstBatch) {
       legacy = await callingRepo.migrateLegacyFromExamRows(
         examId,
@@ -764,6 +765,8 @@ export const syncCallingRows = (examId, userId, options = {}) =>
         userId,
       );
       await callingRepo.purgeLegacyCallingRowView();
+      // One-shot: fill sort_center_code so list order works before every row is re-synced.
+      sortBackfilled = await callingRepo.backfillSortCenterCodes(examId);
     }
 
     const centerFields = await repo.listFields(table.id, DEFAULT_EXAM_VIEW);
@@ -950,6 +953,7 @@ export const syncCallingRows = (examId, userId, options = {}) =>
       hidden,
       legacyMigrated: legacy?.migrated || 0,
       legacyDeleted: legacy?.deleted || 0,
+      sortBackfilled: sortBackfilled || 0,
       centersTotal,
       centersProcessed,
       centerOffset,

@@ -159,6 +159,11 @@ export const toFieldDefinition = (item, order) => {
   if (item.dataType === 'phone' && item.phoneValidation) {
     def.phoneValidation = item.phoneValidation;
   }
+  // Phone exact-match lookup reuses tableSource (match column) + Linked values for auto-fill.
+  if (item.dataType === 'phone' && item.tableSource?.table && item.tableSource?.column) {
+    def.optionsSource = 'table';
+    def.tableSource = item.tableSource;
+  }
   // Imported from another exam tab / preset — same key/value, read-only on this page.
   if (item.sharedFromView) def.sharedFromView = item.sharedFromView;
   if (item.sharedFromLabel) def.sharedFromLabel = item.sharedFromLabel;

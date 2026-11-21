@@ -282,8 +282,11 @@ export const ExamFieldBuilder = ({
     };
   }, [open, editorOpen, bulkOpen, onClose]);
 
-  // Tables a field can read options from (only fetched once the editor shows the "Table column" source).
-  const wantsLookupSources = open && editorOpen && (form.optionsSource === 'table' || form.dataType === 'linked');
+  // Tables a field can read options from (table lookup, phone match, or linked value editor).
+  const wantsLookupSources =
+    open &&
+    editorOpen &&
+    (form.optionsSource === 'table' || form.dataType === 'linked' || form.dataType === 'phone');
   useEffect(() => {
     if (!wantsLookupSources || lookupSources.length > 0) return undefined;
     let cancelled = false;
@@ -518,9 +521,17 @@ export const ExamFieldBuilder = ({
       return;
     }
 
-    const optionsSource = isChoiceField || form.dataType === 'tags'
-      ? form.optionsSource || 'manual'
-      : 'manual';
+    const optionsSource =
+      form.dataType === 'phone' && form.lookupTable && form.lookupColumn
+        ? 'table'
+        : isChoiceField || form.dataType === 'tags'
+          ? form.optionsSource || 'manual'
+          : 'manual';
+
+    if (form.dataType === 'phone' && (form.lookupTable || form.lookupColumn) && (!form.lookupTable || !form.lookupColumn)) {
+      setError('Choose the table and match column for phone lookup, or clear both.');
+      return;
+    }
 
     let options = [];
     if (needsOptions) {
@@ -694,12 +705,19 @@ export const ExamFieldBuilder = ({
           : f,
       );
     }
-    // A table-column field can also fill other fields from the same row (Linked values).
-    const columnLabels = Object.fromEntries(lookupColumns.map((c) => [c.key, c.label]));
+    // Table-column / phone-match fields can fill other fields from the same source row (Linked values).
+    const phoneLookupColumns =
+      form.dataType === 'phone'
+        ? lookupSources.find((t) => t.table === form.lookupTable)?.columns || []
+        : lookupColumns;
+    const columnLabels = Object.fromEntries(phoneLookupColumns.map((c) => [c.key, c.label]));
+    const canSyncLinked =
+      optionsSource === 'table' &&
+      (form.dataType === 'phone' || isChoiceField || form.dataType === 'tags');
     onChange(
       form.dataType === 'linked'
         ? base
-        : syncLinkedFields(base, savedField, optionsSource === 'table' ? form.fillColumns || [] : [], columnLabels),
+        : syncLinkedFields(base, savedField, canSyncLinked ? form.fillColumns || [] : [], columnLabels),
     );
     closeEditor();
   };
@@ -1248,6 +1266,67 @@ export const ExamFieldBuilder = ({
                         </div>
                       </>
                     )}
+                    <SearchableSelect
+                      id={`${formId}-phone-lookup-table`}
+                      label="Match from table (optional)"
+                      value={form.lookupTable || ''}
+                      options={[
+                        { value: '', label: 'No lookup' },
+                        ...lookupSources.map((t) => ({ value: t.table, label: t.label })),
+                      ]}
+                      searchPlaceholder="Search tables…"
+                      onChange={(next) =>
+                        setForm((p) => ({
+                          ...p,
+                          lookupTable: next,
+                          lookupColumn: '',
+                          lookupDetail: '',
+                          fillColumns: [],
+                        }))
+                      }
+                    />
+                    {form.lookupTable ? (
+                      <>
+                        <SearchableSelect
+                          id={`${formId}-phone-lookup-column`}
+                          label="Match column (phone number)"
+                          value={form.lookupColumn || ''}
+                          options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
+                          searchPlaceholder="Search columns…"
+                          onChange={(next) => setForm((p) => ({ ...p, lookupColumn: next }))}
+                        />
+                        {form.lookupColumn ? (
+                          <div className="exams-fill-columns">
+                            <span className="exams-audit-label">Also fill from the same row (locked)</span>
+                            <p className="exams-config-empty-hint">
+                              When the number matches one row, these Linked values fill automatically and stay
+                              live from the source table.
+                            </p>
+                            <div className="exams-fill-grid">
+                              {lookupColumns
+                                .filter((c) => c.key !== form.lookupColumn)
+                                .map((c) => (
+                                  <label key={c.key} className="exams-check-row">
+                                    <input
+                                      type="checkbox"
+                                      checked={(form.fillColumns || []).includes(c.key)}
+                                      onChange={(e) =>
+                                        setForm((p) => ({
+                                          ...p,
+                                          fillColumns: e.target.checked
+                                            ? [...(p.fillColumns || []), c.key]
+                                            : (p.fillColumns || []).filter((k) => k !== c.key),
+                                        }))
+                                      }
+                                    />
+                                    <span>{c.label}</span>
+                                  </label>
+                                ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
                 )}
 

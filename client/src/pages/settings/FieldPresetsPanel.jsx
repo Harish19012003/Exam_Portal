@@ -30,7 +30,8 @@ import { apiClient } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
 import { CardGridSkeleton } from '../../components/ui/SettingsSkeletons';
-import { useUrlState } from '../../hooks/useUrlState';
+import { useUrlParamsPatch, useUrlState } from '../../hooks/useUrlState';
+import { InfoTip } from '../../components/PageHeading';
 import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { SearchableSelect } from '../exams/SearchableSelect';
 import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
@@ -173,6 +174,7 @@ export const FieldPresetsPanel = ({
   const [serviceFilter, setServiceFilter] = useUrlState('psvc', '');
   const [viewFilter, setViewFilter] = useUrlState('pview', '');
   const [sortBy, setSortBy] = useUrlState('psort', 'default', SORT_KEYS);
+  const patchUrl = useUrlParamsPatch();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
@@ -408,9 +410,8 @@ export const FieldPresetsPanel = ({
   }, [presets, query, serviceFilter, viewFilter, sortBy]);
   const filtersActive = Boolean(query || serviceFilter || viewFilter);
   const clearFilters = () => {
-    setQuery('');
-    setServiceFilter('');
-    setViewFilter('');
+    // One URL write — three separate setSearchParams calls can leave stale params behind.
+    patchUrl({ pq: '', psvc: '', pview: '' });
   };
 
   return (
@@ -653,7 +654,12 @@ export const FieldPresetsPanel = ({
 
               <div className="fpp-meta-row">
                 <div className="config-form-group">
-                  <label htmlFor={`${formId}-service`}>Service</label>
+                  <div className="fpp-label-row">
+                    <label htmlFor={`${formId}-service`}>Service</label>
+                    <InfoTip label="About service and page" className="fpp-info">
+                      One preset per service and page. An exam only recommends the preset that matches both.
+                    </InfoTip>
+                  </div>
                   {serviceOptions.length > 0 ? (
                     <SearchableSelect
                       id={`${formId}-service`}
@@ -689,9 +695,6 @@ export const FieldPresetsPanel = ({
                   />
                 </div>
               </div>
-              <p className="fpp-muted">
-                One preset per service and page. An exam only recommends the preset that matches both.
-              </p>
 
               {form.view === OPERATOR_GUARD_CALLING_VIEW && (() => {
                 const expand = normalizeCallingExpand(form.features?.callingExpand);
@@ -738,7 +741,13 @@ export const FieldPresetsPanel = ({
                 return (
                   <div className="fpp-calling-features">
                     <div className="config-form-group fpp-calling-expand">
-                      <label htmlFor={`${formId}-calling-expand`}>Expand by (from Center list)</label>
+                      <div className="fpp-label-row">
+                        <label htmlFor={`${formId}-calling-expand`}>Expand by (from Center list)</label>
+                        <InfoTip label="About expand by" className="fpp-info">
+                          Sync creates/hides rows from Center list. Lowering counts hides rows — does
+                          not delete them.
+                        </InfoTip>
+                      </div>
                       <SearchableSelect
                         id={`${formId}-calling-expand`}
                         portal
@@ -786,10 +795,6 @@ export const FieldPresetsPanel = ({
                           },
                         ]}
                       />
-                      <p className="fpp-muted">
-                        Sync creates/hides rows from Center list. Lowering counts hides rows — does
-                        not delete them.
-                      </p>
                     </div>
 
                     <div className="config-form-group">
@@ -846,7 +851,12 @@ export const FieldPresetsPanel = ({
                     </div>
 
                     <div className="config-form-group">
-                      <label htmlFor={`${formId}-calling-label-key`}>Label column key</label>
+                      <div className="fpp-label-row">
+                        <label htmlFor={`${formId}-calling-label-key`}>Label column key</label>
+                        <InfoTip label="About label column key" className="fpp-info">
+                          Pick the Calling field that receives the generated row labels.
+                        </InfoTip>
+                      </div>
                       <SearchableSelect
                         id={`${formId}-calling-label-key`}
                         portal
@@ -872,9 +882,6 @@ export const FieldPresetsPanel = ({
                           return opts;
                         })()}
                       />
-                      <p className="fpp-muted">
-                        Pick the Calling field that receives the generated row labels.
-                      </p>
                     </div>
 
                     {label.mode === CALLING_LABEL_MODES.CONSTANT && (
@@ -933,7 +940,14 @@ export const FieldPresetsPanel = ({
                     {label.mode === CALLING_LABEL_MODES.CATEGORY_HEAD && (
                       <div className="fpp-calling-cats">
                         <div className="fpp-calling-cats-head">
-                          <strong>Categories</strong>
+                          <div className="fpp-label-row">
+                            <strong>Categories</strong>
+                            <InfoTip label="About categories" className="fpp-info">
+                              matchLabel should match Center list shift names (Male, Female,
+                              Baggage/Crowd). One head only — highest priority head-candidate with
+                              count &gt; 0.
+                            </InfoTip>
+                          </div>
                           <button
                             type="button"
                             className="exams-btn secondary compact"
@@ -956,11 +970,6 @@ export const FieldPresetsPanel = ({
                             + Add
                           </button>
                         </div>
-                        <p className="fpp-muted">
-                          matchLabel should match Center list shift names (Male, Female,
-                          Baggage/Crowd). One head only — highest priority head-candidate with
-                          count &gt; 0.
-                        </p>
                         {label.categories.map((cat, idx) => (
                           <div key={cat.id || idx} className="fpp-calling-cat-row">
                             <input

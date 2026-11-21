@@ -1785,7 +1785,7 @@ export function DynamicTable({
               if (visibleIds.size) {
                 state.setRows((prev) => prev.filter((r) => !visibleIds.has(r.rowId)));
               }
-              state.setSelectedRows(new Set());
+              state.handleClearSelection();
               state.setShowBulkConfirm(false);
               void Promise.resolve(
                 onRowDeleteByScope({

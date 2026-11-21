@@ -121,14 +121,26 @@ export const searchRows = async (req, tableName, query = {}) => {
     if (visibleColumn(req, source, key)) extra.push(key);
   }
   const q = String(query.q ?? '').trim().slice(0, 100);
+  const exact = String(query.match || '').toLowerCase() === 'exact';
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), MAX_PAGE_SIZE);
   const skip = Math.max(parseInt(query.skip, 10) || 0, 0);
 
   // Opening the picker (no query): require a non-empty value, page by _id (uses the default index).
   // Typing a query: case-insensitive contains match on the column.
-  const match = q
-    ? { [column]: { $regex: escapeRegex(q), $options: 'i' } }
-    : { [column]: { $exists: true, $nin: [null, ''] } };
+  // match=exact: equality on the column (phone lookup); also try numeric form for digit-only values.
+  let match;
+  if (!q) {
+    match = { [column]: { $exists: true, $nin: [null, ''] } };
+  } else if (exact) {
+    const or = [{ [column]: q }, { [column]: { $regex: `^${escapeRegex(q)}$`, $options: 'i' } }];
+    if (/^\d+$/.test(q)) {
+      const n = Number(q);
+      if (Number.isSafeInteger(n)) or.push({ [column]: n });
+    }
+    match = { $or: or };
+  } else {
+    match = { [column]: { $regex: escapeRegex(q), $options: 'i' } };
+  }
   const sort = q ? { [column]: 1, _id: 1 } : { _id: 1 };
   const em = getEm();
   const filterInMemory = rowRulesApply(req, source);

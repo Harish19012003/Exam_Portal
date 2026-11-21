@@ -4342,6 +4342,28 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
 .exams-bulk-deps-intro {
   margin: 0;
   font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-secondary, #6b7280);
+}
+
+.exams-bulk-deps-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.exams-bulk-deps-group-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+
+.exams-bulk-deps-group-hint {
+  margin: -4px 0 0;
+  font-size: 0.8rem;
   color: var(--text-secondary, #6b7280);
 }
 
@@ -4374,6 +4396,51 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
   border-left: 3px solid var(--primary-color, #5c43fa);
   border-radius: 12px;
   background: var(--bg-card, #ffffff);
+}
+
+.exams-dep-card.is-phone-match {
+  border-left-color: #ea580c;
+  background: color-mix(in srgb, #ea580c 4%, var(--bg-card, #ffffff));
+}
+
+.exams-dep-head-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.exams-dep-mode {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(234, 88, 12, 0.12);
+  color: #c2410c;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.exams-dep-mode.is-pick {
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--primary-color, #5c43fa);
+}
+
+.exams-dep-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-secondary, #6b7280);
+}
+
+.exams-dep-hint.is-warn {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(234, 88, 12, 0.08);
+  color: #9a3412;
 }
 
 .exams-dep-warn {
@@ -4452,6 +4519,17 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
   gap: 6px 8px;
   min-width: 0;
   color: var(--text-secondary, #6b7280);
+}
+
+.exams-dep-item-map .exams-dep-target {
+  flex: 1 1 160px;
+  min-width: min(100%, 160px);
+  max-width: 260px;
+}
+
+.exams-dep-item-map.is-existing .exams-dep-target {
+  flex: 1 1 220px;
+  max-width: none;
 }
 
 .exams-dep-item input {

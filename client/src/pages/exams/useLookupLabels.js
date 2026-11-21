@@ -84,7 +84,8 @@ export const useLookupDisplayRows = (rows, fields) => {
         .fetchQuery({
           queryKey: queryKeys.lookupResolve(JSON.stringify(args)),
           queryFn: () => resolveLookupRows(args),
-          staleTime: 60 * 1000,
+          // SeqView can refresh every few minutes — keep labels fairly fresh.
+          staleTime: 30 * 1000,
         })
         .then((found) => {
           if (cancelled) return;

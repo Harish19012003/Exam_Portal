@@ -471,3 +471,37 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Label + info icon: help text lives in a hover/click popover instead of inline. */
+.fpp-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fpp-label-row > label {
+  margin-bottom: 0;
+}
+
+.fpp-info .page-info-btn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+}
+
+.fpp-info .page-info-popover {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+@media (max-width: 768px) {
+  /* Keep a 44px touch target without enlarging the visible icon. */
+  .fpp-info .page-info-btn {
+    width: 44px;
+    height: 44px;
+    margin: -11px;
+  }
+}
