@@ -17,6 +17,17 @@ import {
   MAX_DAY_N_KEY,
 } from '../constants/examViews.js';
 
+/**
+ * Normalize center_code for indexed lexicographic sort (date → Center → slot).
+ * Pure digits → zero-padded; other codes → lowercased trimmed string.
+ */
+export const normalizeSortCenterCode = (raw) => {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (/^\d+$/.test(s)) return s.padStart(12, '0');
+  return s.toLowerCase();
+};
+
 export const emptyCallingExpand = () => ({
   mode: CALLING_EXPAND_MODES.MAX_DAY_N,
   skipZeroMaxDayN: true,

@@ -19,6 +19,11 @@ export const ExamCallingRowSchema = new EntitySchema({
     date_id: { type: 'string', nullable: true },
     slot: { type: 'number', nullable: true },
     shift_id: { type: 'string', nullable: true },
+    /**
+     * Normalized center_code for list sort (date → Center → slot).
+     * Numeric codes are zero-padded so lexicographic order matches numeric order.
+     */
+    sort_center_code: { type: 'string', nullable: true },
     /** Stable upsert key: center×date×slot|shift|category. */
     natural_key: { type: 'string' },
     /** Soft-hide when Max Day N / shift counts drop. */
@@ -34,5 +39,7 @@ export const ExamCallingRowSchema = new EntitySchema({
     { properties: ['exam_id', 'hidden'] },
     { properties: ['exam_id', 'natural_key'], options: { unique: true } },
     { properties: ['exam_id', 'center_row_id', 'date_id'] },
+    /** Visible Calling list: exam date → Center code → slot/designation. */
+    { properties: ['exam_id', 'hidden', 'date_id', 'sort_center_code', 'slot'] },
   ],
 });

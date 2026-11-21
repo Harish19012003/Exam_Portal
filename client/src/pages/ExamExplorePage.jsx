@@ -1596,58 +1596,6 @@ export const ExamExplorePage = () => {
     return () => window.clearTimeout(t);
   }, [callingSyncJob]);
 
-  /** Tick while Calling sync runs so ETA can refresh. */
-  const [callingSyncTick, setCallingSyncTick] = useState(0);
-  useEffect(() => {
-    if (callingSyncJob?.status !== 'running') return undefined;
-    setCallingSyncTick(Date.now());
-    const t = window.setInterval(() => setCallingSyncTick(Date.now()), 500);
-    return () => window.clearInterval(t);
-  }, [callingSyncJob?.status, callingSyncJob?.startedAt]);
-
-  /** Human ETA: "12 sec" / "1 min 30 sec" (not a counting timer). */
-  const formatDurationWords = (ms) => {
-    const sec = Math.max(0, Math.ceil((Number(ms) || 0) / 1000));
-    if (sec < 60) return `${sec} sec`;
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    if (s === 0) return m === 1 ? '1 min' : `${m} min`;
-    return `${m} min ${s} sec`;
-  };
-
-  const callingSyncEtaLabel = (() => {
-    if (!callingSyncJob) return null;
-    if (callingSyncJob.status === 'success') {
-      const took =
-        callingSyncJob.elapsedMs != null
-          ? callingSyncJob.elapsedMs
-          : callingSyncJob.startedAt
-            ? Date.now() - callingSyncJob.startedAt
-            : null;
-      return took != null ? `Took ${formatDurationWords(took)}` : null;
-    }
-    if (callingSyncJob.status !== 'running' || !callingSyncJob.startedAt) return null;
-
-    const elapsed = Math.max(0, callingSyncTick - callingSyncJob.startedAt);
-    const processed = Number(callingSyncJob.centersProcessed) || 0;
-    const total = Number(callingSyncJob.centersTotal) || 0;
-    const progress = Math.min(100, Math.max(0, Number(callingSyncJob.progress) || 0));
-
-    // Need a bit of progress before estimating.
-    const frac =
-      total > 0 && processed > 0
-        ? processed / total
-        : progress >= 2
-          ? progress / 100
-          : 0;
-    if (frac < 0.02 || elapsed < 800) return 'Calculating…';
-
-    const remainingMs = elapsed * ((1 - frac) / frac);
-    if (!Number.isFinite(remainingMs) || remainingMs < 0) return 'Calculating…';
-    if (remainingMs < 1500) return 'Almost done';
-    return `~${formatDurationWords(remainingMs)} left`;
-  })();
-
   const pushDeleteJob = useCallback((job) => {
     setMassEditJob(job);
   }, []);
@@ -2141,7 +2089,6 @@ export const ExamExplorePage = () => {
   const handleSyncCalling = useCallback(async () => {
     if (!callingLive || !examId || syncingCalling) return;
     setSyncingCalling(true);
-    const startedAt = Date.now();
     setCallingSyncJob({
       status: 'running',
       progress: 0,
@@ -2151,7 +2098,6 @@ export const ExamExplorePage = () => {
       hidden: 0,
       centersProcessed: 0,
       centersTotal: 0,
-      startedAt,
     });
     try {
       const nextFeatures = tableFeaturesFor({
@@ -2207,7 +2153,6 @@ export const ExamExplorePage = () => {
           hidden: totals.hidden,
           centersProcessed,
           centersTotal,
-          startedAt,
         });
         done = Boolean(result?.done) || result?.nextOffset == null;
         if (!done) offset = Number(result.nextOffset) || offset + batchSize;
@@ -2220,7 +2165,6 @@ export const ExamExplorePage = () => {
           : last?.mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS
             ? 'category counts'
             : 'Max Day N';
-      const elapsedMs = Date.now() - startedAt;
       setCallingSyncJob({
         status: 'success',
         progress: 100,
@@ -2230,8 +2174,6 @@ export const ExamExplorePage = () => {
         hidden: totals.hidden,
         centersProcessed: last?.centersProcessed || 0,
         centersTotal: last?.centersTotal || 0,
-        startedAt,
-        elapsedMs,
       });
       setMessage(
         `Calling synced (${modeLabel}): +${totals.created} created · ${totals.updated} updated · ${totals.hidden} hidden`,
@@ -2247,8 +2189,6 @@ export const ExamExplorePage = () => {
         hidden: 0,
         centersProcessed: 0,
         centersTotal: 0,
-        startedAt,
-        elapsedMs: Date.now() - startedAt,
       });
       setMessage(msg);
     } finally {
@@ -2839,25 +2779,13 @@ export const ExamExplorePage = () => {
                   <X className="mt-0.5 h-6 w-6 shrink-0 text-rose-500" strokeWidth={2.5} />
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-base font-bold">
-                      {callingSyncJob.status === 'running'
-                        ? 'Syncing Op/Guard Calling'
-                        : callingSyncJob.status === 'success'
-                          ? 'Calling sync complete'
-                          : 'Calling sync failed'}
-                    </p>
-                    {callingSyncEtaLabel ? (
-                      <span
-                        className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${
-                          isDarkMode ? 'bg-white/10 text-gray-200' : 'bg-gray-100 text-gray-700'
-                        }`}
-                        title="Estimated time remaining"
-                      >
-                        {callingSyncEtaLabel}
-                      </span>
-                    ) : null}
-                  </div>
+                  <p className="text-base font-bold">
+                    {callingSyncJob.status === 'running'
+                      ? 'Syncing Op/Guard Calling'
+                      : callingSyncJob.status === 'success'
+                        ? 'Calling sync complete'
+                        : 'Calling sync failed'}
+                  </p>
                   <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     {callingSyncJob.detail || 'Working…'}
                   </p>

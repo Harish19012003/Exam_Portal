@@ -97,7 +97,18 @@ export const SettingsPage = () => {
 
   const handleTabSelect = (tabKey) => {
     setActiveTab(tabKey);
-    setSearchParams({ tab: tabKey });
+    // Preserve other query params; only drop Config-only filters when leaving Config.
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set('tab', tabKey);
+        if (tabKey !== 'config') {
+          ['section', 'pq', 'psvc', 'pview', 'psort'].forEach((k) => params.delete(k));
+        }
+        return params;
+      },
+      { replace: true },
+    );
     setIsDropdownOpen(false);
     setSearchQuery('');
   };

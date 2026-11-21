@@ -8,7 +8,12 @@ import {
 import { getEm } from '../../../database/connection.js';
 import { Exam, ExamTable, ExamRow, User } from '../../../database/entities/index.js';
 import { encodeCellValue, decodeCellValue } from '../exams/exam.repository.js';
-import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
+import {
+  buildValuesMongoMatch,
+  combineMongoMatch,
+  hasActiveQuery,
+  rowMatchesQuery,
+} from './rowFilterMatch.js';
 
 export const SYSTEM_COLUMNS = ['id', 'sys_created_by', 'sys_updated_by', 'sys_created_at', 'sys_updated_at'];
 
@@ -344,35 +349,71 @@ export const listRows = async (tableId, fields, options = {}) => {
     ];
   }
 
-  // Search/filters (and Unique import `all`) must scan every row — never a 500-row page slice.
+  // Prefer Mongo-side filter + page (header filters / search) — avoid hydrating the full exam.
+  if (wantsQuery) {
+    const mongoExtra = buildValuesMongoMatch(query);
+    if (mongoExtra != null) {
+      const fullMatch = combineMongoMatch(match, mongoExtra);
+      if (fetchAll) {
+        const raw = await em.find(ExamRow, fullMatch, { orderBy: { sys_created_at: 'DESC' } });
+        const userMap = await loadUsers(
+          em,
+          raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+        );
+        const rows = raw.map((r) => mapRow(r, fields, userMap));
+        return { rows, total: rows.length, page: 1, limit: rows.length, totalPages: 1 };
+      }
+      const total = await em.count(ExamRow, fullMatch);
+      const page = normalizePage(options.page);
+      const limit = normalizeLimit(options.limit);
+      const raw = await em.find(ExamRow, fullMatch, {
+        orderBy: { sys_created_at: 'DESC' },
+        limit,
+        offset: (page - 1) * limit,
+      });
+      const userMap = await loadUsers(
+        em,
+        raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+      );
+      return {
+        rows: raw.map((r) => mapRow(r, fields, userMap)),
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      };
+    }
+  }
+
+  // Fallback / Unique import `all`: scan in memory; only join users for returned rows.
   if (wantsQuery || fetchAll) {
     const raw = await em.find(ExamRow, match, { orderBy: { sys_created_at: 'DESC' } });
-    const userMap = await loadUsers(
-      em,
-      raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
-    );
-    const mapped = raw.map((r) => mapRow(r, fields, userMap));
     const matched = wantsQuery
-      ? mapped.filter((r) => {
-          if (options.excludeCallingHidden && r.values?.[CALLING_HIDDEN_KEY] === true) return false;
-          return rowMatchesQuery(r.values || {}, query);
+      ? raw.filter((r) => {
+          const values = decodeRowValues(r, fields);
+          if (options.excludeCallingHidden && values?.[CALLING_HIDDEN_KEY] === true) return false;
+          return rowMatchesQuery(values || {}, query);
         })
-      : mapped;
+      : raw;
     const total = matched.length;
     if (fetchAll) {
-      return {
-        rows: matched,
-        total,
-        page: 1,
-        limit: total,
-        totalPages: 1,
-      };
+      const userMap = await loadUsers(
+        em,
+        matched.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+      );
+      const rows = matched.map((r) => mapRow(r, fields, userMap));
+      return { rows, total, page: 1, limit: total, totalPages: 1 };
     }
     const page = normalizePage(options.page);
     const limit = normalizeLimit(options.limit);
     const offset = (page - 1) * limit;
+    const pageRaw = matched.slice(offset, offset + limit);
+    const userMap = await loadUsers(
+      em,
+      pageRaw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+    );
     return {
-      rows: matched.slice(offset, offset + limit),
+      rows: pageRaw.map((r) => mapRow(r, fields, userMap)),
       total,
       page,
       limit,

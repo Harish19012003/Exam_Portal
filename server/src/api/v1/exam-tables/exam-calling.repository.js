@@ -10,15 +10,30 @@ import {
   CALLING_SHIFT_ID_KEY,
   CALLING_SLOT_KEY,
   CALLING_SYSTEM_KEYS,
+  CENTER_CODE_KEY,
+  normalizeSortCenterCode,
 } from '@exam-view/shared';
 import { getEm } from '../../../database/connection.js';
 import { ExamCallingRow, ExamRow, User } from '../../../database/entities/index.js';
 import { encodeCellValue, decodeCellValue } from '../exams/exam.repository.js';
-import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
+import {
+  buildValuesMongoMatch,
+  combineMongoMatch,
+  hasActiveQuery,
+  rowMatchesQuery,
+} from './rowFilterMatch.js';
 import { effectiveType } from './exam-table.repository.js';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 500;
+
+/** Default Calling list order: exam date → Center code → slot → created. */
+const CALLING_LIST_ORDER = {
+  date_id: 'ASC',
+  sort_center_code: 'ASC',
+  slot: 'ASC',
+  sys_created_at: 'ASC',
+};
 
 const normalizePage = (page) => Math.max(1, Number(page) || 1);
 const normalizeLimit = (limit) => {
@@ -110,11 +125,13 @@ const linkFromValues = (values, naturalKey) => {
   const bag = values && typeof values === 'object' ? values : {};
   const slotRaw = bag[CALLING_SLOT_KEY];
   const slotNum = slotRaw == null || slotRaw === '' ? null : Number(slotRaw);
+  const sortCenter = normalizeSortCenterCode(bag[CENTER_CODE_KEY]);
   return {
     center_row_id: String(bag[CALLING_CENTER_ROW_ID_KEY] || '').trim() || null,
     date_id: String(bag[CALLING_DATE_ID_KEY] || '').trim() || null,
     slot: Number.isFinite(slotNum) ? slotNum : null,
     shift_id: String(bag[CALLING_SHIFT_ID_KEY] || '').trim() || null,
+    sort_center_code: sortCenter || null,
     natural_key: String(naturalKey || '').trim(),
     hidden: Boolean(bag[CALLING_HIDDEN_KEY]),
   };
@@ -141,25 +158,89 @@ export const listRows = async (examId, fields, options = {}) => {
   const match = { exam_id: eid };
   if (excludeHidden) match.hidden = { $ne: true };
 
+  // Prefer Mongo-side filter + page so we never hydrate ~10k+ rows for a header filter.
+  if (wantsQuery) {
+    // Exact center_code → indexed sort_center_code (avoids regex scan on values).
+    let mongoQuery = query;
+    let centerEquals = null;
+    const centerFilter = query.filters?.[CENTER_CODE_KEY];
+    if (
+      centerFilter &&
+      typeof centerFilter === 'object' &&
+      centerFilter.op === 'equals' &&
+      centerFilter.value != null &&
+      String(centerFilter.value).trim() !== ''
+    ) {
+      const sorted = normalizeSortCenterCode(centerFilter.value);
+      if (sorted) {
+        centerEquals = { sort_center_code: sorted };
+        const restFilters = { ...query.filters };
+        delete restFilters[CENTER_CODE_KEY];
+        mongoQuery = { ...query, filters: restFilters };
+      }
+    }
+    const mongoExtra = buildValuesMongoMatch(mongoQuery);
+    if (mongoExtra != null) {
+      const valuesMatch = centerEquals
+        ? combineMongoMatch(centerEquals, mongoExtra)
+        : mongoExtra;
+      const fullMatch = combineMongoMatch(match, valuesMatch);
+      if (fetchAll) {
+        const raw = await em.find(ExamCallingRow, fullMatch, { orderBy: CALLING_LIST_ORDER });
+        const userMap = await loadUsers(
+          em,
+          raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+        );
+        const rows = raw.map((r) => mapRow(r, fields, userMap));
+        return { rows, total: rows.length, page: 1, limit: rows.length, totalPages: 1 };
+      }
+      const total = await em.count(ExamCallingRow, fullMatch);
+      const page = normalizePage(options.page);
+      const limit = normalizeLimit(options.limit);
+      const raw = await em.find(ExamCallingRow, fullMatch, {
+        orderBy: CALLING_LIST_ORDER,
+        limit,
+        offset: (page - 1) * limit,
+      });
+      const userMap = await loadUsers(
+        em,
+        raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+      );
+      return {
+        rows: raw.map((r) => mapRow(r, fields, userMap)),
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      };
+    }
+  }
+
   if (wantsQuery || fetchAll) {
-    const raw = await em.find(ExamCallingRow, match, { orderBy: { sys_created_at: 'DESC' } });
-    const userMap = await loadUsers(
-      em,
-      raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
-    );
-    const mapped = raw.map((r) => mapRow(r, fields, userMap));
+    // Fallback: scan in memory, but only join users for the returned page.
+    const raw = await em.find(ExamCallingRow, match, { orderBy: CALLING_LIST_ORDER });
     const matched = wantsQuery
-      ? mapped.filter((r) => rowMatchesQuery(r.values || {}, query))
-      : mapped;
+      ? raw.filter((r) => rowMatchesQuery(decodeValues(r, fields), query))
+      : raw;
     const total = matched.length;
     if (fetchAll) {
-      return { rows: matched, total, page: 1, limit: total, totalPages: 1 };
+      const userMap = await loadUsers(
+        em,
+        matched.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+      );
+      const rows = matched.map((r) => mapRow(r, fields, userMap));
+      return { rows, total, page: 1, limit: total, totalPages: 1 };
     }
     const page = normalizePage(options.page);
     const limit = normalizeLimit(options.limit);
     const offset = (page - 1) * limit;
+    const pageRaw = matched.slice(offset, offset + limit);
+    const userMap = await loadUsers(
+      em,
+      pageRaw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+    );
     return {
-      rows: matched.slice(offset, offset + limit),
+      rows: pageRaw.map((r) => mapRow(r, fields, userMap)),
       total,
       page,
       limit,
@@ -171,7 +252,7 @@ export const listRows = async (examId, fields, options = {}) => {
   const page = normalizePage(options.page);
   const limit = normalizeLimit(options.limit);
   const rows = await em.find(ExamCallingRow, match, {
-    orderBy: { sys_created_at: 'DESC' },
+    orderBy: CALLING_LIST_ORDER,
     limit,
     offset: (page - 1) * limit,
   });
@@ -220,9 +301,41 @@ export const listAllLite = async (examId, fields) => {
   const raw = await em.find(
     ExamCallingRow,
     { exam_id: String(examId) },
-    { orderBy: { sys_created_at: 'DESC' } },
+    { orderBy: CALLING_LIST_ORDER },
   );
   return raw.map((r) => mapRow(r, fields, null));
+};
+
+/**
+ * Backfill `sort_center_code` for rows missing it (one-shot per exam on sync first batch).
+ * Reads center_code from values; uses nativeUpdate in chunks.
+ */
+export const backfillSortCenterCodes = async (examId, { chunkSize = 1000 } = {}) => {
+  const em = getEm();
+  const eid = String(examId || '');
+  if (!eid) return 0;
+  // null matches missing field in Mongo; also catch empty string leftovers.
+  const missing = await em.find(ExamCallingRow, {
+    exam_id: eid,
+    $or: [{ sort_center_code: null }, { sort_center_code: '' }],
+  });
+  if (!missing.length) return 0;
+  const size = Math.max(50, Math.min(2000, Number(chunkSize) || 1000));
+  let touched = 0;
+  for (let i = 0; i < missing.length; i += size) {
+    const slice = missing.slice(i, i + size);
+    for (const row of slice) {
+      const bag = row.values && typeof row.values === 'object' ? row.values : {};
+      const next = normalizeSortCenterCode(bag[CENTER_CODE_KEY]);
+      if (!next) continue;
+      if (String(row.sort_center_code || '') === next) continue;
+      em.assign(row, { sort_center_code: next });
+      touched += 1;
+    }
+    await em.flush();
+  }
+  em.clear();
+  return touched;
 };
 
 /** Lite sync load scoped to centers in the current chunk (avoids O(n²) full-table reads). */

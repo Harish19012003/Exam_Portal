@@ -2,7 +2,12 @@
  * Mirror of client DynamicData/dataProcessing matchFilter + search.
  * Used by Mass Edit "Filtered" so the server can select matching row ids
  * without the client downloading the whole table.
+ *
+ * `buildValuesMongoMatch` pushes the same filters into Mongo on `values.*`
+ * so paginated list endpoints do not load the whole exam into Node.
  */
+
+const SAFE_VALUE_KEY = /^[a-z][a-z0-9_]{0,39}$/;
 
 const asSearchText = (raw) => {
   if (raw == null) return '';
@@ -10,6 +15,8 @@ const asSearchText = (raw) => {
   if (typeof raw === 'object') return JSON.stringify(raw);
   return String(raw);
 };
+
+const escapeRegex = (raw) => String(raw ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export const matchFilter = (rawValue, filter) => {
   if (!filter || typeof filter !== 'object') return true;
@@ -63,6 +70,97 @@ const normalizeFilters = (filters) => {
     out[String(key)] = filter;
   });
   return out;
+};
+
+/** One column filter → Mongo clause on `values.<key>` (or null if unsupported). */
+const filterToMongoClause = (path, filter) => {
+  if (!filter || typeof filter !== 'object') return {};
+  const op = filter.op;
+
+  switch (op) {
+    case 'contains':
+      return { [path]: { $regex: escapeRegex(filter.value ?? ''), $options: 'i' } };
+    case 'equals': {
+      if (typeof filter.value === 'boolean') return { [path]: filter.value };
+      if (filter.value === null) return { [path]: null };
+      if (typeof filter.value === 'number') return { [path]: filter.value };
+      // Case-insensitive string equals (matches JS toLowerCase path).
+      return { [path]: { $regex: `^${escapeRegex(filter.value ?? '')}$`, $options: 'i' } };
+    }
+    case 'startsWith':
+      return { [path]: { $regex: `^${escapeRegex(filter.value ?? '')}`, $options: 'i' } };
+    case 'in': {
+      const wanted = (Array.isArray(filter.value) ? filter.value : [])
+        .map((s) => String(s))
+        .filter((s) => s !== '');
+      if (!wanted.length) return {};
+      // Regex on a scalar or array field: any element matching counts (same as JS).
+      return {
+        $or: wanted.map((w) => ({
+          [path]: { $regex: `^${escapeRegex(w)}$`, $options: 'i' },
+        })),
+      };
+    }
+    case 'between': {
+      const range = {};
+      if (filter.value !== null && filter.value !== undefined && filter.value !== '') {
+        range.$gte = Number(filter.value);
+      }
+      if (filter.value2 !== null && filter.value2 !== undefined && filter.value2 !== '') {
+        range.$lte = Number(filter.value2);
+      }
+      if (!Object.keys(range).length) return {};
+      return { [path]: range };
+    }
+    case 'gte':
+      return { [path]: { $gte: Number(filter.value) } };
+    case 'lte':
+      return { [path]: { $lte: Number(filter.value) } };
+    default:
+      // Unknown op → treat as no-op in JS; same here.
+      return {};
+  }
+};
+
+/**
+ * Translate search/filters into a Mongo match on `values.*`.
+ * Returns `null` when the query cannot be expressed safely (caller falls back to in-memory).
+ *
+ * @param {{ search?: string, filters?: Record<string, unknown>, searchKeys?: string[] }} query
+ * @returns {Record<string, unknown> | null}
+ */
+export const buildValuesMongoMatch = (query = {}) => {
+  const filters = normalizeFilters(query.filters);
+  const and = [];
+
+  for (const [key, filter] of Object.entries(filters)) {
+    if (!SAFE_VALUE_KEY.test(key)) return null;
+    const clause = filterToMongoClause(`values.${key}`, filter);
+    if (clause == null) return null;
+    if (Object.keys(clause).length) and.push(clause);
+  }
+
+  const q = String(query.search || '').trim();
+  if (q) {
+    const keys = Array.isArray(query.searchKeys)
+      ? query.searchKeys.map(String).filter((k) => SAFE_VALUE_KEY.test(k))
+      : [];
+    // Without an explicit key list we cannot safely $or across unknown value keys.
+    if (!keys.length) return null;
+    const rx = escapeRegex(q);
+    and.push({
+      $or: keys.map((k) => ({ [`values.${k}`]: { $regex: rx, $options: 'i' } })),
+    });
+  }
+
+  if (!and.length) return {};
+  return and.length === 1 ? and[0] : { $and: and };
+};
+
+/** Merge a base entity match with an optional values filter clause. */
+export const combineMongoMatch = (base, extra) => {
+  if (!extra || (typeof extra === 'object' && !Object.keys(extra).length)) return base;
+  return { $and: [base, extra] };
 };
 
 /**

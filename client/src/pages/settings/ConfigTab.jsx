@@ -1,5 +1,5 @@
 import { useConfirm } from '../../feedback';
-import { useUrlState } from '../../hooks/useUrlState';
+import { useUrlParamsPatch, useUrlState } from '../../hooks/useUrlState';
 import React, { useState, useEffect, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -241,6 +241,22 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   const confirm = useConfirm();
   const formId = useId();
   const [activeSection, setActiveSection] = useUrlState('section', 'dropdowns', SECTIONS.map((s) => s.id));
+  const patchUrl = useUrlParamsPatch();
+  const selectSection = (sectionId) => {
+    if (sectionId === activeSection) return;
+    // Leaving Field presets: drop its filter params so the URL matches the active section.
+    if (sectionId !== 'presets') {
+      patchUrl({
+        section: sectionId === 'dropdowns' ? '' : sectionId,
+        pq: '',
+        psvc: '',
+        pview: '',
+        psort: '',
+      });
+      return;
+    }
+    setActiveSection(sectionId);
+  };
   const queryClient = useQueryClient();
   // Dropdown lists come from the API through React Query, so switching tabs reuses the cache.
   const {
@@ -658,7 +674,7 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
             aria-label={s.title}
             title={s.title}
             className={`config-section-tab ${isActive ? 'active' : ''}`}
-            onClick={() => setActiveSection(s.id)}
+            onClick={() => selectSection(s.id)}
           >
             <Icon size={14} />
             <span>{s.title}</span>

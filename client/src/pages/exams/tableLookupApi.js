@@ -13,17 +13,49 @@ export const searchLookupRows = async ({
   table,
   column,
   detailColumn,
+  columns,
   q = '',
   skip = 0,
   limit = 20,
+  match,
   signal,
 }) =>
   unwrap(
     await apiClient.get(`/table-lookup/${table}/rows`, {
-      params: { column, detailColumn: detailColumn || undefined, q, skip, limit },
+      params: {
+        column,
+        detailColumn: detailColumn || undefined,
+        columns: columns?.length ? columns.join(',') : undefined,
+        q,
+        skip,
+        limit,
+        match: match || undefined,
+      },
       signal,
     }),
   );
+
+/**
+ * Exact match on a source column (phone → SeqView). Returns one item, or null when 0 / many hits.
+ * `columns` are extra source columns returned under `values` for linked fill.
+ */
+export const matchLookupRowExact = async ({ table, column, value, columns, signal }) => {
+  const q = String(value ?? '').trim();
+  if (!table || !column || !q) return null;
+  const page = await searchLookupRows({
+    table,
+    column,
+    columns,
+    q,
+    skip: 0,
+    limit: 2,
+    match: 'exact',
+    signal,
+  });
+  const items = Array.isArray(page?.items) ? page.items : [];
+  if (items.length !== 1) return null;
+  return items[0];
+};
 
 /**
  * Current labels for saved row ids: { [id]: { id, label, detail, values } } (gone / hidden rows are absent).
@@ -39,8 +71,14 @@ export const resolveLookupRows = async ({ table, column, detailColumn, columns, 
     }),
   );
 
+/** Table-column lookup, or a phone field that exact-matches a source column then fills linked values. */
 export const isTableSourceField = (field) =>
-  field?.optionsSource === 'table' && Boolean(field.tableSource?.table && field.tableSource?.column);
+  Boolean(field?.tableSource?.table && field.tableSource?.column) &&
+  (field?.optionsSource === 'table' || field?.dataType === 'phone');
+
+/** Phone field configured to exact-match a source table column (usually SeqView). */
+export const isPhoneLookupField = (field) =>
+  field?.dataType === 'phone' && isTableSourceField(field);
 
 /** Dropdown / multi whose options are people filtered by configured user tags. */
 export const isUserTagsField = (field) =>

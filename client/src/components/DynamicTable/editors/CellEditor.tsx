@@ -28,6 +28,11 @@ export function CellEditor(props: CellEditorProps) {
     return <UserAssigneeEditor {...props} />;
   }
 
+  // Phone with table match still uses PhoneEditor (type + exact match), not the search picker.
+  if (isFieldColumn(column) && column.dataType === 'phone') {
+    return <PhoneEditor {...props} />;
+  }
+
   // A column that reads its choices from another table is edited by searching that table.
   if (isFieldColumn(column) && column.lookup) {
     return <LookupEditor {...props} />;
@@ -60,8 +65,6 @@ export function CellEditor(props: CellEditorProps) {
       return <MultiSelectDropdownEditor {...props} />;
     case 'attachment':
       return <AttachmentEditor {...props} />;
-    case 'phone':
-      return <PhoneEditor {...props} />;
     case 'email':
     default:
       return <TextEditor {...props} />;
