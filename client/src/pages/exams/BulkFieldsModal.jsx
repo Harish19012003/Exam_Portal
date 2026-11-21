@@ -1,7 +1,7 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ExamDayImportChecklist from './ExamDayImportChecklist.jsx';
-import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
 import {
   DEFAULT_EXAM_VIEW,
   EXAM_DAY_VIEW,
@@ -723,6 +723,8 @@ export const BulkFieldsModal = ({
   const focusRidRef = useRef(null);
 
   const [tab, setTab] = useState('fields'); // 'fields' | 'dateShifts' | 'deps'
+  /** Filter Bulk fields table by label / key / type. */
+  const [fieldSearch, setFieldSearch] = useState('');
   const showDateShifts =
     enableDateShifts == null
       ? String(currentView || '') === DEFAULT_EXAM_VIEW
@@ -1407,9 +1409,79 @@ export const BulkFieldsModal = ({
     );
   };
 
+  const fieldSearchQ = String(fieldSearch || '').trim().toLowerCase();
+  const visibleFieldRows = useMemo(() => {
+    const list = rows.map((row, i) => ({ row, i }));
+    if (!fieldSearchQ) return list;
+    return list.filter(({ row }) => {
+      const label = String(row.label || '').toLowerCase();
+      const key = String(row.key || '').toLowerCase();
+      const type = String(row.dataType || '').toLowerCase();
+      return (
+        label.includes(fieldSearchQ) ||
+        key.includes(fieldSearchQ) ||
+        type.includes(fieldSearchQ)
+      );
+    });
+  }, [rows, fieldSearchQ]);
+
   /* ---------- Reorder rows (drag the handle, or Alt+Up / Alt+Down on it) ---------- */
   const [dragRid, setDragRid] = useState(null);
   const [dragOverRid, setDragOverRid] = useState(null);
+  /** Soft glide: auto-scroll `.exams-bulk-body` when dragging near top/bottom edges. */
+  const isFieldDraggingRef = useRef(false);
+  const dragPointerYRef = useRef(null);
+  const dragScrollRafRef = useRef(0);
+
+  const stopFieldDragAutoScroll = useCallback(() => {
+    if (dragScrollRafRef.current) {
+      cancelAnimationFrame(dragScrollRafRef.current);
+      dragScrollRafRef.current = 0;
+    }
+    dragPointerYRef.current = null;
+  }, []);
+
+  const tickFieldDragAutoScroll = useCallback(() => {
+    dragScrollRafRef.current = 0;
+    if (!isFieldDraggingRef.current) return;
+    const el = bodyRef.current;
+    const y = dragPointerYRef.current;
+    if (!el || y == null) return;
+
+    const EDGE = 48;
+    const MAX_SPEED = 16;
+    const rect = el.getBoundingClientRect();
+    let dy = 0;
+    if (y < rect.top + EDGE) {
+      const t = Math.min(1, Math.max(0, 1 - (y - rect.top) / EDGE));
+      dy = -Math.ceil(MAX_SPEED * t);
+    } else if (y > rect.bottom - EDGE) {
+      const t = Math.min(1, Math.max(0, 1 - (rect.bottom - y) / EDGE));
+      dy = Math.ceil(MAX_SPEED * t);
+    }
+    if (dy) el.scrollTop += dy;
+
+    dragScrollRafRef.current = requestAnimationFrame(tickFieldDragAutoScroll);
+  }, []);
+
+  const noteFieldDragPointer = useCallback(
+    (clientY) => {
+      if (!isFieldDraggingRef.current) return;
+      dragPointerYRef.current = clientY;
+      if (!dragScrollRafRef.current) {
+        dragScrollRafRef.current = requestAnimationFrame(tickFieldDragAutoScroll);
+      }
+    },
+    [tickFieldDragAutoScroll],
+  );
+
+  useEffect(
+    () => () => {
+      isFieldDraggingRef.current = false;
+      stopFieldDragAutoScroll();
+    },
+    [stopFieldDragAutoScroll],
+  );
 
   const moveRow = (fromRid, toRid) => {
     if (!fromRid || !toRid || fromRid === toRid) return;
@@ -1982,6 +2054,26 @@ export const BulkFieldsModal = ({
 
         {tab === 'fields' && (
         <div className="exams-bulk-toolbar">
+          <label className="exams-bulk-search">
+            <Search size={14} strokeWidth={2} aria-hidden="true" />
+            <input
+              type="search"
+              value={fieldSearch}
+              onChange={(e) => setFieldSearch(e.target.value)}
+              placeholder="Search fields…"
+              aria-label="Search fields by label, key, or type"
+            />
+            {fieldSearch ? (
+              <button
+                type="button"
+                className="exams-bulk-search-clear"
+                onClick={() => setFieldSearch('')}
+                aria-label="Clear search"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            ) : null}
+          </label>
           <span
             className="exams-bulk-tip"
             title={`Columns: Label · Key · Type · Options · Auto-fill · Width · Required${allowUnique ? ' · Unique' : ''}. Existing fields are listed first and can be edited in place; a new row's key fills in from its label.`}
@@ -2750,7 +2842,16 @@ export const BulkFieldsModal = ({
         )}
 
         {tab === 'fields' && (
-        <div className="exams-bulk-body" ref={bodyRef} onScroll={() => tip && setTip(null)}>
+        <div
+          className="exams-bulk-body"
+          ref={bodyRef}
+          onScroll={() => tip && setTip(null)}
+          onDragOver={(e) => {
+            if (!isFieldDraggingRef.current) return;
+            e.preventDefault();
+            noteFieldDragPointer(e.clientY);
+          }}
+        >
           <table
             ref={tableRef}
             className="exams-bulk-table"
@@ -2828,7 +2929,16 @@ export const BulkFieldsModal = ({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {visibleFieldRows.length === 0 ? (
+                <tr className="exams-bulk-empty-search">
+                  <td colSpan={14}>
+                    {fieldSearchQ
+                      ? `No fields match “${fieldSearch.trim()}”.`
+                      : 'No fields yet.'}
+                  </td>
+                </tr>
+              ) : null}
+              {visibleFieldRows.map(({ row, i }) => {
                 const needsOptions = OPTIONS_FIELD_TYPES.has(row.dataType);
                 const isPhone = row.dataType === 'phone';
                 const isLast = i === rows.length - 1;
@@ -2840,11 +2950,14 @@ export const BulkFieldsModal = ({
                     onDragOver={(e) => {
                       if (!dragRid) return;
                       e.preventDefault();
+                      noteFieldDragPointer(e.clientY);
                       if (dragOverRid !== row.rid) setDragOverRid(row.rid);
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
                       moveRow(dragRid, row.rid);
+                      isFieldDraggingRef.current = false;
+                      stopFieldDragAutoScroll();
                       setDragRid(null);
                       setDragOverRid(null);
                     }}
@@ -2858,9 +2971,13 @@ export const BulkFieldsModal = ({
                         onDragStart={(e) => {
                           e.dataTransfer.effectAllowed = 'move';
                           e.dataTransfer.setData('text/plain', row.rid);
+                          isFieldDraggingRef.current = true;
+                          noteFieldDragPointer(e.clientY);
                           setDragRid(row.rid);
                         }}
                         onDragEnd={() => {
+                          isFieldDraggingRef.current = false;
+                          stopFieldDragAutoScroll();
                           setDragRid(null);
                           setDragOverRid(null);
                         }}
@@ -3352,7 +3469,9 @@ export const BulkFieldsModal = ({
                 }${allDayOn ? ` · ${allDayHeader}` : ''}${
                   summaryOn ? ` · ${summaryHeader}` : ''
                 }${dateShiftsDirty ? ' · unsaved' : ''}`
-              : `${rows.length} rows · `}
+              : fieldSearchQ
+                ? `${visibleFieldRows.length} of ${rows.length} rows · `
+                : `${rows.length} rows · `}
             {tab !== 'dateShifts' &&
               (errorCount ? (
                 <>

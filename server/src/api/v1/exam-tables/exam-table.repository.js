@@ -704,3 +704,11 @@ export const deleteRows = async (tableId, rowIds) => {
   const ids = (rowIds || []).map(String);
   return em.nativeDelete(ExamRow, { exam_id: examId, id: { $in: ids } });
 };
+
+/** Delete every shared Center-list row for this exam (not Exam Day snapshots). */
+export const deleteAllSharedRows = async (tableId) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return 0;
+  return em.nativeDelete(ExamRow, { exam_id: examId, ...rowViewMatch() });
+};

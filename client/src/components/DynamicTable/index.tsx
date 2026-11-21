@@ -1774,6 +1774,7 @@ export function DynamicTable({
           onConfirm={(scope) => {
             const selectedRowIds = Array.from(state.selectedRows);
             if (onRowDeleteByScope) {
+              // Close modal immediately — progress continues on the top-right chip over the normal table.
               const visibleTargets =
                 scope === 'selected'
                   ? state.rows.filter((r) => selectedRowIds.includes(r.rowId))

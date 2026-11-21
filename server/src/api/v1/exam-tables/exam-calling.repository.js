@@ -225,6 +225,18 @@ export const listAllLite = async (examId, fields) => {
   return raw.map((r) => mapRow(r, fields, null));
 };
 
+/** Lite sync load scoped to centers in the current chunk (avoids O(n²) full-table reads). */
+export const listLiteByCenterRowIds = async (examId, fields, centerRowIds) => {
+  const em = getEm();
+  const ids = [...new Set((centerRowIds || []).map(String).filter(Boolean))];
+  if (!ids.length) return [];
+  const raw = await em.find(ExamCallingRow, {
+    exam_id: String(examId),
+    center_row_id: { $in: ids },
+  });
+  return raw.map((r) => mapRow(r, fields, null));
+};
+
 export const insertRow = async (examId, fields, values, userId, { naturalKey } = {}) => {
   const em = getEm();
   const encoded = encodeValues(fields, values);
@@ -255,25 +267,26 @@ export const insertRowsChunked = async (
   if (!list.length) return 0;
   const size = Math.max(50, Math.min(2000, Number(chunkSize) || 1000));
   let total = 0;
+  const now = new Date();
   for (let i = 0; i < list.length; i += size) {
     const slice = list.slice(i, i + size);
-    const entities = slice.map((item) => {
+    const docs = slice.map((item) => {
       const values = item?.values || item;
       const naturalKey = item?.naturalKey || item?.key;
       const encoded = encodeValues(fields, values);
       const link = linkFromValues(values, naturalKey);
-      return em.create(ExamCallingRow, {
+      return {
         exam_id: String(examId),
         ...link,
         values: encoded,
         sys_created_by: userId || null,
         sys_updated_by: userId || null,
-      });
+        sys_created_at: now,
+        sys_updated_at: now,
+      };
     });
-    entities.forEach((e) => em.persist(e));
-    await em.flush();
-    em.clear();
-    total += entities.length;
+    await em.insertMany(ExamCallingRow, docs);
+    total += docs.length;
   }
   return total;
 };
