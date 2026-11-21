@@ -693,6 +693,25 @@ export const deleteRows = (examId, rowIds) =>
     return { success: true, deleted: await repo.deleteRows(table.id, ids) };
   });
 
+const deletedCount = (res) => {
+  if (typeof res === 'number' && Number.isFinite(res)) return res;
+  const n = res?.affectedRows ?? res?.deletedCount ?? res?.modifiedCount;
+  return Number(n) || 0;
+};
+
+/** Bulk delete: `{ all: true, view }` wipes the view's row bag in one Mongo delete. */
+export const deleteRowsByScope = (examId, { all = false, view } = {}) =>
+  withMeta(async () => {
+    const table = await requireTable(examId);
+    if (!all) throw validationError('Specify all: true to delete the full table');
+    if (isOperatorGuardCallingView(view)) {
+      const deleted = deletedCount(await callingRepo.deleteAllForExam(examId));
+      return { success: true, deleted, view: OPERATOR_GUARD_CALLING_VIEW };
+    }
+    const deleted = deletedCount(await repo.deleteAllSharedRows(table.id));
+    return { success: true, deleted, view: view || DEFAULT_EXAM_VIEW };
+  });
+
 /**
  * Expand / soft-hide Op/Guard Calling rows from Center list (chunked for progress UI).
  * Body/options: { centerOffset, centerLimit } — process a slice of Center rows per request.
@@ -733,7 +752,7 @@ export const syncCallingRows = (examId, userId, options = {}) =>
     const centerOffset = Math.max(0, Number(options.centerOffset) || 0);
     const centerLimit = Math.min(
       200,
-      Math.max(1, Number(options.centerLimit) || 40),
+      Math.max(1, Number(options.centerLimit) || 200),
     );
     const isFirstBatch = centerOffset === 0;
 
@@ -755,7 +774,18 @@ export const syncCallingRows = (examId, userId, options = {}) =>
       DEFAULT_EXAM_VIEW,
       { offset: centerOffset, limit: centerLimit },
     );
-    const existingCalling = await callingRepo.listAllLite(examId, callingFields);
+    const centersProcessed = Math.min(centersTotal, centerOffset + centerRows.length);
+    const isLastBatch = centersProcessed >= centersTotal;
+
+    // Mid batches: only load calling rows for this chunk's centers (avoids re-reading 10k+ docs every request).
+    // Last batch: full load so orphan soft-hide can see every existing row.
+    const existingCalling = isLastBatch
+      ? await callingRepo.listAllLite(examId, callingFields)
+      : await callingRepo.listLiteByCenterRowIds(
+          examId,
+          callingFields,
+          centerRows.map((r) => r.id),
+        );
 
     const byKey = new Map();
     existingCalling.forEach((row) => {
@@ -849,9 +879,6 @@ export const syncCallingRows = (examId, userId, options = {}) =>
         });
       }
     }
-
-    const centersProcessed = Math.min(centersTotal, centerOffset + centerRows.length);
-    const isLastBatch = centersProcessed >= centersTotal;
 
     // Soft-hide orphans only on the final batch (needs full desired set for processed centers).
     // For correctness across chunks: on last batch, rebuild desired keys for ALL centers.

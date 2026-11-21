@@ -213,6 +213,13 @@ export const bulkPatchRows = handle(async (req) => {
 export const deleteRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'delete');
+  // Full-table wipe — table delete permission is enough (no per-row ACL fetch of 15k ids).
+  if (req.body?.all) {
+    return service.deleteRowsByScope(req.params.examId, {
+      all: true,
+      view: req.body.view,
+    });
+  }
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const ids = req.body?.ids ?? req.params.rowId;
   const idList = Array.isArray(ids) ? ids : [ids];

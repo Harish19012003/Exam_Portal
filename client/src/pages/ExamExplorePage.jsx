@@ -67,7 +67,7 @@ import {
   parseExamDayRowId,
   splitExamDayPersistPatch,
 } from './exams/examDayExpand';
-import { loadTablePrefs } from '../components/DynamicTable/utils/prefsStorage';
+import { getStorageKey, loadTablePrefs } from '../components/DynamicTable/utils/prefsStorage';
 import {
   listExamPresets,
   updateExamPreset,
@@ -281,6 +281,8 @@ export const ExamExplorePage = () => {
   const [rowsFilters, setRowsFilters] = useState({});
   /** Focus exam date for Unique-import pages (sheet-style Total Center / Max All Day). */
   const [focusDateId, setFocusDateId] = useState('');
+  /** Exam Day date filter — empty = Show All (filter expanded center×date rows). */
+  const [examDayDateFilterId, setExamDayDateFilterId] = useState('');
 
   const [tableError, setTableError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -353,6 +355,10 @@ export const ExamExplorePage = () => {
     enabled: Boolean(isExamDayView(view) && centerListLayoutTableId),
   });
 
+  /** After load/reload preset: force grid order to match fields until the user saves a layout. */
+  const [columnOrderOverride, setColumnOrderOverride] = useState(null);
+  const [presetOrderEpoch, setPresetOrderEpoch] = useState(0);
+
   const label = exam ? buildExamLabel(exam) : '';
   const viewPresets = useMemo(() => presetsForView(presets, view), [presets, view]);
   const matchedPreset = useMemo(
@@ -361,7 +367,60 @@ export const ExamExplorePage = () => {
   );
   // A table nobody has laid out yet starts with the layout saved on its service's preset.
   const presetLayout = matchedPreset?.layout || null;
-  const layoutPrefs = savedLayoutPrefs || (layoutSource === 'none' ? presetLayout : null);
+  const layoutPrefs = useMemo(() => {
+    const base = savedLayoutPrefs || (layoutSource === 'none' ? presetLayout : null);
+    if (Array.isArray(columnOrderOverride) && columnOrderOverride.length > 0) {
+      return { ...(base && typeof base === 'object' ? base : {}), columnOrder: columnOrderOverride };
+    }
+    return base;
+  }, [savedLayoutPrefs, layoutSource, presetLayout, columnOrderOverride]);
+
+  const handleLayoutPrefsChange = useCallback(
+    async (prefs) => {
+      // User explicitly saved a layout — stop forcing preset field order.
+      setColumnOrderOverride(null);
+      return onLayoutPrefsChange?.(prefs);
+    },
+    [onLayoutPrefsChange],
+  );
+
+  /**
+   * Load/reload/update preset writes fields[] order, but DynamicTable keeps an older layout
+   * columnOrder (user/org/preset layout or browser draft). Align the grid to the applied fields.
+   */
+  const syncColumnOrderFromPresetFields = useCallback(
+    async (snap, { persistUserLayout = true } = {}) => {
+      const nextFields = Array.isArray(snap?.fields) ? snap.fields : [];
+      const order = nextFields.map((f) => f?.key).filter(Boolean).map(String);
+      if (!order.length) return;
+
+      const tableId = snap?.table?.id || tableInfo?.id;
+      const tid = tableId ? `exam_table_${tableId}_${view}_v1` : layoutTableId;
+      if (tid) {
+        try {
+          localStorage.removeItem(getStorageKey(tid));
+        } catch {
+          /* private mode / quota */
+        }
+      }
+
+      setColumnOrderOverride(order);
+      setPresetOrderEpoch((n) => n + 1);
+
+      if (!persistUserLayout || !tid || !onLayoutPrefsChange) return;
+      const base =
+        (savedLayoutPrefs && typeof savedLayoutPrefs === 'object' ? savedLayoutPrefs : null) ||
+        (presetLayout && typeof presetLayout === 'object' ? presetLayout : null) ||
+        {};
+      try {
+        await onLayoutPrefsChange({ ...base, columnOrder: order });
+        // Persisted — override still needed until remount reads the new bundle; keep it.
+      } catch {
+        /* override alone still remounts the table in preset order */
+      }
+    },
+    [tableInfo?.id, view, layoutTableId, onLayoutPrefsChange, savedLayoutPrefs, presetLayout],
+  );
 
   const uniqueRowKeys = useMemo(() => {
     const fromExam = normalizeUniqueRowKeys(features?.uniqueRowKeys);
@@ -386,6 +445,8 @@ export const ExamExplorePage = () => {
     setRowsSearchInput('');
     setRowsSearch('');
     setFocusDateId('');
+    setExamDayDateFilterId('');
+    setColumnOrderOverride(null);
   }, [examId]);
 
   const uniqueRowKeysSig = uniqueRowKeys.join('|');
@@ -535,11 +596,20 @@ export const ExamExplorePage = () => {
       })),
     [centerListDateShifts],
   );
-  // Focus-date picker is Unique-import only — not Exam Day (Exam Day shows every date as rows).
+  // Focus-date picker is Unique-import only (renames Total Center / Max All Day columns).
   const canFocusExamDate =
     uniqueImportActive &&
     focusDateOptions.length > 0 &&
     hasDateShiftTemplate(centerListDateShifts);
+  // Exam Day date filter — Show All by default; optional filter by __examDayDateId.
+  const canFilterExamDayDate =
+    examDayLive &&
+    focusDateOptions.length > 0 &&
+    hasDateShiftTemplate(centerListDateShifts);
+  const examDayDateFilterOptions = useMemo(
+    () => [{ value: '', label: 'Show All' }, ...focusDateOptions],
+    [focusDateOptions],
+  );
   useEffect(() => {
     if (!canFocusExamDate) {
       if (focusDateId) setFocusDateId('');
@@ -548,6 +618,15 @@ export const ExamExplorePage = () => {
     const stillValid = focusDateOptions.some((o) => o.value === focusDateId);
     if (!stillValid) setFocusDateId(focusDateOptions[0].value);
   }, [canFocusExamDate, focusDateOptions, focusDateId]);
+  useEffect(() => {
+    if (!canFilterExamDayDate) {
+      if (examDayDateFilterId) setExamDayDateFilterId('');
+      return;
+    }
+    if (!examDayDateFilterId) return;
+    const stillValid = focusDateOptions.some((o) => o.value === examDayDateFilterId);
+    if (!stillValid) setExamDayDateFilterId('');
+  }, [canFilterExamDayDate, focusDateOptions, examDayDateFilterId]);
   const focusDateTitle =
     focusDateOptions.find((o) => o.value === focusDateId)?.label || '';
   const focusLabels = useMemo(
@@ -697,6 +776,11 @@ export const ExamExplorePage = () => {
   const derivedFilteredRows = useMemo(() => {
     if (!uniqueImportActive && !examDayLive) return uniqueAllRows;
     let next = examDayLive ? examDayAllRows : uniqueAllRows;
+    if (examDayLive && examDayDateFilterId) {
+      next = next.filter(
+        (r) => String(r.__examDayDateId || '') === String(examDayDateFilterId),
+      );
+    }
     if (rowsSearch) next = applySearch(next, rowsSearch, tableColumns, {});
     if (rowsFilters && Object.keys(rowsFilters).length) {
       next = applyFilters(next, rowsFilters, tableColumns);
@@ -705,6 +789,7 @@ export const ExamExplorePage = () => {
   }, [
     uniqueImportActive,
     examDayLive,
+    examDayDateFilterId,
     uniqueAllRows,
     examDayAllRows,
     rowsSearch,
@@ -1034,6 +1119,7 @@ export const ExamExplorePage = () => {
   );
 
   const handleResetLayoutToDefault = useCallback(async () => {
+    setColumnOrderOverride(null);
     const result = await onResetLayoutToDefault?.();
     if (result?.message) setMessage(result.message);
   }, [onResetLayoutToDefault]);
@@ -1510,18 +1596,96 @@ export const ExamExplorePage = () => {
     return () => window.clearTimeout(t);
   }, [callingSyncJob]);
 
+  /** Tick while Calling sync runs so ETA can refresh. */
+  const [callingSyncTick, setCallingSyncTick] = useState(0);
+  useEffect(() => {
+    if (callingSyncJob?.status !== 'running') return undefined;
+    setCallingSyncTick(Date.now());
+    const t = window.setInterval(() => setCallingSyncTick(Date.now()), 500);
+    return () => window.clearInterval(t);
+  }, [callingSyncJob?.status, callingSyncJob?.startedAt]);
+
+  /** Human ETA: "12 sec" / "1 min 30 sec" (not a counting timer). */
+  const formatDurationWords = (ms) => {
+    const sec = Math.max(0, Math.ceil((Number(ms) || 0) / 1000));
+    if (sec < 60) return `${sec} sec`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (s === 0) return m === 1 ? '1 min' : `${m} min`;
+    return `${m} min ${s} sec`;
+  };
+
+  const callingSyncEtaLabel = (() => {
+    if (!callingSyncJob) return null;
+    if (callingSyncJob.status === 'success') {
+      const took =
+        callingSyncJob.elapsedMs != null
+          ? callingSyncJob.elapsedMs
+          : callingSyncJob.startedAt
+            ? Date.now() - callingSyncJob.startedAt
+            : null;
+      return took != null ? `Took ${formatDurationWords(took)}` : null;
+    }
+    if (callingSyncJob.status !== 'running' || !callingSyncJob.startedAt) return null;
+
+    const elapsed = Math.max(0, callingSyncTick - callingSyncJob.startedAt);
+    const processed = Number(callingSyncJob.centersProcessed) || 0;
+    const total = Number(callingSyncJob.centersTotal) || 0;
+    const progress = Math.min(100, Math.max(0, Number(callingSyncJob.progress) || 0));
+
+    // Need a bit of progress before estimating.
+    const frac =
+      total > 0 && processed > 0
+        ? processed / total
+        : progress >= 2
+          ? progress / 100
+          : 0;
+    if (frac < 0.02 || elapsed < 800) return 'Calculating…';
+
+    const remainingMs = elapsed * ((1 - frac) / frac);
+    if (!Number.isFinite(remainingMs) || remainingMs < 0) return 'Calculating…';
+    if (remainingMs < 1500) return 'Almost done';
+    return `~${formatDurationWords(remainingMs)} left`;
+  })();
+
+  const pushDeleteJob = useCallback((job) => {
+    setMassEditJob(job);
+  }, []);
+
   const handleRowDelete = async (rowIds) => {
     if (examDayLive) {
       setMessage('Delete centers on Center list — Exam Day is a live view of those rows.');
       return;
     }
     const ids = Array.isArray(rowIds) ? rowIds : [rowIds];
+    pushDeleteJob({
+      status: 'running',
+      label: 'Deleting rows',
+      detail:
+        ids.length === 1
+          ? 'Deleting 1 row…'
+          : `Deleting ${ids.length.toLocaleString()} rows…`,
+      progress: 40,
+      kind: 'delete',
+    });
     try {
-      await deleteExamRows(examId, ids);
+      await deleteExamRows(examId, { ids, view });
       setRowsCache(examId, (prev) => prev.filter((r) => !ids.includes(r.id)), rowsPageKey);
-      setMessage(ids.length > 1 ? 'Centers deleted' : 'Center deleted');
+      pushDeleteJob({
+        status: 'success',
+        label: 'Delete complete',
+        detail: ids.length === 1 ? 'Deleted 1 row' : `Deleted ${ids.length.toLocaleString()} rows`,
+        progress: 100,
+        kind: 'delete',
+      });
     } catch (err) {
-      setMessage(apiErrorMessage(err, 'Could not delete the center'));
+      pushDeleteJob({
+        status: 'error',
+        label: 'Delete failed',
+        detail: apiErrorMessage(err, 'Could not delete the center'),
+        progress: 100,
+        kind: 'delete',
+      });
     }
   };
 
@@ -1536,14 +1700,54 @@ export const ExamExplorePage = () => {
 
       const scopeLabel =
         scope === 'selected' ? 'selected rows' : scope === 'filtered' ? 'filtered rows' : 'all rows';
-      setMassEditJob({
+      // Paint progress (modal “Deleting…” + top-right bar) before any network work.
+      pushDeleteJob({
         status: 'running',
         label: 'Deleting rows',
         detail: `Preparing ${scopeLabel}…`,
-        progress: 10,
+        progress: 8,
+        kind: 'delete',
+      });
+      await new Promise((r) => {
+        requestAnimationFrame(() => requestAnimationFrame(r));
       });
 
       try {
+        const hasFilter =
+          Boolean(String(search || '').trim()) ||
+          Object.values(filters || {}).some((f) => f != null && f !== '');
+        const wipeAll = scope === 'all' || (scope === 'filtered' && !hasFilter);
+
+        // Full table: one Mongo wipe — no download of 15k ids.
+        if (wipeAll) {
+          pushDeleteJob({
+            status: 'running',
+            label: 'Deleting rows',
+            detail: 'Deleting all rows in the database…',
+            progress: 45,
+            kind: 'delete',
+          });
+          const result = await deleteExamRows(examId, { all: true, view });
+          const deleted = Number(result?.deleted) || 0;
+          pushDeleteJob({
+            status: 'running',
+            label: 'Deleting rows',
+            detail: 'Refreshing table…',
+            progress: 90,
+            kind: 'delete',
+          });
+          setRowsCache(examId, () => [], rowsPageKey);
+          await invalidateRows(examId);
+          pushDeleteJob({
+            status: 'success',
+            label: 'Delete complete',
+            detail: deleted === 1 ? 'Deleted 1 row' : `Deleted ${deleted.toLocaleString()} rows`,
+            progress: 100,
+            kind: 'delete',
+          });
+          return;
+        }
+
         const searchKeys = [];
         (columns || []).forEach((col) => {
           if (!col?.key || columnVisibility?.[col.key] === false) return;
@@ -1559,90 +1763,78 @@ export const ExamExplorePage = () => {
         let ids = [];
         if (scope === 'selected') {
           ids = (selectedRowIds || []).map(String).filter(Boolean);
-        } else if (scope === 'all') {
-          setMassEditJob({
+        } else {
+          pushDeleteJob({
             status: 'running',
             label: 'Deleting rows',
-            detail: 'Loading all rows…',
-            progress: 30,
+            detail: 'Matching filters on the server…',
+            progress: 25,
+            kind: 'delete',
           });
-          const res = await listExamRows(examId, { all: true, view });
-          ids = (Array.isArray(res?.rows) ? res.rows : []).map((r) => String(r.id)).filter(Boolean);
-        } else {
-          const hasFilter =
-            Boolean(String(search || '').trim()) ||
-            Object.values(filters || {}).some((f) => f != null && f !== '');
-          if (!hasFilter) {
-            setMassEditJob({
+          const collected = [];
+          let page = 1;
+          const limit = 500;
+          for (;;) {
+            const res = await listExamRows(examId, {
+              page,
+              limit,
+              view,
+              search: search || '',
+              searchKeys,
+              filters: filters || {},
+            });
+            const batch = Array.isArray(res?.rows) ? res.rows : [];
+            batch.forEach((r) => {
+              const id = String(r?.id || '').trim();
+              if (id) collected.push(id);
+            });
+            const total = Number(res?.total) || collected.length;
+            pushDeleteJob({
               status: 'running',
               label: 'Deleting rows',
-              detail: 'Loading all rows…',
-              progress: 30,
+              detail: `Matched ${collected.toLocaleString()} of ${total.toLocaleString()}…`,
+              progress: 25 + Math.min(30, Math.round((collected.length / Math.max(total, 1)) * 30)),
+              kind: 'delete',
             });
-            const res = await listExamRows(examId, { all: true, view });
-            ids = (Array.isArray(res?.rows) ? res.rows : []).map((r) => String(r.id)).filter(Boolean);
-          } else {
-            setMassEditJob({
-              status: 'running',
-              label: 'Deleting rows',
-              detail: 'Matching filters on the server…',
-              progress: 30,
-            });
-            const collected = [];
-            let page = 1;
-            const limit = 500;
-            for (;;) {
-              const res = await listExamRows(examId, {
-                page,
-                limit,
-                view,
-                search: search || '',
-                searchKeys,
-                filters: filters || {},
-              });
-              const batch = Array.isArray(res?.rows) ? res.rows : [];
-              batch.forEach((r) => {
-                const id = String(r?.id || '').trim();
-                if (id) collected.push(id);
-              });
-              const total = Number(res?.total) || collected.length;
-              if (batch.length < limit || collected.length >= total) break;
-              page += 1;
-              if (page > 200) break;
-            }
-            ids = collected;
+            if (batch.length < limit || collected.length >= total) break;
+            page += 1;
+            if (page > 200) break;
           }
+          ids = collected;
         }
 
         if (!ids.length) {
-          setMassEditJob({
+          pushDeleteJob({
             status: 'error',
             label: 'Delete failed',
             detail: 'No rows to delete',
             progress: 100,
+            kind: 'delete',
           });
           await invalidateRows(examId);
           return;
         }
 
-        setMassEditJob({
+        pushDeleteJob({
           status: 'running',
           label: 'Deleting rows',
           detail: `Deleting ${ids.length.toLocaleString()} row${ids.length === 1 ? '' : 's'}…`,
           progress: 55,
+          kind: 'delete',
         });
 
-        const DELETE_CHUNK = 200;
+        const DELETE_CHUNK = 500;
         let deleted = 0;
         for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
           const chunk = ids.slice(i, i + DELETE_CHUNK);
-          await deleteExamRows(examId, chunk);
+          await deleteExamRows(examId, { ids: chunk, view });
           deleted += chunk.length;
-          setMassEditJob({
+          pushDeleteJob({
             status: 'running',
             label: 'Deleting rows',
             detail: `Deleted ${deleted.toLocaleString()} of ${ids.length.toLocaleString()}…`,
             progress: 55 + Math.round((deleted / ids.length) * 35),
+            kind: 'delete',
           });
         }
 
@@ -1652,23 +1844,25 @@ export const ExamExplorePage = () => {
           rowsPageKey,
         );
         await invalidateRows(examId);
-        setMassEditJob({
+        pushDeleteJob({
           status: 'success',
           label: 'Delete complete',
           detail: deleted === 1 ? 'Deleted 1 row' : `Deleted ${deleted.toLocaleString()} rows`,
           progress: 100,
+          kind: 'delete',
         });
       } catch (err) {
-        setMassEditJob({
+        pushDeleteJob({
           status: 'error',
           label: 'Delete failed',
           detail: apiErrorMessage(err, 'Could not delete rows'),
           progress: 100,
+          kind: 'delete',
         });
         await invalidateRows(examId);
       }
     },
-    [examDayLive, examId, view, invalidateRows, rowsPageKey],
+    [examDayLive, examId, view, invalidateRows, rowsPageKey, setRowsCache, pushDeleteJob],
   );
 
   const handleDuplicateRow = async (row) => {
@@ -1755,7 +1949,9 @@ export const ExamExplorePage = () => {
     setCreating(true);
     setTableError('');
     try {
-      applySnapshot(await createExamTable(examId, { presetId, view }));
+      const snap = await createExamTable(examId, { presetId, view });
+      applySnapshot(snap);
+      await syncColumnOrderFromPresetFields(snap);
       await loadRows();
     } catch (err) {
       setTableError(apiErrorMessage(err, 'Could not create the table'));
@@ -1794,6 +1990,7 @@ export const ExamExplorePage = () => {
         view,
       });
       applySnapshot(snap);
+      await syncColumnOrderFromPresetFields(snap);
       setMessage('Fields updated from the preset');
       await loadRows();
     } catch (err) {
@@ -1811,13 +2008,13 @@ export const ExamExplorePage = () => {
     try {
       // Ensure the shared table shell exists, then write this tab's fields.
       if (!tableInfo) await createExamTable(examId, { view });
-      applySnapshot(
-        await saveExamTableConfig(examId, {
-          fields: preset.fields,
-          features: preset.features ?? undefined,
-          view,
-        }),
-      );
+      const snap = await saveExamTableConfig(examId, {
+        fields: preset.fields,
+        features: preset.features ?? undefined,
+        view,
+      });
+      applySnapshot(snap);
+      await syncColumnOrderFromPresetFields(snap);
       setMessage(`Loaded ${preset.fieldCount} fields from “${preset.name}”`);
       await loadRows();
     } catch (err) {
@@ -1877,6 +2074,7 @@ export const ExamExplorePage = () => {
         view,
       });
       applySnapshot(snap);
+      await syncColumnOrderFromPresetFields(snap);
       setMessage(`Reloaded ${viewTitle} from “${preset.name}”`);
       await loadRows();
     } catch (err) {
@@ -1943,6 +2141,7 @@ export const ExamExplorePage = () => {
   const handleSyncCalling = useCallback(async () => {
     if (!callingLive || !examId || syncingCalling) return;
     setSyncingCalling(true);
+    const startedAt = Date.now();
     setCallingSyncJob({
       status: 'running',
       progress: 0,
@@ -1952,6 +2151,7 @@ export const ExamExplorePage = () => {
       hidden: 0,
       centersProcessed: 0,
       centersTotal: 0,
+      startedAt,
     });
     try {
       const nextFeatures = tableFeaturesFor({
@@ -1976,7 +2176,7 @@ export const ExamExplorePage = () => {
         );
       }
 
-      const batchSize = 40;
+      const batchSize = 200;
       let offset = 0;
       let totals = { created: 0, updated: 0, hidden: 0 };
       let last = null;
@@ -2007,6 +2207,7 @@ export const ExamExplorePage = () => {
           hidden: totals.hidden,
           centersProcessed,
           centersTotal,
+          startedAt,
         });
         done = Boolean(result?.done) || result?.nextOffset == null;
         if (!done) offset = Number(result.nextOffset) || offset + batchSize;
@@ -2019,6 +2220,7 @@ export const ExamExplorePage = () => {
           : last?.mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS
             ? 'category counts'
             : 'Max Day N';
+      const elapsedMs = Date.now() - startedAt;
       setCallingSyncJob({
         status: 'success',
         progress: 100,
@@ -2028,6 +2230,8 @@ export const ExamExplorePage = () => {
         hidden: totals.hidden,
         centersProcessed: last?.centersProcessed || 0,
         centersTotal: last?.centersTotal || 0,
+        startedAt,
+        elapsedMs,
       });
       setMessage(
         `Calling synced (${modeLabel}): +${totals.created} created · ${totals.updated} updated · ${totals.hidden} hidden`,
@@ -2043,6 +2247,8 @@ export const ExamExplorePage = () => {
         hidden: 0,
         centersProcessed: 0,
         centersTotal: 0,
+        startedAt,
+        elapsedMs: Date.now() - startedAt,
       });
       setMessage(msg);
     } finally {
@@ -2413,6 +2619,23 @@ export const ExamExplorePage = () => {
                   />
                 </label>
               )}
+              {canFilterExamDayDate && (
+                <label className="exam-explore-focus-date">
+                  <CalendarDays size={16} strokeWidth={2} aria-hidden="true" />
+                  <span className="exam-explore-focus-date-label">Exam date</span>
+                  <SearchableSelect
+                    ariaLabel="Filter Exam Day by exam date"
+                    value={examDayDateFilterId}
+                    onChange={(v) => {
+                      setExamDayDateFilterId(v == null ? '' : String(v));
+                      setRowsPage(1);
+                    }}
+                    options={examDayDateFilterOptions}
+                    searchThreshold={8}
+                    placeholder="Show All"
+                  />
+                </label>
+              )}
               {view === DEFAULT_EXAM_VIEW && canToggleShiftColumns && (
                 <IconButton
                   label={shiftVisBarOpen ? 'Hide shift filters' : 'Show / hide shift columns'}
@@ -2526,15 +2749,39 @@ export const ExamExplorePage = () => {
       {massEditJob &&
         createPortal(
           <div
-            className={`fixed top-4 right-4 z-[10001] flex max-w-[min(360px,92vw)] items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl
-              ${isDarkMode ? 'border-gray-600 bg-[#0f1c18] text-gray-100' : 'border-gray-200 bg-white text-gray-900'}`}
             role="status"
             aria-live="polite"
+            style={{
+              position: 'fixed',
+              top: 72,
+              right: 16,
+              zIndex: 10090,
+              width: 'min(380px, calc(100vw - 32px))',
+            }}
+            className={`flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl
+              ${
+                massEditJob.kind === 'delete'
+                  ? isDarkMode
+                    ? 'border-rose-500/40 bg-[#1a0f12] text-gray-100'
+                    : 'border-rose-200 bg-white text-gray-900'
+                  : isDarkMode
+                    ? 'border-gray-600 bg-[#0f1c18] text-gray-100'
+                    : 'border-gray-200 bg-white text-gray-900'
+              }`}
           >
             {massEditJob.status === 'running' ? (
-              <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#13C296]" />
+              <Loader2
+                className={`mt-0.5 h-5 w-5 shrink-0 animate-spin ${
+                  massEditJob.kind === 'delete' ? 'text-rose-500' : 'text-[#13C296]'
+                }`}
+              />
             ) : massEditJob.status === 'success' ? (
-              <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#13C296]" strokeWidth={2.5} />
+              <Check
+                className={`mt-0.5 h-5 w-5 shrink-0 ${
+                  massEditJob.kind === 'delete' ? 'text-rose-500' : 'text-[#13C296]'
+                }`}
+                strokeWidth={2.5}
+              />
             ) : (
               <X className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" strokeWidth={2.5} />
             )}
@@ -2548,7 +2795,9 @@ export const ExamExplorePage = () => {
               {massEditJob.status === 'running' ? (
                 <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>
                   <div
-                    className="h-full rounded-full bg-[#13C296] transition-[width] duration-300"
+                    className={`h-full rounded-full transition-[width] duration-300 ${
+                      massEditJob.kind === 'delete' ? 'bg-rose-500' : 'bg-[#13C296]'
+                    }`}
                     style={{ width: `${Math.min(100, Math.max(0, massEditJob.progress || 0))}%` }}
                   />
                 </div>
@@ -2590,13 +2839,25 @@ export const ExamExplorePage = () => {
                   <X className="mt-0.5 h-6 w-6 shrink-0 text-rose-500" strokeWidth={2.5} />
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold">
-                    {callingSyncJob.status === 'running'
-                      ? 'Syncing Op/Guard Calling'
-                      : callingSyncJob.status === 'success'
-                        ? 'Calling sync complete'
-                        : 'Calling sync failed'}
-                  </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-base font-bold">
+                      {callingSyncJob.status === 'running'
+                        ? 'Syncing Op/Guard Calling'
+                        : callingSyncJob.status === 'success'
+                          ? 'Calling sync complete'
+                          : 'Calling sync failed'}
+                    </p>
+                    {callingSyncEtaLabel ? (
+                      <span
+                        className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${
+                          isDarkMode ? 'bg-white/10 text-gray-200' : 'bg-gray-100 text-gray-700'
+                        }`}
+                        title="Estimated time remaining"
+                      >
+                        {callingSyncEtaLabel}
+                      </span>
+                    ) : null}
+                  </div>
                   <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     {callingSyncJob.detail || 'Working…'}
                   </p>
@@ -2752,7 +3013,7 @@ export const ExamExplorePage = () => {
         ) : (
           <div className="exams-dynamic-table-wrap">
             <DynamicTable
-              key={`exam_table_${layoutEpoch}_${savedLayoutPrefs || !presetLayout ? 0 : 1}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => `${f.key}:${f.dataType}`).join('|')}`}
+              key={`exam_table_${layoutEpoch}_${presetOrderEpoch}_${savedLayoutPrefs || !presetLayout ? 0 : 1}_${dateShiftLayoutEpoch}_${configVersion}_${fields.map((f) => f.key).join('|')}`}
               tableId={layoutTableId}
               shareState={false}
               usePortalFeatures
@@ -2768,7 +3029,7 @@ export const ExamExplorePage = () => {
                   ? () => setShiftVisApiEpoch((n) => n + 1)
                   : undefined
               }
-              onLayoutPrefsChange={onLayoutPrefsChange}
+              onLayoutPrefsChange={handleLayoutPrefsChange}
               canSaveLayoutAsDefault={canSaveLayoutAsDefault}
               hasUserLayoutOverride={hasUserLayoutOverride}
               onSaveLayoutAsDefault={canSaveLayoutAsDefault ? handleSaveLayoutAsDefault : undefined}
