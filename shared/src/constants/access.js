@@ -22,6 +22,7 @@ export const ACCESS_PAGES = Object.freeze([
   { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
   { id: 'exams', label: 'Exams', path: '/exams' },
   { id: 'exam_day', label: 'Exam Day', path: '/exam-day' },
+  { id: 'device_master', label: 'Device Master', path: '/device-master' },
   { id: 'vendors', label: 'Vendor Data', path: '/vendors' },
   { id: 'seq_view', label: 'SeqView', path: '/seq-view' },
   { id: 'tables', label: 'Dynamic Tables', path: '/tables' },
@@ -33,6 +34,7 @@ export const ACCESS_TABLES = Object.freeze([
   { id: 'exams', label: 'Exams', page: 'exams' },
   { id: 'exam_rows', label: 'Center list', page: 'exams' },
   { id: 'vendors', label: 'Vendors', page: 'vendors' },
+  { id: 'devices', label: 'Devices', page: 'device_master' },
   { id: 'seq_views', label: 'SeqView', page: 'seq_view' },
 ]);
 

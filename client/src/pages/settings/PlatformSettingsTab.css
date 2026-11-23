@@ -1094,3 +1094,18 @@
     font-size: 13px;
   }
 }
+
+.ps-support-current {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ps-support-link {
+  align-self: flex-start;
+  text-decoration: none;
+}

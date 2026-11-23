@@ -6,12 +6,16 @@ import { UsersPage } from './UsersPage';
 import { MessageTemplatesTab } from './settings/MessageTemplatesTab';
 import { ConfigTab } from './settings/ConfigTab';
 import { PlatformSettingsTab } from './settings/PlatformSettingsTab';
+import { SupportSettingsTab } from './settings/SupportSettingsTab';
+import { FeedbackAdminTab } from './settings/FeedbackAdminTab';
 import { useAccess } from '../hooks/useAccess';
 import {
   Users,
   Mail,
   SlidersHorizontal,
   Building2,
+  LifeBuoy,
+  Bug,
   Search,
   Check,
   ChevronDown,
@@ -55,6 +59,24 @@ const TABS_CONFIG = [
     page: 'settings',
     description: 'Portal name, support contact, default timezone for new users, and a maintenance banner shown to everyone.',
   },
+  {
+    id: 'support',
+    title: 'Support',
+    icon: LifeBuoy,
+    badge: null,
+    badgeType: 'slate',
+    page: 'settings',
+    description: 'What the Help window (sidebar ? icon) shows: support email, phone, WhatsApp, hours, quick links and FAQs.',
+  },
+  {
+    id: 'feedback',
+    title: 'Bugs & Features',
+    icon: Bug,
+    badge: null,
+    badgeType: 'slate',
+    page: 'settings',
+    description: 'Bug reports and feature requests sent from the app. Set a status, priority and reply — the reporter is notified.',
+  },
 ];
 
 export const SettingsPage = () => {
@@ -96,14 +118,18 @@ export const SettingsPage = () => {
   }, [urlTab, availableTabs, activeTab]);
 
   const handleTabSelect = (tabKey) => {
-    setActiveTab(tabKey);
+    // activeTab follows the URL (effect above), so a blocked navigation — e.g. the Field preset
+    // editor's unsaved-changes prompt — keeps the current tab mounted.
     // Preserve other query params; only drop Config-only filters when leaving Config.
     setSearchParams(
       (prev) => {
         const params = new URLSearchParams(prev);
         params.set('tab', tabKey);
         if (tabKey !== 'config') {
-          ['section', 'pq', 'psvc', 'pview', 'psort'].forEach((k) => params.delete(k));
+          ['section', 'pq', 'psvc', 'pview', 'psort', 'edit', 'fg'].forEach((k) => params.delete(k));
+        }
+        if (tabKey !== 'feedback') {
+          ['fbk', 'fbs', 'fbid'].forEach((k) => params.delete(k));
         }
         return params;
       },
@@ -121,6 +147,8 @@ export const SettingsPage = () => {
   const [actionsSlot, setActionsSlot] = useState(null);
   // Between the title and the actions: the active tab can render its own section tabs here.
   const [tabsSlot, setTabsSlot] = useState(null);
+  // Left of the title: e.g. Field preset editor's Back button.
+  const [leadSlot, setLeadSlot] = useState(null);
   const searchInputRef = useRef(null);
 
   // Info Tooltip state
@@ -271,6 +299,7 @@ export const SettingsPage = () => {
       {dropdownInTopbar && createPortal(tabDropdown, topbarSlot)}
       {/* TOP TOOLBAR: Left Title & Right-Aligned Tab Selector Dropdown */}
       <div className="settings-top-toolbar">
+        <div className="settings-toolbar-lead" ref={setLeadSlot} />
         {/* Left Side: Section Title with Info Tooltip Icon */}
         <div className="settings-toolbar-left">
           <PageTitle title={currentTabConfig.title} info={currentTabConfig.description} />
@@ -306,7 +335,7 @@ export const SettingsPage = () => {
         {/* 3. CONFIG */}
         {activeTab === 'config' && showTab('config') && (
           <div className="settings-panel-view">
-            <ConfigTab tabsSlot={tabsSlot} actionsSlot={actionsSlot} />
+            <ConfigTab tabsSlot={tabsSlot} actionsSlot={actionsSlot} leadSlot={leadSlot} />
           </div>
         )}
 
@@ -314,6 +343,20 @@ export const SettingsPage = () => {
         {activeTab === 'platform' && showTab('platform') && (
           <div className="settings-panel-view">
             <PlatformSettingsTab />
+          </div>
+        )}
+
+        {/* 6. BUGS & FEATURES (reports from users) */}
+        {activeTab === 'feedback' && showTab('feedback') && (
+          <div className="settings-panel-view">
+            <FeedbackAdminTab />
+          </div>
+        )}
+
+        {/* 5. SUPPORT (Help window content) */}
+        {activeTab === 'support' && showTab('support') && (
+          <div className="settings-panel-view">
+            <SupportSettingsTab />
           </div>
         )}
       </div>

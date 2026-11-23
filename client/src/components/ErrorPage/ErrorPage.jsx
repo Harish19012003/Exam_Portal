@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { isRouteErrorResponse, useRouteError } from 'react-router-dom';
-import { RefreshCw, Home, Copy, Check, ChevronDown } from 'lucide-react';
+import { RefreshCw, Home, Copy, Check, ChevronDown, ArrowLeft, FileCode2, Clock } from 'lucide-react';
 import { ErrorIllustration } from './ErrorIllustration';
 import { NotFoundScreen } from './NotFoundScreen';
 import { AppFooter } from '../AppFooter/AppFooter';
@@ -9,6 +9,28 @@ import './ErrorPage.css';
 /** Messages a browser gives when a lazily-loaded file no longer exists (a new version was deployed). */
 const STALE_BUILD_RE =
   /(Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk [\w-]+ failed|ChunkLoadError)/i;
+
+/**
+ * Dev only: first app frame of the stack → "ExamFieldBuilder · ExamFieldBuilder.jsx:576".
+ * Works for Chrome/Edge ("at Fn (url:line:col)") and Firefox/Safari ("Fn@url:line:col").
+ */
+const sourceLocation = (error) => {
+  if (!import.meta.env.DEV || !(error instanceof Error) || !error.stack) return '';
+  const lines = String(error.stack).split('\n');
+  for (const line of lines) {
+    const m =
+      line.match(/at\s+(?:([\w$.<>]+)\s+\()?(.+?):(\d+):\d+\)?\s*$/) ||
+      line.match(/^([\w$.<>]*)@(.+?):(\d+):\d+$/);
+    if (!m) continue;
+    const url = m[2] || '';
+    if (/node_modules|\/@vite\/|chunk-|react-dom|react-router/.test(url)) continue;
+    const file = url.split('?')[0].split('/').pop();
+    if (!file) continue;
+    const fn = m[1] && !/^(Object|eval|<anonymous>)$/.test(m[1]) ? `${m[1]} · ` : '';
+    return `${fn}${file}:${m[3]}`;
+  }
+  return '';
+};
 
 /** Turn any thrown value into friendly copy plus raw details for the "technical details" panel. */
 export const describeError = (error) => {
@@ -70,6 +92,15 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
   // First line of the raw error, shown right in the card so the cause is visible without opening the panel.
   const summary = useMemo(() => String(info.details || '').split('\n')[0].trim().slice(0, 220), [info.details]);
   const pagePath = typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '';
+  const location = useMemo(() => sourceLocation(error), [error]);
+  const isInline = variant === 'inline';
+  const canGoBack = typeof window !== 'undefined' && window.history.length > 1;
+  // In the app shell only one page broke — say so, instead of a full "We're sorry" takeover.
+  const title = isInline && info.kind === 'generic' ? 'This page hit a snag' : info.title;
+  const message =
+    isInline && info.kind === 'generic'
+      ? 'Only this page stopped working — the menu and other pages are fine. Try again, or go back to where you were.'
+      : info.message;
 
   useEffect(() => {
     // Keep the real error in the console for developers.
@@ -109,9 +140,12 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
     <div className={`app-error app-error--${variant}`} role="alert">
       <div className={`app-error-card app-error-card--${info.kind}`}>
         <div className="app-error-body">
-          <ErrorIllustration kind={info.kind} />
-          <h1 className="app-error-title">{info.title}</h1>
-          <p className="app-error-message">{info.message}</p>
+          <div className="app-error-art">
+            <ErrorIllustration kind={info.kind} />
+          </div>
+          <div className="app-error-content">
+          <h1 className="app-error-title">{title}</h1>
+          <p className="app-error-message">{message}</p>
 
           {info.kind === 'generic' && summary && (
             <button
@@ -122,6 +156,12 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
             >
               <span className="app-error-summary-label">What happened</span>
               <code>{summary}</code>
+              {location && (
+                <span className="app-error-summary-loc">
+                  <FileCode2 size={12} aria-hidden="true" />
+                  {location}
+                </span>
+              )}
             </button>
           )}
 
@@ -132,12 +172,18 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
                 <span>{info.kind === 'stale' ? 'Reload now' : onRetry ? 'Try again' : 'Reload page'}</span>
               </button>
             )}
+            {canGoBack && info.kind !== 'stale' && (
+              <button type="button" className="app-error-btn app-error-btn--ghost" onClick={() => window.history.back()}>
+                <ArrowLeft size={16} aria-hidden="true" />
+                <span>Go back</span>
+              </button>
+            )}
             <a
-              className={`app-error-btn ${primaryIsDashboard ? 'app-error-btn--primary' : 'app-error-btn--ghost'}`}
+              className={`app-error-btn ${primaryIsDashboard ? 'app-error-btn--primary' : 'app-error-btn--text'}`}
               href="/dashboard"
             >
               <Home size={16} aria-hidden="true" />
-              <span>Back to dashboard</span>
+              <span>{primaryIsDashboard ? 'Back to dashboard' : 'Dashboard'}</span>
             </a>
           </div>
 
@@ -147,6 +193,10 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
               {refCopied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span className="app-error-sr">{refCopied ? 'Copied' : 'Copy reference'}</span>
             </button>
+            <span className="app-error-when" title={when.toLocaleString()}>
+              <Clock size={13} aria-hidden="true" />
+              {when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </span>
             <button
               type="button"
               className="app-error-link"
@@ -176,6 +226,7 @@ export const ErrorView = ({ error, variant = 'page', onRetry }) => {
                 <pre>{info.details}</pre>
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>

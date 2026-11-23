@@ -65,7 +65,6 @@
   min-width: 0;
 }
 
-
 .fpp-meta .config-form-group input,
 .fpp-meta .config-form-group select {
   width: 100%;
@@ -505,3 +504,552 @@
     margin: -11px;
   }
 }
+
+/* ── Field preset editor · full page (?section=presets&edit=<id|new>) ───────── */
+
+/* The panel normally clips its cards; the editor needs overflow visible for its sticky save bar. */
+.config-section-panel--page {
+  overflow: visible;
+}
+
+.fpe {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fpe-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: clamp(12px, 2vw, 16px) clamp(12px, 3vw, 24px);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  min-width: 0;
+}
+
+.fpe-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-primary, #f9fafb);
+  color: var(--text-primary, #030712);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.fpe-back:hover:not(:disabled) {
+  border-color: var(--primary-color, #5c43fa);
+  color: var(--primary-color, #5c43fa);
+}
+
+.fpe-back:hover:not(:disabled) svg {
+  transform: translateX(-2px);
+}
+
+.fpe-back svg {
+  transition: transform 0.15s ease;
+}
+
+.fpe-back:focus-visible {
+  outline: 2px solid var(--primary-color, #5c43fa);
+  outline-offset: 2px;
+}
+
+.fpe-back:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fpe-titles {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fpe-title {
+  margin: 0;
+  font-size: clamp(1rem, 0.9rem + 0.4vw, 1.2rem);
+  font-weight: 700;
+  color: var(--text-primary, #030712);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fpe-sub {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  overflow-wrap: anywhere;
+}
+
+.fpe-dirty {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  flex-shrink: 0;
+}
+
+[data-theme='dark'] .fpe-dirty {
+  color: #fbbf24;
+}
+
+/* Meta (name / service / page / calling rules) sits as a roomy grid at full width. */
+.fpe-meta {
+  padding: clamp(14px, 2.5vw, 20px) clamp(12px, 3vw, 24px);
+}
+
+.fpe .exams-fields-panel,
+.fpe .exams-field-section-bar {
+  padding-left: clamp(12px, 3vw, 24px);
+  padding-right: clamp(12px, 3vw, 24px);
+}
+
+.fpe-save-hint {
+  margin-right: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  min-width: 0;
+}
+
+.fpe-save-hint.is-dirty {
+  color: #b45309;
+}
+
+[data-theme='dark'] .fpe-save-hint.is-dirty {
+  color: #fbbf24;
+}
+
+[data-theme='dark'] .fpe-back {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #1f2937);
+  color: var(--text-primary, #f9fafb);
+}
+
+[data-theme='dark'] .fpe-head {
+  border-bottom-color: var(--border-color, #1f2937);
+}
+
+@media (max-width: 768px) {
+  .fpe-back {
+    min-height: 44px;
+  }
+
+  .fpe-save-hint {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
+
+  .fpe .exams-drawer-footer--sticky {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .fpe-titles {
+    flex-basis: 100%;
+  }
+}
+
+.fpe-pane-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fpe-pane-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #030712);
+}
+
+.fpe-pane-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+/* The details pane sits beside the rail, so drop the divider used in the stacked layout. */
+.fpe .efb-detail > .fpe-meta {
+  border-bottom: 0;
+  max-width: 980px;
+}
+
+/* ── Editor header: breadcrumb · tags · stats bar ─────────────────────────── */
+
+.fpe-titles {
+  gap: 4px;
+}
+
+.fpe-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fpe-crumb {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: clamp(0.95rem, 0.88rem + 0.25vw, 1.1rem);
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.fpe-crumb:hover:not(:disabled) {
+  color: var(--primary-color, #5c43fa);
+  background: rgba(92, 67, 250, 0.06);
+}
+
+.fpe-crumb:focus-visible {
+  outline: 2px solid var(--primary-color, #5c43fa);
+  outline-offset: 1px;
+}
+
+.fpe-crumb-sep {
+  flex-shrink: 0;
+  color: var(--text-muted, #9ca3af);
+}
+
+.fpe-crumbs .fpe-title {
+  min-width: 0;
+}
+
+/* Unsaved: small amber pill with a pulsing dot next to the title. */
+.fpe-dirty {
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.fpe-dirty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: fpeDirtyPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes fpeDirtyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fpe-dirty-dot {
+    animation: none;
+  }
+}
+
+.fpe-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.fpe-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--bg-primary, #f3f4f6);
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: var(--text-secondary, #4b5563);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.fpe-tag.is-service {
+  background: rgba(92, 67, 250, 0.08);
+  border-color: rgba(92, 67, 250, 0.2);
+  color: var(--primary-color, #5c43fa);
+}
+
+.fpe-tag.is-missing {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #b45309;
+}
+
+.fpe-tag-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fpe-tag-text svg {
+  flex-shrink: 0;
+}
+
+/* Icon-only Back button in the Settings title row. */
+.fpe-back--icon {
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg-card, #ffffff);
+}
+
+/* Inline header: lives in the Settings title row, right of "Config" (wide screens only). */
+.fpe-head--inline {
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 0 0 14px;
+  margin-left: 2px;
+  border-bottom: 0;
+  border-left: 1px solid var(--border-color, #e5e7eb);
+  gap: 16px;
+  min-width: 0;
+}
+
+.fpe-head--inline .fpe-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fpe-head--inline .fpe-title {
+  font-size: clamp(1rem, 0.9rem + 0.35vw, 1.2rem);
+  line-height: 1.25;
+}
+
+[data-theme='dark'] .fpe-head--inline {
+  border-left-color: var(--border-color, #1f2937);
+}
+
+[data-theme='dark'] .fpe-tag {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #1f2937);
+  color: var(--text-secondary, #9ca3af);
+}
+
+[data-theme='dark'] .fpe-tag.is-service {
+  background: rgba(139, 122, 255, 0.14);
+  border-color: rgba(139, 122, 255, 0.3);
+  color: #b4a8ff;
+}
+
+/* Laptops: drop the breadcrumb's "Field presets" (Back is right there). */
+@media (max-width: 1280px) {
+  .fpe-head--inline .fpe-crumb,
+  .fpe-head--inline .fpe-crumb-sep {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .fpe-tags {
+    flex-wrap: wrap;
+  }
+}
+
+/* Title as preset switcher: looks like the heading, with a chevron; opens a searchable list. */
+
+/* Inline header (Settings title row): breadcrumb/title on the left, tags on the right —
+   one line, space-between, so the preset name gets the room instead of truncating early. */
+.fpe-head--inline .fpe-titles {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.fpe-head--inline .fpe-crumbs {
+  flex: 0 1 auto;
+}
+
+.fpe-head--inline .fpe-tags {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
+.fpe-crumbs .fpe-title {
+  flex: 0 1 auto;
+  overflow: visible;
+}
+
+/* Switcher label: show the full name; only ellipsize when it would exceed the row. */
+
+@media (max-width: 1024px) {
+  .fpe-head--inline .fpe-titles {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .fpe-head--inline .fpe-tags {
+    justify-content: flex-start;
+  }
+}
+
+/* Switcher gets a real width so the name isn't squeezed to "Bio Ex…". */
+
+/* ── Preset switcher button: sized to its content — name + chevron, soft tint on hover/open ── */
+
+/* ── Preset switcher (title): full name + chevron; menu reuses the exam-switcher styles ── */
+.fpe-preset-switcher {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fpe-switch-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 38px;
+  margin-left: -10px;
+  padding: 2px 8px 2px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.fpe-switch-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(46vw, 520px);
+}
+
+.fpe-switch-chevron {
+  flex-shrink: 0;
+  color: var(--text-secondary, #6b7280);
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+
+.fpe-switch-trigger:hover:not(:disabled),
+.fpe-switch-trigger.open {
+  background: rgba(92, 67, 250, 0.06);
+  border-color: rgba(92, 67, 250, 0.16);
+}
+
+.fpe-switch-trigger:hover:not(:disabled) .fpe-switch-chevron,
+.fpe-switch-trigger.open .fpe-switch-chevron {
+  color: var(--primary-color, #5c43fa);
+}
+
+.fpe-switch-trigger.open .fpe-switch-chevron {
+  transform: rotate(180deg);
+}
+
+.fpe-switch-trigger:focus-visible {
+  outline: 2px solid var(--primary-color, #5c43fa);
+  outline-offset: 2px;
+}
+
+.fpe-switch-trigger:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Menu opens under the title; keep normal heading typography out of it. */
+.fpe-preset-switcher .exam-switcher-menu {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  white-space: normal;
+}
+
+.fpe-switch-meta {
+  font-family: inherit;
+}
+
+.fpe-switch-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 2px 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fpe-switch-new-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* The heading clips overflow for long names — let the menu escape it. */
+.fpe-crumbs .fpe-title:has(.fpe-preset-switcher) {
+  overflow: visible;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+[data-theme='dark'] .fpe-switch-trigger:hover:not(:disabled),
+[data-theme='dark'] .fpe-switch-trigger.open {
+  background: rgba(139, 122, 255, 0.12);
+  border-color: rgba(139, 122, 255, 0.28);
+}
+
+[data-theme='dark'] .fpe-switch-new {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+@media (max-width: 768px) {
+  .fpe-switch-trigger {
+    min-height: 44px;
+  }
+
+  .fpe-switch-name {
+    max-width: 62vw;
+  }
+}
+

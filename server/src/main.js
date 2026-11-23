@@ -9,6 +9,7 @@ import { logger } from './core/logger.js';
 import { testConnection, closeOrm } from './database/connection.js';
 import { initializeSocket } from './core/socket.js';
 import { startSeqViewSyncJob, stopSeqViewSyncJob } from './jobs/seq-view-sync.job.js';
+import { startDeviceSyncJob, stopDeviceSyncJob } from './jobs/device-sync.job.js';
 
 const PORT = env.PORT;
 
@@ -30,6 +31,7 @@ async function bootstrap() {
 
     // 4. Background jobs
     startSeqViewSyncJob();
+    startDeviceSyncJob();
   } catch (error) {
     logger.error('Failed to start server', error);
     process.exit(1);
@@ -42,6 +44,7 @@ const shutdown = (signal) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
   stopSeqViewSyncJob();
+  stopDeviceSyncJob();
   logger.info(`[server] ${signal} received — shutting down gracefully`);
 
   // Close all open keep-alive and websocket connections immediately

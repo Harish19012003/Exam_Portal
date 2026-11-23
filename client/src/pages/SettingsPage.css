@@ -2536,3 +2536,14 @@
 .msg-preview-iframe { display: block; width: 100%; max-width: 600px; min-height: 360px; border: 0; background: transparent; border-radius: 12px; }
 .msg-modal-alert.is-error { color: #b91c1c; }
 @media (max-width: 768px) { .msg-reset-btn { min-height: 44px; } }
+
+/* Slot left of the page title (e.g. Field preset editor's Back button). */
+.settings-toolbar-lead {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.settings-toolbar-lead:empty {
+  display: none;
+}

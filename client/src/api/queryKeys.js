@@ -5,6 +5,11 @@ export const queryKeys = {
     list: () => [...queryKeys.seqViews.all, 'list'],
     config: () => [...queryKeys.seqViews.all, 'config'],
   },
+  devices: {
+    all: ['devices'],
+    list: () => [...queryKeys.devices.all, 'list'],
+    config: () => [...queryKeys.devices.all, 'config'],
+  },
   vendors: {
     all: ['vendors'],
     list: () => [...queryKeys.vendors.all, 'list'],
@@ -37,6 +42,12 @@ export const queryKeys = {
   },
   configLists: ['config-lists'],
   platformSettings: ['platform-settings'],
+  supportSettings: ['support-settings'],
+  feedback: {
+    all: ['feedback'],
+    mine: () => [...queryKeys.feedback.all, 'mine'],
+    list: () => [...queryKeys.feedback.all, 'list'],
+  },
   /** Public portal name / logo / favicon (works on login). */
   platformBranding: ['platform-branding'],
   messageTemplates: ['message-templates'],

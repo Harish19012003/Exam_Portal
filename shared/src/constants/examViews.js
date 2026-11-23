@@ -65,7 +65,6 @@ export const EXAM_VIEWS = [
   { key: 'mock-day', label: 'Mock Day' },
   { key: OPERATOR_GUARD_CALLING_VIEW, label: 'Op/Guard Calling' },
   { key: EXAM_DAY_VIEW, label: 'Exam Day' },
-  { key: 'device-master', label: 'Device Master' },
 ];
 
 export const EXAM_VIEW_KEYS = EXAM_VIEWS.map((v) => v.key);
