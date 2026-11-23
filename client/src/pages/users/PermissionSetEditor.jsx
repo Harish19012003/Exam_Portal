@@ -12,6 +12,7 @@ import {
   Plus,
   Settings,
   SlidersHorizontal,
+  Smartphone,
   TableProperties,
   Trash2,
   Users,
@@ -42,6 +43,14 @@ const AREAS = [
     description: 'Vendor and supplier records.',
     icon: Database,
     tables: [{ id: 'vendors', label: 'Vendors' }],
+  },
+  {
+    id: 'device_master',
+    page: 'device_master',
+    label: 'Device Master',
+    description: 'The portal-wide device list.',
+    icon: Smartphone,
+    tables: [{ id: 'devices', label: 'Devices' }],
   },
   {
     id: 'seq_view',
@@ -183,11 +192,13 @@ const loadCatalog = () => {
       safe(apiClient.get('/exam-presets')),
       safe(apiClient.get('/vendors/config')),
       safe(apiClient.get('/seq-views/config')),
-    ]).then(([exams, presets, vendors, seqViews]) => ({
+      safe(apiClient.get('/devices/config')),
+    ]).then(([exams, presets, vendors, seqViews, devices]) => ({
       exams: toColumns(exams?.fields),
       exam_rows: uniqueByKey((Array.isArray(presets) ? presets : []).flatMap((p) => toColumns(p.fields))),
       vendors: toColumns(vendors?.fields),
       seq_views: toColumns(seqViews?.fields),
+      devices: toColumns(devices?.fields),
     }));
     catalogPromise.catch(() => {
       catalogPromise = null;
@@ -203,6 +214,7 @@ const SYSTEM_RULE_FIELDS = {
     { key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Center ID', options: [] },
   ],
   vendors: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Vendor ID', options: [] }],
+  devices: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Device ID', options: [] }],
   seq_views: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Record ID', options: [] }],
 };
 

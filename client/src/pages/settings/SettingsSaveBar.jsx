@@ -26,7 +26,7 @@ export const SettingsSaveBar = ({ dirty, saving, onDiscard }) => (
           Discard
         </button>
       )}
-      <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty}>
+      <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty} aria-label="Save changes" title="Save changes">
         <Save size={16} aria-hidden="true" />
         <span>{saving ? 'Saving…' : 'Save changes'}</span>
       </button>

@@ -18,7 +18,9 @@ router.get('/:examId/table/rows', controller.listRows);
 router.post('/:examId/table/rows', controller.createRow);
 router.post('/:examId/table/rows/bulk', controller.createRows);
 router.post('/:examId/table/rows/bulk-update', controller.bulkUpdateRows);
+router.post('/:examId/table/rows/bulk-patch', controller.bulkPatchRows);
 router.post('/:examId/table/rows/delete', controller.deleteRows);
+router.post('/:examId/table/rows/sync-calling', controller.syncCallingRows);
 router.patch('/:examId/table/rows/:rowId', controller.updateRow);
 
 export default router;

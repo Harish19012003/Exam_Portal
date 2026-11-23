@@ -93,6 +93,11 @@ export const listRows = handle(async (req) => {
   }
   // `all` is for Unique import rollups that must see every center (not capped at page size 500).
   // `view` scopes Exam Day rows vs shared center rows.
+  const includeHidden =
+    req.query?.includeHidden === true ||
+    req.query?.includeHidden === 1 ||
+    req.query?.includeHidden === '1' ||
+    String(req.query?.includeHidden || '').toLowerCase() === 'true';
   const result = await service.listRows(req.params.examId, {
     page,
     limit,
@@ -101,6 +106,7 @@ export const listRows = handle(async (req) => {
     filters,
     view: viewOf(req),
     ...(all ? { all: true } : {}),
+    ...(includeHidden ? { includeHidden: true } : {}),
   });
   const fields = allFields || [];
   const rows = (result.rows || [])
@@ -195,13 +201,39 @@ export const bulkUpdateRows = handle(async (req) => {
   );
 });
 
+/** Batch update multiple rows with individual value patches (used by Bulk Import / paste). */
+export const bulkPatchRows = handle(async (req) => {
+  await assertExamVisible(req);
+  assertTable(req, TABLE, 'edit');
+  const view = viewOf(req, true);
+  const patches = Array.isArray(req.body?.patches) ? req.body.patches : [];
+  return service.bulkPatchRows(req.params.examId, patches, req.user?.id, { view });
+});
+
 export const deleteRows = handle(async (req) => {
   await assertExamVisible(req);
   assertTable(req, TABLE, 'delete');
+  // Full-table wipe — table delete permission is enough (no per-row ACL fetch of 15k ids).
+  if (req.body?.all) {
+    return service.deleteRowsByScope(req.params.examId, {
+      all: true,
+      view: req.body.view,
+    });
+  }
   const allFields = await service.listAllFields(req.params.examId).catch(() => []);
   const ids = req.body?.ids ?? req.params.rowId;
   const idList = Array.isArray(ids) ? ids : [ids];
   const found = await service.getRowsByIds(req.params.examId, idList);
   found.forEach((row) => assertRowVisible(req, TABLE, ruleValues(req, row), allFields));
   return service.deleteRows(req.params.examId, ids);
+});
+
+/** Expand / soft-hide Op/Guard Calling rows from Center list (preset callingExpand). */
+export const syncCallingRows = handle(async (req) => {
+  await assertExamVisible(req);
+  assertTable(req, TABLE, 'create');
+  return service.syncCallingRows(req.params.examId, req.user?.id, {
+    centerOffset: req.body?.centerOffset,
+    centerLimit: req.body?.centerLimit,
+  });
 });

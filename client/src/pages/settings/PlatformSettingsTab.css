@@ -1036,3 +1036,76 @@
 .ps-font--on { border-color: var(--primary-color, #0a84f0); background: color-mix(in srgb, var(--primary-color, #0a84f0) 8%, var(--bg-card, #fff)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color, #0a84f0) 15%, transparent); }
 .ps-font-name { font-size: 1.0625rem; font-weight: 700; line-height: 1.2; }
 .ps-font-note { font-size: 0.75rem; color: var(--text-secondary, #6b7280); }
+
+
+/* Phones: tighter cards and gaps (10px or less) */
+@media (max-width: 768px) {
+  .platform-settings,
+  .ps-grid {
+    gap: 6px;
+  }
+
+  .ps-card {
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .ps-card-head {
+    margin-bottom: 2px;
+  }
+}
+
+/* Phones: same button format as the Config toolbar. Save is an icon-only 44px square, Discard keeps its text. */
+@media (max-width: 768px) {
+  .ps-actions {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  .ps-hint {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .ps-buttons {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .ps-actions .ps-btn {
+    border-radius: 6px;
+  }
+
+  .ps-actions .ps-btn--primary {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .ps-actions .ps-btn--primary span {
+    display: none;
+  }
+
+  .ps-actions .ps-btn--ghost {
+    padding: 0 12px;
+    font-size: 13px;
+  }
+}
+
+.ps-support-current {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ps-support-link {
+  align-self: flex-start;
+  text-decoration: none;
+}

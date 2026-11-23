@@ -1,26 +1,39 @@
-import { DEFAULT_EXAM_VIEW, EXAM_DAY_META_KEY, EXAM_DAY_VIEW, isOwnRowSetView } from '@exam-view/shared';
+import {
+  CALLING_HIDDEN_KEY,
+  CALLING_SYSTEM_KEYS,
+  DEFAULT_EXAM_VIEW,
+  EXAM_DAY_META_KEY,
+  EXAM_DAY_VIEW,
+} from '@exam-view/shared';
 import { getEm } from '../../../database/connection.js';
 import { Exam, ExamTable, ExamRow, User } from '../../../database/entities/index.js';
 import { encodeCellValue, decodeCellValue } from '../exams/exam.repository.js';
-import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
+import {
+  buildValuesMongoMatch,
+  combineMongoMatch,
+  hasActiveQuery,
+  rowMatchesQuery,
+} from './rowFilterMatch.js';
 
 export const SYSTEM_COLUMNS = ['id', 'sys_created_by', 'sys_updated_by', 'sys_created_at', 'sys_updated_at'];
 
 /**
- * Mongo filter for rows belonging to a tab.
- * Shared tabs (center-list, Unique-import, Exam Day live view) use the shared bag.
- * Legacy `row_view === 'exam-day'` rows (if any) stay excluded from the shared bag.
+ * Excluded from the shared Center spreadsheet:
+ * - legacy `exam-day` snapshots
+ * Calling lives in `exam_calling_rows` (never `exam_rows.row_view`).
+ */
+const NON_SHARED_ROW_VIEWS = [EXAM_DAY_VIEW];
+
+/**
+ * Mongo filter for shared Center-list rows (and Unique-import / Exam Day live source).
  */
 export const rowViewMatch = (view = DEFAULT_EXAM_VIEW) => {
-  if (isOwnRowSetView(view)) {
-    return { row_view: EXAM_DAY_VIEW };
-  }
-  // Shared bag: missing / null / center-list — never legacy exam-day snapshots.
-  return { row_view: { $nin: [EXAM_DAY_VIEW] } };
+  void view;
+  return { row_view: { $nin: NON_SHARED_ROW_VIEWS } };
 };
 
-export const persistRowView = (view = DEFAULT_EXAM_VIEW) =>
-  (isOwnRowSetView(view) ? EXAM_DAY_VIEW : null);
+/** Calling no longer persists into exam_rows. */
+export const persistRowView = (_view = DEFAULT_EXAM_VIEW) => null;
 
 export const isSafeColumnName = (name) => /^[a-z][a-z0-9_]{0,39}$/.test(String(name || ''));
 export const isReservedKey = (key) => key === 'id' || String(key).startsWith('sys_');
@@ -322,33 +335,85 @@ export const listRows = async (tableId, fields, options = {}) => {
   const wantsQuery = hasActiveQuery(query);
   const fetchAll = Boolean(options.all);
   const match = { exam_id: examId, ...viewFilter };
+  // Op/Guard Calling: soft-hidden slots/shifts stay out of the default grid (Mongo-side).
+  if (options.excludeCallingHidden) {
+    match.$and = [
+      ...(Array.isArray(match.$and) ? match.$and : []),
+      {
+        $or: [
+          { 'values.calling_hidden': { $exists: false } },
+          { 'values.calling_hidden': false },
+          { 'values.calling_hidden': { $ne: true } },
+        ],
+      },
+    ];
+  }
 
-  // Search/filters (and Unique import `all`) must scan every row — never a 500-row page slice.
+  // Prefer Mongo-side filter + page (header filters / search) — avoid hydrating the full exam.
+  if (wantsQuery) {
+    const mongoExtra = buildValuesMongoMatch(query);
+    if (mongoExtra != null) {
+      const fullMatch = combineMongoMatch(match, mongoExtra);
+      if (fetchAll) {
+        const raw = await em.find(ExamRow, fullMatch, { orderBy: { sys_created_at: 'DESC' } });
+        const userMap = await loadUsers(
+          em,
+          raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+        );
+        const rows = raw.map((r) => mapRow(r, fields, userMap));
+        return { rows, total: rows.length, page: 1, limit: rows.length, totalPages: 1 };
+      }
+      const total = await em.count(ExamRow, fullMatch);
+      const page = normalizePage(options.page);
+      const limit = normalizeLimit(options.limit);
+      const raw = await em.find(ExamRow, fullMatch, {
+        orderBy: { sys_created_at: 'DESC' },
+        limit,
+        offset: (page - 1) * limit,
+      });
+      const userMap = await loadUsers(
+        em,
+        raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+      );
+      return {
+        rows: raw.map((r) => mapRow(r, fields, userMap)),
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      };
+    }
+  }
+
+  // Fallback / Unique import `all`: scan in memory; only join users for returned rows.
   if (wantsQuery || fetchAll) {
     const raw = await em.find(ExamRow, match, { orderBy: { sys_created_at: 'DESC' } });
-    const userMap = await loadUsers(
-      em,
-      raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
-    );
-    const mapped = raw.map((r) => mapRow(r, fields, userMap));
     const matched = wantsQuery
-      ? mapped.filter((r) => rowMatchesQuery(r.values || {}, query))
-      : mapped;
+      ? raw.filter((r) => {
+          const values = decodeRowValues(r, fields);
+          if (options.excludeCallingHidden && values?.[CALLING_HIDDEN_KEY] === true) return false;
+          return rowMatchesQuery(values || {}, query);
+        })
+      : raw;
     const total = matched.length;
     if (fetchAll) {
-      return {
-        rows: matched,
-        total,
-        page: 1,
-        limit: total,
-        totalPages: 1,
-      };
+      const userMap = await loadUsers(
+        em,
+        matched.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+      );
+      const rows = matched.map((r) => mapRow(r, fields, userMap));
+      return { rows, total, page: 1, limit: total, totalPages: 1 };
     }
     const page = normalizePage(options.page);
     const limit = normalizeLimit(options.limit);
     const offset = (page - 1) * limit;
+    const pageRaw = matched.slice(offset, offset + limit);
+    const userMap = await loadUsers(
+      em,
+      pageRaw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+    );
     return {
-      rows: matched.slice(offset, offset + limit),
+      rows: pageRaw.map((r) => mapRow(r, fields, userMap)),
       total,
       page,
       limit,
@@ -443,6 +508,19 @@ export const findRowsByIds = async (tableId, fields, rowIds) => {
   return rows.map((r) => mapRow(r, fields, userMap));
 };
 
+const mergeSystemValues = (encoded, values) => {
+  if (!values || typeof values !== 'object') return encoded;
+  if (Object.prototype.hasOwnProperty.call(values, EXAM_DAY_META_KEY)) {
+    encoded[EXAM_DAY_META_KEY] = values[EXAM_DAY_META_KEY];
+  }
+  CALLING_SYSTEM_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      encoded[key] = values[key];
+    }
+  });
+  return encoded;
+};
+
 export const insertRow = async (tableId, fields, values, userId, options = {}) => {
   const em = getEm();
   const examId = await resolveExamId(tableId);
@@ -452,6 +530,7 @@ export const insertRow = async (tableId, fields, values, userId, options = {}) =
     if (!(f.key in values)) return;
     encoded[f.key] = encodeCellValue(values[f.key], effectiveType(f));
   });
+  mergeSystemValues(encoded, values);
   const entity = em.create(ExamRow, {
     exam_id: examId,
     row_view: persistRowView(options.view),
@@ -475,6 +554,7 @@ export const insertRows = async (tableId, fields, valuesList, userId, options = 
       if (!(f.key in values)) return;
       encoded[f.key] = encodeCellValue(values[f.key], effectiveType(f));
     });
+    mergeSystemValues(encoded, values);
     return em.create(ExamRow, {
       exam_id: examId,
       row_view: rowView,
@@ -499,10 +579,7 @@ export const updateRow = async (tableId, fields, rowId, values, userId) => {
     if (!(f.key in values)) return;
     next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
   });
-  // Exam Day per-date bag on the shared Center list row (not a field def).
-  if (values && Object.prototype.hasOwnProperty.call(values, EXAM_DAY_META_KEY)) {
-    next[EXAM_DAY_META_KEY] = values[EXAM_DAY_META_KEY];
-  }
+  mergeSystemValues(next, values);
   em.assign(row, {
     values: next,
     sys_updated_by: userId || null,
@@ -510,6 +587,122 @@ export const updateRow = async (tableId, fields, rowId, values, userId) => {
   });
   await em.flush();
   return true;
+};
+
+/** Load every row for a view (sync / admin). */
+export const listAllRowsForView = async (tableId, fields, view) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const match = { exam_id: examId, ...rowViewMatch(view) };
+  const raw = await em.find(ExamRow, match, { orderBy: { sys_created_at: 'DESC' } });
+  const userMap = await loadUsers(
+    em,
+    raw.flatMap((r) => [r.sys_created_by, r.sys_updated_by]),
+  );
+  return raw.map((r) => mapRow(r, fields, userMap));
+};
+
+/**
+ * Lightweight rows for sync (id + values only — no user joins).
+ * Optional offset/limit for chunked Calling sync progress.
+ */
+export const listAllRowValuesForView = async (tableId, fields, view, options = {}) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return [];
+  const match = { exam_id: examId, ...rowViewMatch(view) };
+  const offset = Math.max(0, Number(options.offset) || 0);
+  const limitRaw = Number(options.limit);
+  const findOpts = { orderBy: { sys_created_at: 'ASC' } };
+  if (Number.isFinite(limitRaw) && limitRaw > 0) {
+    findOpts.limit = Math.floor(limitRaw);
+    findOpts.offset = offset;
+  }
+  const raw = await em.find(ExamRow, match, findOpts);
+  return raw.map((r) => ({
+    id: String(r.id ?? r._id),
+    values: decodeRowValues(r, fields),
+  }));
+};
+
+export const countRowsForView = async (tableId, view) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return 0;
+  return em.count(ExamRow, { exam_id: examId, ...rowViewMatch(view) });
+};
+
+/**
+ * Apply different value bags to many rows in one (or few) flushes.
+ * `patches`: [{ id, values }]
+ */
+export const updateRowsIndividual = async (tableId, fields, patches, userId, { chunkSize = 500 } = {}) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return 0;
+  const list = Array.isArray(patches) ? patches.filter((p) => p?.id) : [];
+  if (!list.length) return 0;
+  const size = Math.max(50, Math.min(2000, Number(chunkSize) || 500));
+  let touched = 0;
+  const now = new Date();
+  for (let i = 0; i < list.length; i += size) {
+    const slice = list.slice(i, i + size);
+    const ids = slice.map((p) => String(p.id));
+    const rows = await em.find(ExamRow, { exam_id: examId, id: { $in: ids } });
+    const byId = new Map(rows.map((r) => [String(r.id ?? r._id), r]));
+    slice.forEach((patch) => {
+      const row = byId.get(String(patch.id));
+      if (!row) return;
+      const next = { ...(row.values || {}) };
+      const values = patch.values && typeof patch.values === 'object' ? patch.values : {};
+      fields.forEach((f) => {
+        if (!(f.key in values)) return;
+        next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
+      });
+      mergeSystemValues(next, values);
+      // Also copy any extra keys present on the patch (label target, etc.).
+      Object.keys(values).forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(next, key)) return;
+        if (fields.some((f) => f.key === key)) return;
+        next[key] = values[key];
+      });
+      em.assign(row, {
+        values: next,
+        sys_updated_by: userId || null,
+        sys_updated_at: now,
+      });
+      touched += 1;
+    });
+    await em.flush();
+    em.clear();
+  }
+  return touched;
+};
+
+/** Insert many rows in chunks (avoids one huge flush for 5k–200k Calling sync). */
+export const insertRowsChunked = async (
+  tableId,
+  fields,
+  valuesList,
+  userId,
+  options = {},
+  { chunkSize = 1000 } = {},
+) => {
+  const list = Array.isArray(valuesList) ? valuesList : [];
+  if (!list.length) return 0;
+  const size = Math.max(50, Math.min(2000, Number(chunkSize) || 1000));
+  let total = 0;
+  for (let i = 0; i < list.length; i += size) {
+    total += await insertRows(tableId, fields, list.slice(i, i + size), userId, options);
+    // Free identity map between large chunks.
+    try {
+      getEm().clear();
+    } catch {
+      /* ignore */
+    }
+  }
+  return total;
 };
 
 /**
@@ -534,9 +727,7 @@ export const updateRowsBulk = async (tableId, fields, values, userId, rowIds = n
       if (!(f.key in values)) return;
       next[f.key] = encodeCellValue(values[f.key], effectiveType(f));
     });
-    if (values && Object.prototype.hasOwnProperty.call(values, EXAM_DAY_META_KEY)) {
-      next[EXAM_DAY_META_KEY] = values[EXAM_DAY_META_KEY];
-    }
+    mergeSystemValues(next, values);
     em.assign(row, {
       values: next,
       sys_updated_by: userId || null,
@@ -553,4 +744,12 @@ export const deleteRows = async (tableId, rowIds) => {
   if (!examId) return 0;
   const ids = (rowIds || []).map(String);
   return em.nativeDelete(ExamRow, { exam_id: examId, id: { $in: ids } });
+};
+
+/** Delete every shared Center-list row for this exam (not Exam Day snapshots). */
+export const deleteAllSharedRows = async (tableId) => {
+  const em = getEm();
+  const examId = await resolveExamId(tableId);
+  if (!examId) return 0;
+  return em.nativeDelete(ExamRow, { exam_id: examId, ...rowViewMatch() });
 };

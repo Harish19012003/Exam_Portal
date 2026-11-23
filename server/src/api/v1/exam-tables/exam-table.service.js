@@ -1,16 +1,29 @@
 import { AppError } from '../../../core/errors.js';
 import {
+  CALLING_CENTER_ROW_ID_KEY,
+  CALLING_DATE_ID_KEY,
+  CALLING_EXPAND_MODES,
+  CALLING_HIDDEN_KEY,
+  CALLING_SYSTEM_KEYS,
   CENTER_CODE_KEY,
   DEFAULT_EXAM_VIEW,
   ERROR_CODES,
   EXAM_DATE_KEY,
   EXAM_DAY_META_KEY,
   EXAM_DAY_VIEW,
+  OPERATOR_GUARD_CALLING_VIEW,
+  callingNaturalKeyFromValues,
   isExamViewKey,
+  isOperatorGuardCallingView,
   isOwnRowSetView,
   isSharedImportedField,
+  normalizeCallingExpand,
+  normalizeCallingLabel,
+  planCallingTargetsForCenterRow,
+  resolveCallingExpandForLabel,
 } from '@exam-view/shared';
 import * as repo from './exam-table.repository.js';
+import * as callingRepo from './exam-calling.repository.js';
 import * as presetRepo from '../exam-presets/exam-preset.repository.js';
 import { hasActiveQuery, rowMatchesQuery } from './rowFilterMatch.js';
 
@@ -260,6 +273,10 @@ export const cleanRowValues = (fields, input) => {
       throw validationError('Exam Day meta must be an object');
     }
   }
+  // Op/Guard Calling identity / soft-hide keys (not field defs).
+  CALLING_SYSTEM_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = source[key];
+  });
   return out;
 };
 
@@ -322,13 +339,30 @@ const assertUniqueCenterDate = async (tableId, fields, values, excludeRowId = nu
 export const listRows = (examId, options = {}) =>
   withMeta(async () => {
     const viewKey = normalizeView(options.view);
-    const { table, fields } = await tableAndAllFields(examId);
+    const { fields } = await tableAndAllFields(examId);
+    const includeHidden =
+      options.includeHidden === true ||
+      options.includeHidden === 1 ||
+      options.includeHidden === '1' ||
+      String(options.includeHidden || '').toLowerCase() === 'true';
+
+    if (isOperatorGuardCallingView(viewKey)) {
+      return callingRepo.listRows(examId, fields, {
+        ...options,
+        ...(includeHidden ? {} : { excludeCallingHidden: true }),
+      });
+    }
+
+    const table = await requireTable(examId);
     return repo.listRows(table.id, fields, { ...options, view: viewKey });
   });
 
 export const getRow = (examId, rowId) =>
   withMeta(async () => {
     const { table, fields } = await tableAndAllFields(examId);
+    // Prefer Calling collection when the id lives there.
+    const calling = await callingRepo.findRow(examId, fields, rowId);
+    if (calling) return calling;
     const row = await repo.findRow(table.id, fields, rowId);
     if (!row) throw notFound('Row not found');
     return row;
@@ -356,6 +390,15 @@ export const createRow = (examId, body, userId) =>
     const writable = writableViewFields(fields, viewKey);
     if (!writable.length) throw validationError('Add at least one editable column before adding rows');
     const cleaned = cleanRowValues(writable, body?.values);
+    if (isOperatorGuardCallingView(viewKey)) {
+      const naturalKey =
+        callingNaturalKeyFromValues(cleaned, 'max_day_n') ||
+        `manual::${Date.now()}::${Math.random().toString(36).slice(2, 8)}`;
+      const id = await callingRepo.insertRow(examId, writable, cleaned, userId, {
+        naturalKey,
+      });
+      return callingRepo.findRow(examId, allFields, id);
+    }
     if (isOwnRowSetView(viewKey)) {
       await assertUniqueCenterDate(table.id, fields, cleaned);
     } else {
@@ -375,8 +418,12 @@ export const createRows = (examId, body, userId) =>
     if (!writable.length) throw validationError('Add at least one editable column before adding rows');
     const input = Array.isArray(body?.rows) ? body.rows : [];
     const ownRows = isOwnRowSetView(viewKey);
+    const callingRows = isOperatorGuardCallingView(viewKey);
 
-    const checkCode = allFields.some((f) => f.key === CENTER_CODE_KEY) || fields.some((f) => f.key === CENTER_CODE_KEY);
+    // Calling allows many rows per center×date — skip center uniqueness.
+    const checkCode =
+      !callingRows &&
+      (allFields.some((f) => f.key === CENTER_CODE_KEY) || fields.some((f) => f.key === CENTER_CODE_KEY));
     const seen = new Set();
     if (checkCode) {
       if (ownRows) {
@@ -438,6 +485,19 @@ export const createRows = (examId, body, userId) =>
       }
     });
 
+    if (callingRows) {
+      const items = valid.map((cleaned, i) => ({
+        values: cleaned,
+        naturalKey:
+          callingNaturalKeyFromValues(cleaned, 'max_day_n') ||
+          `manual::${Date.now()}::${i}::${Math.random().toString(36).slice(2, 6)}`,
+      }));
+      const created = items.length
+        ? await callingRepo.insertRowsChunked(examId, writable, items, userId)
+        : 0;
+      return { created, failures };
+    }
+
     const created = valid.length
       ? await repo.insertRows(table.id, writable, valid, userId, { view: viewKey })
       : 0;
@@ -450,6 +510,19 @@ export const updateRow = (examId, rowId, body, userId) =>
     const { table, fields, allFields } = await tableAndViewFields(examId, viewKey);
     const writableFields = writableViewFields(fields, viewKey);
     const cleaned = cleanRowValues(writableFields, body?.values);
+    if (isOperatorGuardCallingView(viewKey)) {
+      const existing = await callingRepo.findRow(examId, allFields, rowId);
+      if (!existing) throw notFound('Row not found');
+      const nextValues = { ...(existing.values || {}), ...cleaned };
+      const naturalKey =
+        existing.naturalKey ||
+        callingNaturalKeyFromValues(nextValues, 'max_day_n') ||
+        String(rowId);
+      await callingRepo.updateRow(examId, writableFields, rowId, nextValues, userId, {
+        naturalKey,
+      });
+      return callingRepo.findRow(examId, allFields, rowId);
+    }
     if (isOwnRowSetView(viewKey)) {
       await assertUniqueCenterDate(table.id, fields, cleaned, rowId);
     } else {
@@ -492,6 +565,35 @@ export const bulkUpdateRows = (examId, body, userId) =>
     }
 
     let targetIds = all ? null : ids;
+    if (isOperatorGuardCallingView(viewKey)) {
+      const listed = await callingRepo.listAllLite(examId, fields);
+      if (useFilter) {
+        targetIds = listed
+          .filter((row) => rowMatchesQuery(row.values, filterQuery))
+          .map((row) => row.id);
+        if (!targetIds.length) return { updated: 0, all: false, filtered: true, ids: [] };
+      } else if (all) {
+        targetIds = listed.map((row) => row.id);
+        if (!targetIds.length) return { updated: 0, all: true, filtered: false, ids: [] };
+      }
+      const patches = (targetIds || []).map((id) => {
+        const row = listed.find((r) => String(r.id) === String(id));
+        return { id, values: { ...(row?.values || {}), ...cleaned } };
+      });
+      const updated = await callingRepo.updateRowsIndividual(
+        examId,
+        writableFields,
+        patches,
+        userId,
+      );
+      return {
+        updated,
+        all,
+        filtered: Boolean(useFilter),
+        ids: all ? undefined : targetIds,
+      };
+    }
+
     if (useFilter || all) {
       // Scope mass-edit to this tab’s row set (Exam Day vs shared centers).
       const listed = await repo.listRowValues(table.id, fields, { view: viewKey });
@@ -525,10 +627,60 @@ export const bulkUpdateRows = (examId, body, userId) =>
     };
   });
 
+/**
+ * Patch multiple rows with individual values in batch (used by Bulk Import / paste update).
+ * @param {string} examId
+ * @param {Array<{ id: string, values: object }>} patches
+ * @param {string} userId
+ * @param {object} [options]
+ */
+export const bulkPatchRows = (examId, patches, userId, options = {}) =>
+  withMeta(async () => {
+    const viewKey = normalizeView(options?.view);
+    const { table, fields } = await tableAndViewFields(examId, viewKey);
+    const writableFields = writableViewFields(fields, viewKey);
+    if (!writableFields.length) throw validationError('No editable columns on this tab');
+    const list = Array.isArray(patches) ? patches.filter((p) => p?.id) : [];
+    if (!list.length) return { updated: 0 };
+
+    const cleanedPatches = [];
+    for (const p of list) {
+      const cleaned = cleanRowValues(writableFields, p.values);
+      if (Object.keys(cleaned).length > 0) {
+        cleanedPatches.push({ id: p.id, values: cleaned });
+      }
+    }
+
+    if (isOperatorGuardCallingView(viewKey)) {
+      const updated = await callingRepo.updateRowsIndividual(
+        examId,
+        writableFields,
+        cleanedPatches,
+        userId,
+        { chunkSize: 200 },
+      );
+      return { updated };
+    }
+
+    const updated = await repo.updateRowsIndividual(
+      table.id,
+      writableFields,
+      cleanedPatches,
+      userId,
+      { chunkSize: 200 },
+    );
+    return { updated };
+  });
+
 export const getRowsByIds = (examId, rowIds) =>
   withMeta(async () => {
     const { table, fields } = await tableAndAllFields(examId);
-    return repo.findRowsByIds(table.id, fields, rowIds);
+    const ids = (rowIds || []).map(String);
+    const fromCalling = await callingRepo.findRowsByIds(examId, fields, ids);
+    const found = new Set(fromCalling.map((r) => String(r.id)));
+    const rest = ids.filter((id) => !found.has(String(id)));
+    const fromShared = rest.length ? await repo.findRowsByIds(table.id, fields, rest) : [];
+    return [...fromCalling, ...fromShared];
   });
 
 export const deleteRows = (examId, rowIds) =>
@@ -536,10 +688,285 @@ export const deleteRows = (examId, rowIds) =>
     const table = await requireTable(examId);
     const ids = (Array.isArray(rowIds) ? rowIds : [rowIds]).map(String).filter(Boolean);
     if (!ids.length) throw validationError('No rows to delete');
+    const callingDeleted = await callingRepo.deleteRows(examId, ids);
+    if (callingDeleted) return { success: true, deleted: callingDeleted };
     return { success: true, deleted: await repo.deleteRows(table.id, ids) };
+  });
+
+const deletedCount = (res) => {
+  if (typeof res === 'number' && Number.isFinite(res)) return res;
+  const n = res?.affectedRows ?? res?.deletedCount ?? res?.modifiedCount;
+  return Number(n) || 0;
+};
+
+/** Bulk delete: `{ all: true, view }` wipes the view's row bag in one Mongo delete. */
+export const deleteRowsByScope = (examId, { all = false, view } = {}) =>
+  withMeta(async () => {
+    const table = await requireTable(examId);
+    if (!all) throw validationError('Specify all: true to delete the full table');
+    if (isOperatorGuardCallingView(view)) {
+      const deleted = deletedCount(await callingRepo.deleteAllForExam(examId));
+      return { success: true, deleted, view: OPERATOR_GUARD_CALLING_VIEW };
+    }
+    const deleted = deletedCount(await repo.deleteAllSharedRows(table.id));
+    return { success: true, deleted, view: view || DEFAULT_EXAM_VIEW };
+  });
+
+/**
+ * Expand / soft-hide Op/Guard Calling rows from Center list (chunked for progress UI).
+ * Body/options: { centerOffset, centerLimit } — process a slice of Center rows per request.
+ */
+export const syncCallingRows = (examId, userId, options = {}) =>
+  withMeta(async () => {
+    const table = await requireTable(examId);
+    const callingView = OPERATOR_GUARD_CALLING_VIEW;
+    const callingFields = await repo.listFields(table.id, callingView);
+    if (!callingFields.length) {
+      throw validationError('Add Op/Guard Calling columns before syncing from Center list');
+    }
+
+    const configs = table.viewConfigs || {};
+    const callingFeatures = configs[callingView]?.features || null;
+    const label = normalizeCallingLabel(callingFeatures?.callingLabel);
+    const expand = resolveCallingExpandForLabel(
+      callingFeatures?.callingExpand,
+      label,
+    );
+    const centerFeatures =
+      configs[DEFAULT_EXAM_VIEW]?.features ?? table.features ?? null;
+    const dateShifts = centerFeatures?.dateShifts || null;
+    if (!dateShifts || !Array.isArray(dateShifts.dates) || !dateShifts.dates.length) {
+      throw validationError(
+        'Center list has no exam dates configured (Date shifts). Configure dates before syncing Calling.',
+      );
+    }
+    if (
+      expand.mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS &&
+      (!Array.isArray(label.categories) || !label.categories.length)
+    ) {
+      throw validationError(
+        'Category expand needs Calling label categories (Male / Female / Baggage…). Configure them on the Calling preset.',
+      );
+    }
+
+    const centerOffset = Math.max(0, Number(options.centerOffset) || 0);
+    const centerLimit = Math.min(
+      200,
+      Math.max(1, Number(options.centerLimit) || 200),
+    );
+    const isFirstBatch = centerOffset === 0;
+
+    let legacy = { migrated: 0, deleted: 0 };
+    let sortBackfilled = 0;
+    if (isFirstBatch) {
+      legacy = await callingRepo.migrateLegacyFromExamRows(
+        examId,
+        callingFields,
+        userId,
+      );
+      await callingRepo.purgeLegacyCallingRowView();
+      // One-shot: fill sort_center_code so list order works before every row is re-synced.
+      sortBackfilled = await callingRepo.backfillSortCenterCodes(examId);
+    }
+
+    const centerFields = await repo.listFields(table.id, DEFAULT_EXAM_VIEW);
+    const centersTotal = await repo.countRowsForView(table.id, DEFAULT_EXAM_VIEW);
+    const centerRows = await repo.listAllRowValuesForView(
+      table.id,
+      centerFields,
+      DEFAULT_EXAM_VIEW,
+      { offset: centerOffset, limit: centerLimit },
+    );
+    const centersProcessed = Math.min(centersTotal, centerOffset + centerRows.length);
+    const isLastBatch = centersProcessed >= centersTotal;
+
+    // Mid batches: only load calling rows for this chunk's centers (avoids re-reading 10k+ docs every request).
+    // Last batch: full load so orphan soft-hide can see every existing row.
+    const existingCalling = isLastBatch
+      ? await callingRepo.listAllLite(examId, callingFields)
+      : await callingRepo.listLiteByCenterRowIds(
+          examId,
+          callingFields,
+          centerRows.map((r) => r.id),
+        );
+
+    const byKey = new Map();
+    existingCalling.forEach((row) => {
+      const key =
+        row.naturalKey || callingNaturalKeyFromValues(row.values, expand.mode);
+      if (key) byKey.set(key, row);
+    });
+
+    const copyFromCenter = (centerValues, targetValues) => {
+      const out = { ...targetValues };
+      callingFields.forEach((f) => {
+        if (!f?.key) return;
+        if (isSharedImportedField(f) && String(f.sharedFromView) === DEFAULT_EXAM_VIEW) {
+          if (Object.prototype.hasOwnProperty.call(centerValues, f.key)) {
+            out[f.key] = centerValues[f.key];
+          }
+        }
+      });
+      return out;
+    };
+
+    const valuesChanged = (prev, next) => {
+      const a = prev && typeof prev === 'object' ? prev : {};
+      const b = next && typeof next === 'object' ? next : {};
+      const keys = new Set([...Object.keys(b)]);
+      for (const key of keys) {
+        if (JSON.stringify(a[key] ?? null) !== JSON.stringify(b[key] ?? null)) return true;
+      }
+      return false;
+    };
+
+    const desiredKeys = new Set();
+    const managedCenterDates = new Set();
+    const toCreate = [];
+    const toUpdate = [];
+    let hidden = 0;
+
+    const writable = writableViewFields(callingFields, callingView);
+    const writeFields = [...writable];
+    if (
+      label.targetKey &&
+      !writeFields.some((f) => f.key === label.targetKey) &&
+      callingFields.some((f) => f.key === label.targetKey)
+    ) {
+      writeFields.push(callingFields.find((f) => f.key === label.targetKey));
+    }
+
+    for (const centerRow of centerRows) {
+      const centerValues =
+        centerRow.values && typeof centerRow.values === 'object' ? centerRow.values : {};
+      const targets = planCallingTargetsForCenterRow({
+        centerRow,
+        centerFields,
+        dateShiftsConfig: dateShifts,
+        callingExpand: expand,
+        callingLabel: label,
+      });
+
+      (Array.isArray(dateShifts.dates) ? dateShifts.dates : []).forEach((d) => {
+        const dateId = String(d?.id || '').trim();
+        if (!dateId) return;
+        managedCenterDates.add(`${String(centerRow.id)}::${dateId}`);
+      });
+
+      for (const target of targets) {
+        desiredKeys.add(target.key);
+        const merged = copyFromCenter(centerValues, target.values);
+        const existing = byKey.get(target.key);
+        if (!existing) {
+          toCreate.push({ values: merged, naturalKey: target.key });
+          continue;
+        }
+        const nextValues = { ...(existing.values || {}) };
+        Object.entries(merged).forEach(([k, v]) => {
+          nextValues[k] = v;
+        });
+        const wasHidden = Boolean(
+          existing.hidden || existing.values?.[CALLING_HIDDEN_KEY],
+        );
+        if (merged[CALLING_HIDDEN_KEY] && !wasHidden) hidden += 1;
+        if (
+          !valuesChanged(existing.values, nextValues) &&
+          wasHidden === Boolean(merged[CALLING_HIDDEN_KEY])
+        ) {
+          continue;
+        }
+        toUpdate.push({
+          id: existing.id,
+          values: nextValues,
+          naturalKey: target.key,
+        });
+      }
+    }
+
+    // Soft-hide orphans only on the final batch (needs full desired set for processed centers).
+    // For correctness across chunks: on last batch, rebuild desired keys for ALL centers.
+    if (isLastBatch && centersTotal > 0) {
+      const allCenters = await repo.listAllRowValuesForView(
+        table.id,
+        centerFields,
+        DEFAULT_EXAM_VIEW,
+      );
+      const allDesired = new Set();
+      const allManaged = new Set();
+      allCenters.forEach((centerRow) => {
+        const targets = planCallingTargetsForCenterRow({
+          centerRow,
+          centerFields,
+          dateShiftsConfig: dateShifts,
+          callingExpand: expand,
+          callingLabel: label,
+        });
+        targets.forEach((t) => allDesired.add(t.key));
+        (Array.isArray(dateShifts.dates) ? dateShifts.dates : []).forEach((d) => {
+          const dateId = String(d?.id || '').trim();
+          if (!dateId) return;
+          allManaged.add(`${String(centerRow.id)}::${dateId}`);
+        });
+      });
+
+      for (const row of existingCalling) {
+        const bag = row.values || {};
+        const centerRowId = String(
+          row.centerRowId || bag[CALLING_CENTER_ROW_ID_KEY] || '',
+        ).trim();
+        const dateId = String(row.dateId || bag[CALLING_DATE_ID_KEY] || '').trim();
+        if (!centerRowId || !dateId) continue;
+        if (!allManaged.has(`${centerRowId}::${dateId}`)) continue;
+        const key =
+          row.naturalKey || callingNaturalKeyFromValues(bag, expand.mode);
+        if (allDesired.has(key)) continue;
+        if (row.hidden || bag[CALLING_HIDDEN_KEY] === true) continue;
+        toUpdate.push({
+          id: row.id,
+          values: { ...bag, [CALLING_HIDDEN_KEY]: true },
+          naturalKey: key,
+        });
+        hidden += 1;
+      }
+    }
+
+    const created = toCreate.length
+      ? await callingRepo.insertRowsChunked(examId, writeFields, toCreate, userId)
+      : 0;
+    const updated = toUpdate.length
+      ? await callingRepo.updateRowsIndividual(examId, writeFields, toUpdate, userId)
+      : 0;
+
+    const progress =
+      centersTotal <= 0
+        ? 100
+        : Math.min(100, Math.round((centersProcessed / centersTotal) * 100));
+
+    return {
+      view: callingView,
+      collection: 'exam_calling_rows',
+      mode: expand.mode,
+      labelMode: label.mode,
+      labelTargetKey: label.targetKey,
+      created,
+      updated,
+      hidden,
+      legacyMigrated: legacy?.migrated || 0,
+      legacyDeleted: legacy?.deleted || 0,
+      sortBackfilled: sortBackfilled || 0,
+      centersTotal,
+      centersProcessed,
+      centerOffset,
+      centerLimit,
+      nextOffset: isLastBatch ? null : centersProcessed,
+      done: isLastBatch,
+      progress,
+      callingTotal: existingCalling.length + created,
+    };
   });
 
 /** Called when an exam is deleted so explore metadata/rows are not left behind. */
 export const dropTableForExam = async (examId) => {
+  await callingRepo.deleteAllForExam(examId);
   await repo.dropTableForExam(examId);
 };

@@ -13,6 +13,10 @@ export function TextEditor({ value, column, onSave, onCancel, isDarkMode, autoFo
   const validate = (v: string) => {
     if (field?.required && !v.trim()) return 'Required';
     if (field?.maxLength && v.length > field.maxLength) return `Max ${field.maxLength} chars`;
+    if (field?.dataType === 'email' && v.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(v.trim())) return 'Enter a valid email address';
+    }
     return null;
   };
 

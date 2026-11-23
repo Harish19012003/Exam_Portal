@@ -34,6 +34,8 @@ import {
   Shield,
   Sun,
   Moon,
+  CircleHelp,
+  Bug,
   Settings,
   Settings2,
   Zap,
@@ -45,6 +47,8 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { ExamSwitcher } from './ExamSwitcher';
+import { HelpModal } from '../components/HelpModal/HelpModal';
+import { FeedbackModal } from '../components/Feedback/FeedbackModal';
 import { optimizedLogoUrl } from '../utils/brandingImage';
 import './DashboardLayout.css';
 import './ExamSidebar.css';
@@ -56,11 +60,10 @@ const EXAM_SUB_ITEMS = [
   { tab: 'mock-day', label: 'Mock Day', icon: ClipboardList },
   { tab: 'operator-guard-calling', label: 'Op/Guard Calling', icon: PhoneCall },
   { tab: 'exam-day', label: 'Exam Day', icon: CalendarClock },
-  { tab: 'device-master', label: 'Device Master', icon: Smartphone },
 ];
 
 // Top-level pages whose inner tab/section is restored when re-opened from the sidebar.
-const REMEMBERED_PATHS = ['/settings', '/vendors', '/seq-view', '/tables'];
+const REMEMBERED_PATHS = ['/settings', '/vendors', '/device-master', '/seq-view', '/tables'];
 
 const NAV_ITEMS = [
   {
@@ -77,6 +80,13 @@ const NAV_ITEMS = [
     label: 'Exams',
     icon: FileText,
     activeIcon: GraduationCap,
+  },
+  {
+    to: '/device-master',
+    page: 'device_master',
+    label: 'Device Master',
+    icon: Smartphone,
+    activeIcon: Smartphone,
   },
   {
     to: '/vendors',
@@ -232,6 +242,9 @@ export const DashboardLayout = () => {
     if (path === '/exam-day') {
       return { label: 'Exam Day', icon: CalendarCheck };
     }
+    if (path === '/device-master') {
+      return { label: 'Device Master', icon: Smartphone };
+    }
     if (path === '/dashboard/vendors' || path === '/vendors') {
       return { label: 'Vendor Data', icon: DatabaseZap };
     }
@@ -284,12 +297,29 @@ export const DashboardLayout = () => {
   // sections are still clickable. Shares the exams-list query key, so no extra request.
   // Platform-wide settings (portal name, maintenance banner). Cached, so no refetch per page.
   const { settings: platform } = usePlatformSettings();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [reportKind, setReportKind] = useState(null); // 'bug' | 'feature' | null
   // Tab title + favicon come from DocumentBranding (works on login too).
   const { data: examsForSidebar } = useExamsList();
   const fallbackExamId = examsForSidebar?.[0]?.id ? String(examsForSidebar[0].id) : '';
 
   return (
     <div className="layout">
+      <HelpModal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        user={currentUser}
+        canConfigure={accessReady && canPage('settings')}
+        onReport={(kind) => {
+          setHelpOpen(false);
+          setReportKind(kind);
+        }}
+      />
+      <FeedbackModal
+        open={Boolean(reportKind)}
+        initialKind={reportKind || 'bug'}
+        onClose={() => setReportKind(null)}
+      />
       {/* SIDEBAR (LogicPanda design: dark green, hover-expand on desktop, drawer on mobile) */}
       <div className="xs-shell">
       {mobileOpen && <div className="xs-backdrop" onClick={closeMobile} aria-hidden="true" />}
@@ -352,6 +382,32 @@ export const DashboardLayout = () => {
 
         <div className="xs-footer">
           <div className="xs-footer-actions">
+            <button
+              type="button"
+              className="xs-icon-btn"
+              onClick={() => {
+                setReportKind('bug');
+                closeMobile();
+              }}
+              title="Report a bug or request a feature"
+              aria-label="Report a bug or request a feature"
+              aria-haspopup="dialog"
+            >
+              <Bug size={18} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              className="xs-icon-btn"
+              onClick={() => {
+                setHelpOpen(true);
+                closeMobile();
+              }}
+              title="Help & support"
+              aria-label="Help and support"
+              aria-haspopup="dialog"
+            >
+              <CircleHelp size={18} strokeWidth={2} />
+            </button>
             <button
               type="button"
               className="xs-icon-btn"

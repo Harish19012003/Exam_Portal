@@ -1,8 +1,9 @@
 import { useConfirm } from '../../feedback';
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   FileUp,
+  Info,
   LayoutTemplate,
   ListPlus,
   Pencil,
@@ -13,34 +14,38 @@ import {
   X,
 } from 'lucide-react';
 import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel, isExamViewKey } from '@exam-view/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
-import { useUrlState } from '../../hooks/useUrlState';
-import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
-import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
+import { queryKeys } from '../../api/queryKeys';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { CardGridSkeleton } from '../../components/ui/SettingsSkeletons';
+import { useUrlParamsPatch, useUrlState } from '../../hooks/useUrlState';
+import { SearchableSelect } from '../exams/SearchableSelect';
+import { resolveFieldOptions } from '../exams/examFieldTypes';
 import {
   bulkSaveExamPresets,
-  createExamPreset,
   deleteExamPreset,
   listExamPresets,
-  updateExamPreset,
 } from '../exams/examPresetApi';
-import { ensureFocusDateFields } from '../exams/dateShiftsConfig';
-import { focusDateTargetsFromAggregates } from '../exams/examUniqueRows';
 import { apiErrorMessage } from '../exams/examTableApi';
+import { FieldPresetEditorPage } from './FieldPresetEditorPage';
 import './FieldPresetsPanel.css';
 
-const emptyForm = () => ({
-  id: null,
-  name: '',
-  serviceValue: '',
-  view: DEFAULT_EXAM_VIEW,
-  fields: [],
-  features: {},
-});
+// SearchableSelect ignores empty option values, so "All" uses a sentinel.
+const ALL_VALUE = '__all__';
+const SORT_OPTIONS = [
+  { value: 'default', label: 'Sort: Default' },
+  { value: 'name-asc', label: 'Name (A → Z)' },
+  { value: 'name-desc', label: 'Name (Z → A)' },
+  { value: 'created-desc', label: 'Newest created' },
+  { value: 'created-asc', label: 'Oldest created' },
+  { value: 'updated-desc', label: 'Recently updated' },
+  { value: 'fields-desc', label: 'Most fields' },
+  { value: 'fields-asc', label: 'Fewest fields' },
+  { value: 'service-asc', label: 'Service (A → Z)' },
+];
 
-const pairKey = (serviceValue, view) =>
-  `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
-
+const NO_PRESETS = [];
 const SORT_KEYS = ['default', 'name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'fields-desc', 'fields-asc', 'service-asc'];
 
 /** Stable JSON payload for Export / Import round-trips. */
@@ -121,51 +126,45 @@ export const FieldPresetsPanel = ({
   importTick = 0,
   exportTick = 0,
   onPresetCountChange,
+  headerSlots = null,
 }) => {
   const confirm = useConfirm();
-  const formId = useId();
   const importFileRef = useRef(null);
-  const [presets, setPresets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const queryClient = useQueryClient();
+  // Shared with the Exam explore page, so presets load once and both pages reuse the cache.
+  const presetsQuery = useQuery({ queryKey: queryKeys.exams.presets(), queryFn: listExamPresets });
+  const presets = presetsQuery.data ?? NO_PRESETS;
+  const loading = presetsQuery.isLoading;
+  const [actionError, setActionError] = useState('');
+  const loadError = actionError || (presetsQuery.error ? apiErrorMessage(presetsQuery.error, 'Could not load presets') : '');
   const [serviceOptions, setServiceOptions] = useState([]);
-  const [form, setForm] = useState(null); // null = editor closed
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useUrlState('pq', '');
   const [serviceFilter, setServiceFilter] = useUrlState('psvc', '');
   const [viewFilter, setViewFilter] = useUrlState('pview', '');
   const [sortBy, setSortBy] = useUrlState('psort', 'default', SORT_KEYS);
+  const patchUrl = useUrlParamsPatch();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
-    try {
-      setPresets(await listExamPresets());
-    } catch (err) {
-      setLoadError(apiErrorMessage(err, 'Could not load presets'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.exams.presets() }),
+    [queryClient],
+  );
 
   useEffect(() => {
-    load();
     loadServiceOptions().then(setServiceOptions);
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     onPresetCountChange?.(presets.length);
   }, [presets.length, onPresetCountChange]);
 
-  const openCreate = useCallback(() => {
-    setForm(emptyForm());
-    setFormError('');
-  }, []);
+  // Edit / New open a full page (?edit=<id|new>), pushed to history so browser Back returns here.
+  const [editParam] = useUrlState('edit', '');
+  const openCreate = useCallback(() => patchUrl({ edit: 'new', fg: '' }, { replace: false }), [patchUrl]);
+  const closeEditorPage = useCallback(() => patchUrl({ edit: '', fg: '' }), [patchUrl]);
 
   const openImport = useCallback(() => {
     setImportText('');
@@ -209,77 +208,31 @@ export const FieldPresetsPanel = ({
     downloadPresetsJson([preset], `field-preset-${name}-${view}-${stamp}.json`);
   };
 
+  // Toolbar ticks: act once per click. The handlers change identity on every URL change
+  // (setSearchParams) or preset refetch, so without these refs Back from "New preset"
+  // re-opened it and Export re-downloaded. Initialised to the mount value so a remount
+  // doesn't replay an old click.
+  const handledTicks = useRef({ create: createTick, import: importTick, export: exportTick });
+
   useEffect(() => {
-    if (createTick > 0) openCreate();
+    if (createTick === handledTicks.current.create) return;
+    handledTicks.current.create = createTick;
+    openCreate();
   }, [createTick, openCreate]);
 
   useEffect(() => {
-    if (importTick > 0) openImport();
+    if (importTick === handledTicks.current.import) return;
+    handledTicks.current.import = importTick;
+    openImport();
   }, [importTick, openImport]);
 
   useEffect(() => {
-    if (exportTick > 0) handleExport();
+    if (exportTick === handledTicks.current.export) return;
+    handledTicks.current.export = exportTick;
+    handleExport();
   }, [exportTick, handleExport]);
 
-  const openEdit = (preset) => {
-    const features =
-      preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
-        ? { ...preset.features }
-        : {};
-    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
-      features.uniqueRowAggregates,
-    );
-    const { fields: nextFields } = ensureFocusDateFields(preset.fields || [], {
-      countTargetKey,
-      sumTargetKey,
-    });
-    setForm({
-      id: preset.id,
-      name: preset.name,
-      serviceValue: preset.serviceValue,
-      view: preset.view || DEFAULT_EXAM_VIEW,
-      fields: nextFields,
-      features,
-    });
-    setFormError('');
-  };
-
-  const closeEditor = () => {
-    setForm(null);
-    setFormError('');
-  };
-
-  const patchForm = (patch) => {
-    setForm((prev) => ({ ...prev, ...patch }));
-    if (formError) setFormError('');
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) return setFormError('Preset name is required.');
-    if (!form.serviceValue.trim()) return setFormError('Choose the service this preset is for.');
-    if (!form.view) return setFormError('Choose the exam page this preset is for.');
-    setSaving(true);
-    try {
-      const payload = {
-        name: form.name,
-        serviceValue: form.serviceValue,
-        view: form.view,
-        fields: form.fields,
-        features:
-          form.features != null && typeof form.features === 'object' && !Array.isArray(form.features)
-            ? form.features
-            : {},
-      };
-      if (form.id) await updateExamPreset(form.id, payload);
-      else await createExamPreset(payload);
-      closeEditor();
-      await load();
-    } catch (err) {
-      setFormError(apiErrorMessage(err, 'Could not save the preset'));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openEdit = (preset) => patchUrl({ edit: preset.id, fg: '' }, { replace: false });
 
   const handleDelete = async (preset) => {
     const ok = await confirm({
@@ -294,7 +247,7 @@ export const FieldPresetsPanel = ({
       await deleteExamPreset(preset.id);
       await load();
     } catch (err) {
-      setLoadError(apiErrorMessage(err, 'Could not delete the preset'));
+      setActionError(apiErrorMessage(err, 'Could not delete the preset'));
     }
   };
 
@@ -330,16 +283,6 @@ export const FieldPresetsPanel = ({
       setImporting(false);
     }
   };
-
-  // One preset per (service, page). Same service can have presets on other pages.
-  const usedPairs = new Set(
-    presets.filter((p) => p.id !== form?.id).map((p) => pairKey(p.serviceValue, p.view || DEFAULT_EXAM_VIEW)),
-  );
-  const serviceChoices = serviceOptions.filter((o) => {
-    if (!form?.view) return true;
-    return !usedPairs.has(pairKey(o, form.view));
-  });
-  const hasCurrentInChoices = !form?.serviceValue || serviceChoices.includes(form.serviceValue);
 
   const missingCenterList = serviceOptions.filter(
     (o) => !presets.some(
@@ -379,18 +322,31 @@ export const FieldPresetsPanel = ({
   }, [presets, query, serviceFilter, viewFilter, sortBy]);
   const filtersActive = Boolean(query || serviceFilter || viewFilter);
   const clearFilters = () => {
-    setQuery('');
-    setServiceFilter('');
-    setViewFilter('');
+    // One URL write — three separate setSearchParams calls can leave stale params behind.
+    patchUrl({ pq: '', psvc: '', pview: '' });
   };
+
+  if (editParam) {
+    return (
+      <FieldPresetEditorPage
+        key={editParam}
+        presetId={editParam}
+        presets={presets}
+        presetsLoading={loading}
+        serviceOptions={serviceOptions}
+        onExit={closeEditorPage}
+        onSwitch={(id) => patchUrl({ edit: id, fg: '' })}
+        headerSlots={headerSlots}
+      />
+    );
+  }
 
   return (
     <div className="fpp">
       {loadError && <div className="fpp-error" role="alert">{loadError}</div>}
 
-      {loading ? (
-        <p className="fpp-muted">Loading presets…</p>
-      ) : presets.length === 0 ? (
+      <BoneSkeleton name="settings-field-presets" loading={loading} fallback={<CardGridSkeleton count={6} filters />}>
+      {loading ? null : presets.length === 0 ? (
         <div className="config-empty-state">
           <LayoutTemplate size={22} />
           <div>
@@ -429,25 +385,27 @@ export const FieldPresetsPanel = ({
               </button>
             )}
           </label>
-          <select className="fpp-filter-select" value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} aria-label="Filter by service">
-            <option value="">All services</option>
-            {filterServices.map((svc) => <option key={svc} value={svc}>{svc}</option>)}
-          </select>
-          <select className="fpp-filter-select" value={viewFilter} onChange={(e) => setViewFilter(e.target.value)} aria-label="Filter by exam page">
-            <option value="">All pages</option>
-            {EXAM_VIEWS.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
-          </select>
-          <select className="fpp-filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort presets">
-            <option value="default">Sort: Default</option>
-            <option value="name-asc">Name (A → Z)</option>
-            <option value="name-desc">Name (Z → A)</option>
-            <option value="created-desc">Newest created</option>
-            <option value="created-asc">Oldest created</option>
-            <option value="updated-desc">Recently updated</option>
-            <option value="fields-desc">Most fields</option>
-            <option value="fields-asc">Fewest fields</option>
-            <option value="service-asc">Service (A → Z)</option>
-          </select>
+          <SearchableSelect
+            className="fpp-filter-select"
+            ariaLabel="Filter by service"
+            value={serviceFilter || ALL_VALUE}
+            onChange={(v) => setServiceFilter(v === ALL_VALUE ? '' : v)}
+            options={[{ value: ALL_VALUE, label: 'All services' }, ...filterServices.map((svc) => ({ value: svc, label: svc }))]}
+          />
+          <SearchableSelect
+            className="fpp-filter-select"
+            ariaLabel="Filter by exam page"
+            value={viewFilter || ALL_VALUE}
+            onChange={(v) => setViewFilter(v === ALL_VALUE ? '' : v)}
+            options={[{ value: ALL_VALUE, label: 'All pages' }, ...EXAM_VIEWS.map((v) => ({ value: v.key, label: v.label }))]}
+          />
+          <SearchableSelect
+            className="fpp-filter-select"
+            ariaLabel="Sort presets"
+            value={sortBy}
+            onChange={setSortBy}
+            options={SORT_OPTIONS}
+          />
           <span className="fpp-filter-count" aria-live="polite">
             {visiblePresets.length} of {presets.length}
           </span>
@@ -468,10 +426,6 @@ export const FieldPresetsPanel = ({
                 <span className="fpp-card-icon" aria-hidden="true"><LayoutTemplate size={18} /></span>
                 <div className="fpp-card-titles">
                   <span className="fpp-card-title" title={preset.name}>{preset.name}</span>
-                  <span className="fpp-card-service" title={`${preset.serviceValue} · ${viewLabel}`}>
-                    {preset.fieldCount} field{preset.fieldCount === 1 ? '' : 's'}
-                    <span className="fpp-card-view"> · {preset.serviceValue} · {viewLabel}</span>
-                  </span>
                 </div>
                 <div className="fpp-card-actions">
                   <button
@@ -491,6 +445,13 @@ export const FieldPresetsPanel = ({
                   </button>
                 </div>
               </div>
+              <div className="fpp-card-meta">
+                <span className="fpp-meta-badge fpp-meta-badge--accent">
+                  {preset.fieldCount} field{preset.fieldCount === 1 ? '' : 's'}
+                </span>
+                <span className="fpp-meta-badge" title="Service">{preset.serviceValue}</span>
+                <span className="fpp-meta-badge" title="Exam page">{viewLabel}</span>
+              </div>
               <div className="fpp-card-chips">
                 {preset.fields.slice(0, 5).map((f) => (
                   <span key={f.key} className="fpp-chip">{f.label}</span>
@@ -506,165 +467,16 @@ export const FieldPresetsPanel = ({
         )}
         </>
       )}
+      </BoneSkeleton>
 
       {!loading && presets.length > 0 && missingCenterList.length > 0 && (
-        <p className="fpp-muted">
-          No Center list preset yet for: {missingCenterList.join(', ')}. Those exams start that page empty.
+        <p className="fpp-notice" role="note">
+          <Info size={15} aria-hidden="true" />
+          <span>
+            No Center list preset yet for <strong>{missingCenterList.join(', ')}</strong>. Those exams start that page empty.
+          </span>
         </p>
       )}
-
-      <ExamFieldBuilder
-        open={Boolean(form)}
-        fields={form?.fields || []}
-        title={form?.id ? 'Edit preset' : 'New preset'}
-        subtitle={
-          form
-            ? [
-                `${form.fields.length} field${form.fields.length === 1 ? '' : 's'}`,
-                examViewLabel(form.view),
-                form.serviceValue || 'service',
-                Array.isArray(form.features?.uniqueRowKeys) && form.features.uniqueRowKeys.length
-                  ? `unique · ${form.features.uniqueRowKeys.join(' · ')}`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : undefined
-        }
-        examSourceFields={loadExamFields()}
-        enableFromExam
-        currentView={form?.view}
-        presetSources={presets.filter((p) => p.id !== form?.id)}
-        currentServiceValue={form?.serviceValue || ''}
-        bulkWorkingContext={
-          form
-            ? [
-                'Field preset',
-                form.name?.trim() || null,
-                form.serviceValue?.trim() || null,
-                examViewLabel(form.view),
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : ''
-        }
-        onClose={() => !saving && closeEditor()}
-        onChange={(fields) => patchForm({ fields })}
-        // Center list presets: Bulk add → Date shifts (shift format for exams).
-        enableDateShifts={form?.view === DEFAULT_EXAM_VIEW}
-        dateShifts={form?.view === DEFAULT_EXAM_VIEW ? form?.features?.dateShifts || null : null}
-        onDateShiftsChange={
-          form?.view === DEFAULT_EXAM_VIEW
-            ? (dateShifts) =>
-                patchForm({
-                  features: {
-                    ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-                    dateShifts,
-                  },
-                })
-            : null
-        }
-        uniqueRowKeys={form?.features?.uniqueRowKeys}
-        uniqueRowAggregates={form?.features?.uniqueRowAggregates}
-        onUniqueImportChange={(payload) => {
-          const nextFeatures = {
-            ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-            ...(payload?.uniqueRowKeys !== undefined
-              ? { uniqueRowKeys: payload.uniqueRowKeys }
-              : {}),
-            ...(payload?.uniqueRowAggregates !== undefined
-              ? { uniqueRowAggregates: payload.uniqueRowAggregates }
-              : {}),
-          };
-          const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
-            nextFeatures.uniqueRowAggregates,
-          );
-          const { fields: nextFields, changed } = ensureFocusDateFields(form?.fields || [], {
-            countTargetKey,
-            sumTargetKey,
-          });
-          patchForm({
-            features: nextFeatures,
-            ...(changed ? { fields: nextFields } : {}),
-          });
-        }}
-        topSlot={
-          form && (
-            <div className="fpp-meta">
-              {formError && <div className="config-form-error" role="alert">{formError}</div>}
-
-              <div className="config-form-group">
-                <label htmlFor={`${formId}-name`}>Preset name</label>
-                <input
-                  id={`${formId}-name`}
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => patchForm({ name: e.target.value })}
-                  placeholder="e.g. Bio-Metric · Mock Day"
-                  maxLength={120}
-                  autoFocus
-                />
-              </div>
-
-              <div className="fpp-meta-row">
-                <div className="config-form-group">
-                  <label htmlFor={`${formId}-service`}>Service</label>
-                  {serviceOptions.length > 0 ? (
-                    <select
-                      id={`${formId}-service`}
-                      value={form.serviceValue}
-                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
-                    >
-                      <option value="">Select a service…</option>
-                      {!hasCurrentInChoices && form.serviceValue && (
-                        <option value={form.serviceValue}>{form.serviceValue}</option>
-                      )}
-                      {serviceChoices.map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      id={`${formId}-service`}
-                      type="text"
-                      value={form.serviceValue}
-                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
-                      placeholder="Must match the exam's Service value"
-                      maxLength={191}
-                    />
-                  )}
-                </div>
-
-                <div className="config-form-group">
-                  <label htmlFor={`${formId}-view`}>Exam page</label>
-                  <select
-                    id={`${formId}-view`}
-                    value={form.view}
-                    onChange={(e) => patchForm({ view: e.target.value })}
-                  >
-                    {EXAM_VIEWS.map((v) => (
-                      <option key={v.key} value={v.key}>{v.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <p className="fpp-muted">
-                One preset per service and page. An exam only recommends the preset that matches both.
-              </p>
-            </div>
-          )
-        }
-        footer={
-          <>
-            <button type="button" className="exams-btn secondary compact" onClick={closeEditor} disabled={saving}>
-              Cancel
-            </button>
-            <button type="button" className="exams-btn primary compact" onClick={handleSave} disabled={saving}>
-              <span>{saving ? 'Saving…' : form?.id ? 'Save' : 'Create'}</span>
-            </button>
-          </>
-        }
-      />
 
       {isImportOpen && (
         <div className="config-modal-overlay" onClick={() => !importing && setIsImportOpen(false)}>

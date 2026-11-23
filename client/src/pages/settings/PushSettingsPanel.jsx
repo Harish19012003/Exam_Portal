@@ -4,6 +4,8 @@ import { Bell, KeyRound, PlugZap, Trash2, Info, ShieldCheck, AlertCircle, Check,
 import { queryKeys } from '../../api/queryKeys';
 import { fetchPushSettings, savePushSettings, testPushSettings } from '../../api/integrationSettingsApi';
 import { SettingsNotice, SettingsSaveBar } from './SettingsSaveBar';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { FormCardsSkeleton } from '../../components/ui/SettingsSkeletons';
 import './PlatformSettingsTab.css';
 
 const toForm = (saved) => ({
@@ -107,9 +109,6 @@ export const PushSettingsPanel = () => {
     }
   };
 
-  if (isLoading) {
-    return <div className="platform-settings platform-settings--loading">Loading push notification settings…</div>;
-  }
   if (isError) {
     return (
       <div className="ps-alert error" role="alert">
@@ -143,7 +142,8 @@ export const PushSettingsPanel = () => {
   );
 
   return (
-    <form className="platform-settings" onSubmit={handleSave}>
+    <BoneSkeleton name="settings-platform-push" loading={isLoading} fallback={<FormCardsSkeleton cards={[3, 2]} />}>
+      <form className="platform-settings" onSubmit={handleSave}>
       <SettingsNotice notice={notice} />
 
       <div className="ps-source ps-source--info" role="note">
@@ -243,7 +243,8 @@ export const PushSettingsPanel = () => {
       </div>
 
       <SettingsSaveBar dirty={dirty} saving={saving} onDiscard={() => saved && setForm(toForm(saved))} />
-    </form>
+      </form>
+    </BoneSkeleton>
   );
 };
 

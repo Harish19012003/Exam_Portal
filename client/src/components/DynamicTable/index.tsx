@@ -810,6 +810,11 @@ export function DynamicTable({
     state.handlePinColumn(key, pin);
   }, [featureConfig.isTransposed, state.handlePinColumn]);
 
+  const handlePinColumnsUntil = useCallback((key: string) => {
+    if (featureConfig.isTransposed) return;
+    state.handlePinColumnsUntil(key);
+  }, [featureConfig.isTransposed, state.handlePinColumnsUntil]);
+
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, rowId: string) => {
       e.preventDefault();
@@ -1138,6 +1143,7 @@ export function DynamicTable({
                 onColumnWidthsChange={state.handleColumnWidthsChange}
                 onColumnReorder={state.handleColumnReorder}
                 onPinColumn={handlePinColumn}
+                onPinColumnsUntil={handlePinColumnsUntil}
                 onDeleteCompositeColumn={state.handleDeleteCompositeColumn}
                 onHideColumn={(key) => state.handlePatchColumnVisibility({ [key]: false })}
                 dragColKey={state.dragColKey}
@@ -1768,6 +1774,7 @@ export function DynamicTable({
           onConfirm={(scope) => {
             const selectedRowIds = Array.from(state.selectedRows);
             if (onRowDeleteByScope) {
+              // Close modal immediately — progress continues on the top-right chip over the normal table.
               const visibleTargets =
                 scope === 'selected'
                   ? state.rows.filter((r) => selectedRowIds.includes(r.rowId))
@@ -1778,7 +1785,7 @@ export function DynamicTable({
               if (visibleIds.size) {
                 state.setRows((prev) => prev.filter((r) => !visibleIds.has(r.rowId)));
               }
-              state.setSelectedRows(new Set());
+              state.handleClearSelection();
               state.setShowBulkConfirm(false);
               void Promise.resolve(
                 onRowDeleteByScope({

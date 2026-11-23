@@ -1,10 +1,9 @@
 import { useConfirm } from '../../feedback';
-import { useUrlState } from '../../hooks/useUrlState';
+import { useUrlParamsPatch, useUrlState } from '../../hooks/useUrlState';
 import React, { useState, useEffect, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ListChecks,
-  Tags,
   Plus,
   X,
   Trash2,
@@ -16,7 +15,10 @@ import {
   Download,
   FileUp,
 } from 'lucide-react';
-import { loadConfigDropdownLists } from './configStorage';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../api/queryKeys';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { CardGridSkeleton } from '../../components/ui/SettingsSkeletons';
 import {
   bulkSaveConfigLists,
   createConfigList,
@@ -208,14 +210,6 @@ const SECTIONS = [
     actionLabel: 'New list',
   },
   {
-    id: 'values',
-    title: 'Generic settings',
-    icon: Tags,
-    emptyTitle: 'No settings values yet',
-    emptyHint: 'Add portal-wide defaults and other config values here.',
-    actionLabel: 'New value',
-  },
-  {
     id: 'presets',
     title: 'Field presets',
     icon: LayoutTemplate,
@@ -236,7 +230,7 @@ const emptyDropdownForm = () => ({
   options: [makeOption(), makeOption()],
 });
 
-export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
+export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null }) => {
   const [isWide, setIsWide] = useState(() => window.matchMedia('(min-width: 769px)').matches);
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 769px)');
@@ -246,8 +240,36 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   }, []);
   const confirm = useConfirm();
   const formId = useId();
-  const [activeSection, setActiveSection] = useUrlState('section', 'dropdowns');
-  const [dropdowns, setDropdowns] = useState(loadConfigDropdownLists);
+  const [activeSection, setActiveSection] = useUrlState('section', 'dropdowns', SECTIONS.map((s) => s.id));
+  const patchUrl = useUrlParamsPatch();
+  // Field presets → Edit / New is a full page: hide the section tabs and toolbar while it is open.
+  const [presetEditParam] = useUrlState('edit', '');
+  const isPresetEditor = activeSection === 'presets' && Boolean(presetEditParam);
+  const selectSection = (sectionId) => {
+    if (sectionId === activeSection) return;
+    // Leaving Field presets: drop its filter params so the URL matches the active section.
+    if (sectionId !== 'presets') {
+      patchUrl({
+        section: sectionId === 'dropdowns' ? '' : sectionId,
+        pq: '',
+        psvc: '',
+        pview: '',
+        psort: '',
+        edit: '',
+        fg: '',
+      });
+      return;
+    }
+    setActiveSection(sectionId);
+  };
+  const queryClient = useQueryClient();
+  // Dropdown lists come from the API through React Query, so switching tabs reuses the cache.
+  const {
+    data: dropdowns = [],
+    isLoading: listsLoading,
+    error: listsLoadError,
+  } = useQuery({ queryKey: queryKeys.configLists, queryFn: loadConfigListsWithImport });
+  const setDropdowns = (next) => queryClient.setQueryData(queryKeys.configLists, next);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [form, setForm] = useState(emptyDropdownForm);
   const [formError, setFormError] = useState('');
@@ -278,20 +300,6 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   const [isSaving, setIsSaving] = useState(false);
 
   const apiMessage = (err, fallback) => err?.response?.data?.message || err?.message || fallback;
-
-  useEffect(() => {
-    let cancelled = false;
-    loadConfigListsWithImport()
-      .then((lists) => {
-        if (!cancelled) setDropdowns(lists);
-      })
-      .catch((err) => {
-        if (!cancelled) setListsError(apiMessage(err, 'Could not load dropdown lists.'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!isDrawerOpen) return undefined;
@@ -643,8 +651,7 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
     if (!confirmed) return;
     try {
       await deleteConfigList(listId);
-      setDropdowns((prev) => prev.filter((d) => d.id !== listId));
-      await fetchConfigLists();
+      setDropdowns(await fetchConfigLists());
     } catch (err) {
       setListsError(apiMessage(err, 'Could not delete the dropdown list.'));
     }
@@ -669,8 +676,10 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
             type="button"
             role="tab"
             aria-selected={isActive}
+            aria-label={s.title}
+            title={s.title}
             className={`config-section-tab ${isActive ? 'active' : ''}`}
-            onClick={() => setActiveSection(s.id)}
+            onClick={() => selectSection(s.id)}
           >
             <Icon size={14} />
             <span>{s.title}</span>
@@ -740,7 +749,6 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
         title={section.actionLabel}
         aria-label={section.actionLabel}
         onClick={handleSectionAction}
-        disabled={activeSection === 'values'}
       >
         <Plus size={15} />
         <span>{section.actionLabel}</span>
@@ -753,7 +761,7 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
 
   return (
     <div className="config-tab">
-      {inHeader ? (
+      {isPresetEditor ? null : inHeader ? (
         <>
           {createPortal(sectionTabs, tabsSlot)}
           {createPortal(<div className="config-icon-actions">{toolbarActions}</div>, actionsSlot)}
@@ -765,10 +773,19 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
         </div>
       )}
 
-      <div className="config-section-panel" role="tabpanel">
+      <div
+        className={`config-section-panel${isPresetEditor ? ' config-section-panel--page' : ''}`}
+        role="tabpanel"
+      >
         {activeSection === 'dropdowns' && (
+          <BoneSkeleton name="settings-config-dropdowns" loading={listsLoading} fallback={<CardGridSkeleton count={6} />}>
+            {listsLoading ? null : (
           <>
-            {listsError && <div className="config-form-error" role="alert">{listsError}</div>}
+            {(listsError || listsLoadError) && (
+              <div className="config-form-error" role="alert">
+                {listsError || apiMessage(listsLoadError, 'Could not load dropdown lists.')}
+              </div>
+            )}
             {dropdowns.length === 0 ? (
               <div className="config-empty-state">
                 <SectionIcon size={22} />
@@ -844,6 +861,8 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
               </ul>
             )}
           </>
+            )}
+          </BoneSkeleton>
         )}
 
         {activeSection === 'presets' && (
@@ -852,17 +871,9 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
             importTick={presetImportTick}
             exportTick={presetExportTick}
             onPresetCountChange={setPresetCount}
+            // Wide screens: the preset editor's Back button / title join the "Config" title row.
+            headerSlots={isWide && leadSlot && tabsSlot ? { lead: leadSlot, title: tabsSlot } : null}
           />
-        )}
-
-        {activeSection === 'values' && (
-          <div className="config-empty-state">
-            <SectionIcon size={22} />
-            <div>
-              <h4 className="config-empty-title">{section.emptyTitle}</h4>
-              <p className="config-empty-hint">{section.emptyHint}</p>
-            </div>
-          </div>
         )}
       </div>
 

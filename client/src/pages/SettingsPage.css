@@ -1957,17 +1957,124 @@
 }
 
 @media (max-width: 768px) {
+  /* Title and the tab dropdown share a row; they only wrap when the title is too long */
   .settings-top-toolbar {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
   }
 
+  /* Tighter spacing between and inside the Settings blocks */
+  .settings-page {
+    gap: 6px;
+  }
+
+  .config-section-panel .fpp-grid,
+  .fpp-grid--compact {
+    gap: 6px;
+  }
+
+  .config-section-panel:has(.fpp-grid) .fpp-grid {
+    padding-top: 0;
+  }
+
+  .fpp-grid--compact .fpp-card {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .fpp-grid--compact .fpp-card-head {
+    gap: 8px;
+  }
+
+  .fpp-filters {
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .msg-templates-container {
+    gap: 6px;
+  }
+
+  /* One spacing unit on phones: every gap between rows, buttons and cards is 6px */
+  .settings-top-toolbar {
+    min-height: 0;
+    gap: 6px;
+  }
+
+  .settings-toolbar-right {
+    gap: 6px;
+  }
+
+  .config-tab {
+    gap: 6px;
+  }
+
+  .config-toolbar,
+  .config-toolbar-actions {
+    gap: 6px;
+  }
+
+  /* Phones: the tab dropdown is the heading. It fills the whole row and already names the tab,
+     so the duplicate title and its (i) button are hidden. */
+  .settings-top-toolbar {
+    flex-wrap: nowrap;
+  }
+
+  .settings-toolbar-left {
+    display: none;
+  }
+
+  .settings-toolbar-right {
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .settings-toolbar-right .settings-dropdown-wrapper {
+    flex: 1 1 100%;
+    min-width: 0;
+    order: -1;
+  }
+
+  .settings-toolbar-right .settings-pill-trigger {
+    width: 100%;
+    min-height: 44px;
+    justify-content: flex-start;
+    border-radius: 10px; /* squared-off like the other controls, not a pill */
+  }
+
+  .settings-toolbar-right .pill-title {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-toolbar-right .pill-chevron {
+    margin-left: auto;
+  }
+
+  /* Config: section tabs and the action icons share one row */
   .config-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
   }
 
-  .config-section-tabs,
+  .config-section-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+
   .config-add-btn {
     width: 100%;
   }
@@ -1976,8 +2083,10 @@
     flex: 1;
     justify-content: center;
     min-height: 44px;
+    min-width: 0;
   }
 
+  /* 44px touch targets (restored: these were dropped by an earlier edit) */
   .config-add-btn,
   .config-icon-btn,
   .config-drawer-close,
@@ -1995,12 +2104,102 @@
     min-width: 44px;
   }
 
-  .config-toolbar-actions,
+  /* Section switch uses the same button format as the action buttons: separate 44px squares,
+     1px border, 6px corners, 6px gap. The active one is filled purple. Name stays as tooltip + aria-label. */
+  .config-toolbar .config-section-tabs {
+    flex: 0 0 auto;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  [data-theme='dark'] .config-toolbar .config-section-tabs {
+    background: transparent;
+    border: 0;
+  }
+
+  .config-toolbar .config-section-tab {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    gap: 0;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    background: var(--bg-card, #ffffff);
+  }
+
+  [data-theme='dark'] .config-toolbar .config-section-tab {
+    background: var(--bg-card, #111827);
+    border-color: var(--border-color, #1f2937);
+  }
+
+  .config-toolbar .config-section-tab.active,
+  [data-theme='dark'] .config-toolbar .config-section-tab.active {
+    background: var(--primary-color, #5c43fa);
+    border-color: var(--primary-color, #5c43fa);
+    color: #ffffff;
+  }
+
+  .config-toolbar .config-section-tab span {
+    display: none;
+  }
+
+  /* Config actions are icon-only on phones (label stays as tooltip + aria-label) */
+  .config-toolbar-actions {
+    flex: 0 0 auto;
+    width: auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .config-toolbar-actions .config-add-btn {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .config-toolbar-actions .config-add-btn span {
+    display: none;
+  }
+
+  /* Empty state: Import is an icon, the main action keeps its text */
   .config-empty-actions {
     width: 100%;
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .config-empty-actions .config-add-btn {
+    width: auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .config-empty-actions .config-add-btn.secondary {
+    flex: 0 0 44px;
+    width: 44px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .config-empty-actions .config-add-btn.secondary span {
+    display: none;
+  }
+
+  .config-empty-actions .config-add-btn.primary {
+    flex: 1 1 auto;
   }
 
   .config-bulk-option-btn,
@@ -2337,3 +2536,14 @@
 .msg-preview-iframe { display: block; width: 100%; max-width: 600px; min-height: 360px; border: 0; background: transparent; border-radius: 12px; }
 .msg-modal-alert.is-error { color: #b91c1c; }
 @media (max-width: 768px) { .msg-reset-btn { min-height: 44px; } }
+
+/* Slot left of the page title (e.g. Field preset editor's Back button). */
+.settings-toolbar-lead {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.settings-toolbar-lead:empty {
+  display: none;
+}

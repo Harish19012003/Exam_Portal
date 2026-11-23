@@ -28,6 +28,8 @@ export const SearchableSelect = ({
   className = '',
   ariaLabel,
   disabled = false,
+  /** Minimum width of the portal menu (px) — wider for compact triggers such as a page-title switcher. */
+  menuMinWidth = 220,
 }) => {
   const generatedId = useId();
   const selectId = id || generatedId;
@@ -97,7 +99,7 @@ export const SearchableSelect = ({
       const el = triggerRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const width = Math.max(r.width, 220);
+      const width = Math.min(Math.max(r.width, menuMinWidth), window.innerWidth - 16);
       const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
       const spaceBelow = window.innerHeight - r.bottom - 12;
       const spaceAbove = r.top - 12;
@@ -112,7 +114,7 @@ export const SearchableSelect = ({
     place();
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
-  }, [portal, open]);
+  }, [portal, open, menuMinWidth]);
 
   useEffect(() => {
     if (open && showSearch) {

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Building2,
   ImagePlus,
@@ -28,6 +29,8 @@ import { ImageCropDialog } from '../../components/ImageCropDialog';
 import { uploadAvatarToCloudinary } from '../../api/avatarApi';
 import { optimizedLogoUrl, optimizedFaviconUrl, validateBrandingFile } from '../../utils/brandingImage';
 import { FONT_OPTIONS, FONT_FALLBACK, ensureFontLink } from '../../constants/headingFonts';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { FormCardsSkeleton } from '../../components/ui/SettingsSkeletons';
 import './PlatformSettingsTab.css';
 
 const TIMEZONE_LABELS = TIMEZONE_OPTIONS.map((o) => o.label);
@@ -159,12 +162,9 @@ const GeneralSettings = ({ isDarkMode }) => {
     }
   };
 
-  if (isLoading) {
-    return <div className="platform-settings platform-settings--loading">Loading platform settings…</div>;
-  }
-
   return (
-    <form className="platform-settings" onSubmit={handleSave}>
+    <BoneSkeleton name="settings-platform-general" loading={isLoading} fallback={<FormCardsSkeleton cards={[4, 3]} />}>
+      <form className="platform-settings" onSubmit={handleSave}>
       {isError && (
         <div className="ps-alert error" role="alert">
           <AlertCircle size={18} aria-hidden="true" />
@@ -230,19 +230,16 @@ const GeneralSettings = ({ isDarkMode }) => {
             <span className="ps-card-icon"><Mail size={18} aria-hidden="true" /></span>
             <div>
               <h3 className="ps-card-title">Support contact</h3>
-              <p className="ps-card-desc">Where people should write when they need help. Leave empty to hide it.</p>
+              <p className="ps-card-desc">Email, phone, WhatsApp, hours, help links and FAQs now live in Settings → Support.</p>
             </div>
           </header>
-          <label className="ps-label" htmlFor="ps-support-email">Support email</label>
-          <input
-            id="ps-support-email"
-            className="ps-input"
-            type="email"
-            maxLength={120}
-            value={form.support_email}
-            onChange={(e) => set({ support_email: e.target.value })}
-            placeholder="support@example.com"
-          />
+          <p className="ps-support-current">
+            <span className="ps-label">Support email</span>
+            <span>{form.support_email || 'Not set'}</span>
+          </p>
+          <Link className="ps-btn ps-btn--ghost ps-support-link" to="/settings?tab=support">
+            Manage in Support settings
+          </Link>
         </section>
 
         <section className="ps-card">
@@ -348,13 +345,14 @@ const GeneralSettings = ({ isDarkMode }) => {
               Discard
             </button>
           )}
-          <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty}>
+          <button type="submit" className="ps-btn ps-btn--primary" disabled={saving || !dirty} aria-label="Save changes" title="Save changes">
             <Save size={16} aria-hidden="true" />
             <span>{saving ? 'Saving…' : 'Save changes'}</span>
           </button>
         </div>
       </div>
-    </form>
+      </form>
+    </BoneSkeleton>
   );
 };
 

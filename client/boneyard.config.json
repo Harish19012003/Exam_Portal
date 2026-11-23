@@ -1,0 +1,16 @@
+{
+  "breakpoints": [375, 768, 1280],
+  "out": "./src/bones",
+  "wait": 1500,
+  "routes": [
+    "/settings?tab=platform",
+    "/settings?tab=templates",
+    "/settings?tab=config"
+  ],
+  "color": "#e6e8ee",
+  "darkColor": "#1f2937",
+  "animate": "shimmer",
+  "shimmerColor": "#f4f5f8",
+  "darkShimmerColor": "#2b3648",
+  "speed": "1.6s"
+}

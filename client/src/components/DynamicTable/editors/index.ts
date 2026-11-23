@@ -1,4 +1,5 @@
 export { CellEditor } from './CellEditor';
+export { PhoneEditor } from './PhoneEditor';
 export { TextEditor } from './TextEditor';
 export { NumberEditor } from './NumberEditor';
 export { DropdownEditor } from './DropdownEditor';

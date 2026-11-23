@@ -20,6 +20,7 @@ import { TablesPage } from '../pages/TablesPage';
 import { ExamDayPage } from '../pages/ExamDayPage';
 import { ExamSubRoute, ExamIndexRedirect } from '../pages/ExamSubPage';
 import { VendorsPage } from '../pages/VendorsPage';
+import { DeviceMasterPage } from '../pages/DeviceMasterPage';
 import { SeqViewPage } from '../pages/SeqViewPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -113,6 +114,10 @@ const appRoutes = [
           {
             path: '/tables',
             element: <PageGate page="tables"><TablesPage /></PageGate>,
+          },
+          {
+            path: '/device-master',
+            element: <PageGate page="device_master"><DeviceMasterPage /></PageGate>,
           },
           {
             path: '/vendors',

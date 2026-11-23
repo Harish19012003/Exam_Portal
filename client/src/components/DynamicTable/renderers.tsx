@@ -36,20 +36,16 @@ const getBadgeColors = (text: string, isDarkMode: boolean) => {
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
-export function StatusBadge({ value, isDarkMode }: { value: string; isDarkMode: boolean }) {
-  const colors = resolveStatusColors(value) ?? {
-    light: 'bg-gray-100 text-gray-600',
-    dark: 'bg-gray-800 text-gray-400',
-    dot: 'bg-gray-400',
-  };
+export function StatusBadge({ value }: { value: string; isDarkMode?: boolean }) {
+  // Only the dot carries the status colour; the label stays neutral (no pill background).
+  const dot = resolveStatusColors(value)?.dot ?? 'bg-gray-400';
   return (
     <span
-      className={`dt-status-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide select-none
-        ${isDarkMode ? colors.dark : colors.light}`}
+      className="dt-status-badge inline-flex items-center gap-2 text-[13px] font-medium select-none"
       aria-label={`Status: ${value}`}
     >
       <span
-        className={`dt-status-dot w-2 h-2 rounded-full flex-shrink-0 ${colors.dot}`}
+        className={`dt-status-dot w-2 h-2 rounded-full flex-shrink-0 ${dot}`}
         aria-hidden="true"
       />
       {value}

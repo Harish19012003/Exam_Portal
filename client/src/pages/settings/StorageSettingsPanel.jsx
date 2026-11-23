@@ -4,6 +4,8 @@ import { Cloud, KeyRound, PlugZap, ShieldCheck, AlertCircle } from 'lucide-react
 import { queryKeys } from '../../api/queryKeys';
 import { fetchStorageSettings, saveStorageSettings, testStorageSettings } from '../../api/integrationSettingsApi';
 import { SettingsNotice, SettingsSaveBar } from './SettingsSaveBar';
+import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
+import { FormCardsSkeleton } from '../../components/ui/SettingsSkeletons';
 import './PlatformSettingsTab.css';
 
 const toForm = (saved) => ({
@@ -79,9 +81,6 @@ export const StorageSettingsPanel = () => {
     }
   };
 
-  if (isLoading) {
-    return <div className="platform-settings platform-settings--loading">Loading storage settings…</div>;
-  }
   if (isError) {
     return (
       <div className="ps-alert error" role="alert">
@@ -92,7 +91,8 @@ export const StorageSettingsPanel = () => {
   }
 
   return (
-    <form className="platform-settings" onSubmit={handleSave}>
+    <BoneSkeleton name="settings-platform-storage" loading={isLoading} fallback={<FormCardsSkeleton cards={[3, 1]} />}>
+      <form className="platform-settings" onSubmit={handleSave}>
       <SettingsNotice notice={notice} />
 
       <div className="ps-source" role="note">
@@ -175,7 +175,8 @@ export const StorageSettingsPanel = () => {
       </div>
 
       <SettingsSaveBar dirty={dirty} saving={saving} onDiscard={() => saved && setForm(toForm(saved))} />
-    </form>
+      </form>
+    </BoneSkeleton>
   );
 };
 

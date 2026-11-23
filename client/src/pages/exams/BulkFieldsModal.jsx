@@ -1,7 +1,7 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ExamDayImportChecklist from './ExamDayImportChecklist.jsx';
-import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
 import {
   DEFAULT_EXAM_VIEW,
   EXAM_DAY_VIEW,
@@ -275,6 +275,11 @@ const effectiveSource = (r) => {
   return r.optionsSource || 'manual';
 };
 
+/** Dropdown/status table lookup, or phone exact-match lookup — can own Linked value fields. */
+const isLookupSourceRow = (r) =>
+  Boolean(r?.lookupTable && r?.lookupColumn) &&
+  (effectiveSource(r) === 'table' || r.dataType === 'phone');
+
 const optionsPart = (r) => {
   const source = effectiveSource(r);
   return {
@@ -291,6 +296,22 @@ const optionsPart = (r) => {
   };
 };
 
+/** Phone fields can exact-match a source table column (SeqView / Vendor) and fill Linked values. */
+const phoneLookupPart = (r) => {
+  if (r.dataType !== 'phone') return {};
+  if (r.lookupTable && r.lookupColumn) {
+    return {
+      optionsSource: 'table',
+      tableSource: {
+        table: r.lookupTable,
+        column: r.lookupColumn,
+        ...(r.lookupDetail ? { detailColumn: r.lookupDetail } : {}),
+      },
+    };
+  }
+  return { optionsSource: 'manual', tableSource: undefined };
+};
+
 const rowToItem = (r, allowUnique = false) => ({
   label: r.label.trim(),
   key: r.key.trim(),
@@ -298,6 +319,7 @@ const rowToItem = (r, allowUnique = false) => ({
   required: r.dataType !== 'linked' && r.dataType !== 'fromExam' && r.autoFill === 'none' && r.required,
   unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
   ...optionsPart(r),
+  ...phoneLookupPart(r),
   ...(r.dataType === 'linked' ? { linkedFrom: { fieldKey: r.linkedFieldKey || '', column: r.linkedColumn } } : {}),
   ...(r.dataType === 'fromExam' ? { examFieldKey: r.examFieldKey || '' } : {}),
   ...((r.dataType === 'date' || r.dataType === 'datetime') &&
@@ -346,7 +368,13 @@ const changedField = (r, allowUnique = false) => {
           userTagIds: item.userTagIds || [],
           tableSource: item.tableSource,
         }),
-    ...(item.dataType === 'phone' ? { phoneValidation: item.phoneValidation } : {}),
+    ...(item.dataType === 'phone'
+      ? {
+          phoneValidation: item.phoneValidation,
+          optionsSource: item.optionsSource,
+          tableSource: item.tableSource,
+        }
+      : {}),
     ...(item.dataType === 'linked' ? { linkedFrom: item.linkedFrom } : {}),
     ...(item.dataType === 'fromExam' ? { examFieldKey: item.examFieldKey } : { examFieldKey: undefined }),
     scheduleRole:
@@ -475,11 +503,15 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
 
     if (row.dataType === 'linked') {
       const src = rows.find((x) => x.rid === row.linkedRid);
-      if (!src || src.rid === row.rid || effectiveSource(src) !== 'table' || !src.lookupColumn) {
+      if (!src || src.rid === row.rid || !isLookupSourceRow(src)) {
         errors.optionsText = 'Pick the field it depends on';
       } else if (!row.linkedColumn) {
         errors.optionsText = 'Pick a column';
       }
+    }
+
+    if (row.dataType === 'phone' && (row.lookupTable || row.lookupColumn) && !isLookupSourceRow(row)) {
+      errors.optionsText = 'Select a table and match column';
     }
 
     if (row.dataType === 'fromExam' && !row.examFieldKey) {
@@ -653,6 +685,10 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  /** Open the Import picker as soon as Bulk add opens (rail shortcut “+ Import from preset”). */
+  autoOpenImport = false,
+  /** Prefill Import’s source preset (from the rail preset dropdown). */
+  initialImportPresetId = '',
   /** Current preset service — maps sharedFromView → source preset name for badges. */
   currentServiceValue = '',
   /** Existing unique-import config (features) so Import can re-edit it. */
@@ -723,6 +759,8 @@ export const BulkFieldsModal = ({
   const focusRidRef = useRef(null);
 
   const [tab, setTab] = useState('fields'); // 'fields' | 'dateShifts' | 'deps'
+  /** Filter Bulk fields table by label / key / type. */
+  const [fieldSearch, setFieldSearch] = useState('');
   const showDateShifts =
     enableDateShifts == null
       ? String(currentView || '') === DEFAULT_EXAM_VIEW
@@ -1092,6 +1130,11 @@ export const BulkFieldsModal = ({
   const canImportFromPreset = !examId && Array.isArray(presetSources);
   const canImportShared = canImportFromExam || canImportFromPreset;
   useEffect(() => {
+    if (autoOpenImport && canImportShared) openImportModal(false);
+    // Only on open — the shortcut should not re-trigger after the picker closes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
     let cancelled = false;
     listLookupSources()
       .then((rows) => {
@@ -1407,9 +1450,79 @@ export const BulkFieldsModal = ({
     );
   };
 
+  const fieldSearchQ = String(fieldSearch || '').trim().toLowerCase();
+  const visibleFieldRows = useMemo(() => {
+    const list = rows.map((row, i) => ({ row, i }));
+    if (!fieldSearchQ) return list;
+    return list.filter(({ row }) => {
+      const label = String(row.label || '').toLowerCase();
+      const key = String(row.key || '').toLowerCase();
+      const type = String(row.dataType || '').toLowerCase();
+      return (
+        label.includes(fieldSearchQ) ||
+        key.includes(fieldSearchQ) ||
+        type.includes(fieldSearchQ)
+      );
+    });
+  }, [rows, fieldSearchQ]);
+
   /* ---------- Reorder rows (drag the handle, or Alt+Up / Alt+Down on it) ---------- */
   const [dragRid, setDragRid] = useState(null);
   const [dragOverRid, setDragOverRid] = useState(null);
+  /** Soft glide: auto-scroll `.exams-bulk-body` when dragging near top/bottom edges. */
+  const isFieldDraggingRef = useRef(false);
+  const dragPointerYRef = useRef(null);
+  const dragScrollRafRef = useRef(0);
+
+  const stopFieldDragAutoScroll = useCallback(() => {
+    if (dragScrollRafRef.current) {
+      cancelAnimationFrame(dragScrollRafRef.current);
+      dragScrollRafRef.current = 0;
+    }
+    dragPointerYRef.current = null;
+  }, []);
+
+  const tickFieldDragAutoScroll = useCallback(() => {
+    dragScrollRafRef.current = 0;
+    if (!isFieldDraggingRef.current) return;
+    const el = bodyRef.current;
+    const y = dragPointerYRef.current;
+    if (!el || y == null) return;
+
+    const EDGE = 48;
+    const MAX_SPEED = 16;
+    const rect = el.getBoundingClientRect();
+    let dy = 0;
+    if (y < rect.top + EDGE) {
+      const t = Math.min(1, Math.max(0, 1 - (y - rect.top) / EDGE));
+      dy = -Math.ceil(MAX_SPEED * t);
+    } else if (y > rect.bottom - EDGE) {
+      const t = Math.min(1, Math.max(0, 1 - (rect.bottom - y) / EDGE));
+      dy = Math.ceil(MAX_SPEED * t);
+    }
+    if (dy) el.scrollTop += dy;
+
+    dragScrollRafRef.current = requestAnimationFrame(tickFieldDragAutoScroll);
+  }, []);
+
+  const noteFieldDragPointer = useCallback(
+    (clientY) => {
+      if (!isFieldDraggingRef.current) return;
+      dragPointerYRef.current = clientY;
+      if (!dragScrollRafRef.current) {
+        dragScrollRafRef.current = requestAnimationFrame(tickFieldDragAutoScroll);
+      }
+    },
+    [tickFieldDragAutoScroll],
+  );
+
+  useEffect(
+    () => () => {
+      isFieldDraggingRef.current = false;
+      stopFieldDragAutoScroll();
+    },
+    [stopFieldDragAutoScroll],
+  );
 
   const moveRow = (fromRid, toRid) => {
     if (!fromRid || !toRid || fromRid === toRid) return;
@@ -1805,23 +1918,66 @@ export const BulkFieldsModal = ({
   const tableLabelOf = (tableKey) => lookupSources.find((t) => t.table === tableKey)?.label || tableKey;
 
   const linkedRows = rows.filter((r) => r.dataType === 'linked');
-  const sourceRows = rows.filter((r) => r.dataType !== 'linked' && effectiveSource(r) === 'table' && r.lookupColumn);
+  const sourceRows = rows.filter((r) => r.dataType !== 'linked' && isLookupSourceRow(r));
   const orphanRows = linkedRows.filter((l) => !sourceRows.some((s) => s.rid === l.linkedRid));
+
+  const LINK_TARGET_NEW = '__new__';
 
   const removeLinked = (row) => {
     if (row.existingId) setRemovedIds((prev) => (prev.includes(row.existingId) ? prev : [...prev, row.existingId]));
     setRows((prev) => prev.filter((r) => r.rid !== row.rid));
   };
 
-  /** Tick / untick one column of a lookup field's table as a Linked value. */
-  const toggleLinked = (source, column) => {
-    const existing = rows.find((r) => r.dataType === 'linked' && r.linkedRid === source.rid && r.linkedColumn === column);
-    if (existing) {
-      removeLinked(existing);
-      return;
+  const snapshotBeforeLink = (row) =>
+    row.preLinkedSnapshot || {
+      dataType: row.dataType,
+      optionsSource: row.optionsSource,
+      lookupTable: row.lookupTable,
+      lookupColumn: row.lookupColumn,
+      lookupDetail: row.lookupDetail,
+      optionsText: row.optionsText,
+      configListId: row.configListId,
+      userTagIds: row.userTagIds,
+      formula: row.formula,
+    };
+
+  const revertFromLinked = (row) => {
+    const snap = row.preLinkedSnapshot;
+    if (snap && typeof snap === 'object') {
+      return {
+        ...row,
+        dataType: snap.dataType || 'text',
+        optionsSource: snap.optionsSource || 'manual',
+        lookupTable: snap.lookupTable || '',
+        lookupColumn: snap.lookupColumn || '',
+        lookupDetail: snap.lookupDetail || '',
+        optionsText: snap.optionsText || '',
+        configListId: snap.configListId || '',
+        userTagIds: snap.userTagIds || [],
+        formula: snap.formula || '',
+        linkedRid: '',
+        linkedColumn: '',
+        preLinkedSnapshot: undefined,
+      };
     }
+    return {
+      ...row,
+      dataType: 'text',
+      linkedRid: '',
+      linkedColumn: '',
+      preLinkedSnapshot: undefined,
+    };
+  };
+
+  /** Dedicated autofill field (not a converted existing column). */
+  const isDedicatedLinked = (row) =>
+    row?.dataType === 'linked' &&
+    !row.preLinkedSnapshot &&
+    !(row.existingId && row.orig?.dataType && row.orig.dataType !== 'linked');
+
+  const insertLinkedRow = (source, column, intoRows) => {
     const label = columnLabel(source.lookupTable, column);
-    const taken = new Set([...rows.map((r) => r.key), ...fields.map((f) => f.key)].filter(Boolean));
+    const taken = new Set([...intoRows.map((r) => r.key), ...fields.map((f) => f.key)].filter(Boolean));
     const row = {
       ...newRow('linked'),
       label,
@@ -1830,17 +1986,101 @@ export const BulkFieldsModal = ({
       linkedRid: source.rid,
       linkedColumn: column,
     };
-    setRows((prev) => {
-      const at = prev.findIndex((r) => r.rid === source.rid);
-      if (at < 0) return prev;
-      let end = at;
-      prev.forEach((r, i) => {
-        if (r.dataType === 'linked' && r.linkedRid === source.rid) end = Math.max(end, i);
-      });
-      const next = [...prev];
-      next.splice(end + 1, 0, row);
-      return next;
+    const at = intoRows.findIndex((r) => r.rid === source.rid);
+    if (at < 0) return [...intoRows, row];
+    let end = at;
+    intoRows.forEach((r, i) => {
+      if (r.dataType === 'linked' && r.linkedRid === source.rid) end = Math.max(end, i);
     });
+    const next = [...intoRows];
+    next.splice(end + 1, 0, row);
+    return next;
+  };
+
+  /** Fields that can show a SeqView/Vendor column (existing) or stay as insert-new. */
+  const eligibleLinkTargets = (source, currentLinked) =>
+    rows.filter((r) => {
+      if (!r || r.rid === source.rid) return false;
+      if (r.dataType === 'fromExam' || r.dataType === 'combined' || r.dataType === 'formula') return false;
+      if (r.dataType === 'phone') return false;
+      if (r.dataType === 'linked' && r.rid !== currentLinked?.rid) return false;
+      // Same-table row pickers (e.g. SeqrView Name) can be reused as phone-match targets.
+      if (isLookupSourceRow(r) && r.lookupTable !== source.lookupTable) return false;
+      if (!r.label?.trim() && !r.key?.trim() && !r.existingId) return false;
+      return true;
+    });
+
+  /**
+   * Map a ticked source column onto either a new Linked field or an existing field
+   * (converted to Linked). Pass LINK_TARGET_NEW to insert/keep a dedicated field.
+   */
+  const setLinkedTarget = (source, column, currentLinked, targetRid) => {
+    if (!source || !column || !currentLinked) return;
+    const wantNew = !targetRid || targetRid === LINK_TARGET_NEW;
+    const cur = rows.find((r) => r.rid === currentLinked.rid);
+    if (!cur || cur.dataType !== 'linked') return;
+
+    if (wantNew) {
+      if (isDedicatedLinked(cur)) return;
+      setRows((prev) => {
+        let next = prev.map((r) => (r.rid === cur.rid ? revertFromLinked(r) : r));
+        if (!next.some((r) => r.dataType === 'linked' && r.linkedRid === source.rid && r.linkedColumn === column)) {
+          next = insertLinkedRow(source, column, next);
+        }
+        return next;
+      });
+      return;
+    }
+
+    if (targetRid === cur.rid) return;
+    const target = rows.find((r) => r.rid === targetRid);
+    if (!target || target.rid === source.rid) return;
+
+    if (isDedicatedLinked(cur) && cur.existingId) {
+      setRemovedIds((ids) => (ids.includes(cur.existingId) ? ids : [...ids, cur.existingId]));
+    }
+
+    setRows((prev) => {
+      let next = [...prev];
+      const liveCur = next.find((r) => r.rid === cur.rid);
+      if (!liveCur) return prev;
+
+      if (isDedicatedLinked(liveCur)) {
+        next = next.filter((r) => r.rid !== liveCur.rid);
+      } else {
+        next = next.map((r) => (r.rid === liveCur.rid ? revertFromLinked(r) : r));
+      }
+
+      return next.map((r) =>
+        r.rid === target.rid
+          ? {
+              ...r,
+              dataType: 'linked',
+              linkedRid: source.rid,
+              linkedColumn: column,
+              preLinkedSnapshot: snapshotBeforeLink(r),
+              lookupTable: '',
+              lookupColumn: '',
+              lookupDetail: '',
+              optionsSource: 'manual',
+            }
+          : r,
+      );
+    });
+  };
+
+  /** Tick / untick one column of a lookup field's table as a Linked value. */
+  const toggleLinked = (source, column) => {
+    const existing = rows.find((r) => r.dataType === 'linked' && r.linkedRid === source.rid && r.linkedColumn === column);
+    if (existing) {
+      if (!isDedicatedLinked(existing)) {
+        setRows((prev) => prev.map((r) => (r.rid === existing.rid ? revertFromLinked(r) : r)));
+        return;
+      }
+      removeLinked(existing);
+      return;
+    }
+    setRows((prev) => insertLinkedRow(source, column, prev));
   };
 
   // Pinned columns need real widths for their `left` offsets (fixed table layout stretches them).
@@ -1982,6 +2222,26 @@ export const BulkFieldsModal = ({
 
         {tab === 'fields' && (
         <div className="exams-bulk-toolbar">
+          <label className="exams-bulk-search">
+            <Search size={14} strokeWidth={2} aria-hidden="true" />
+            <input
+              type="search"
+              value={fieldSearch}
+              onChange={(e) => setFieldSearch(e.target.value)}
+              placeholder="Search fields…"
+              aria-label="Search fields by label, key, or type"
+            />
+            {fieldSearch ? (
+              <button
+                type="button"
+                className="exams-bulk-search-clear"
+                onClick={() => setFieldSearch('')}
+                aria-label="Clear search"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            ) : null}
+          </label>
           <span
             className="exams-bulk-tip"
             title={`Columns: Label · Key · Type · Options · Auto-fill · Width · Required${allowUnique ? ' · Unique' : ''}. Existing fields are listed first and can be edited in place; a new row's key fills in from its label.`}
@@ -2186,7 +2446,7 @@ export const BulkFieldsModal = ({
                     <button
                       type="button"
                       className="exams-bulk-info-btn"
-                      title="Aggregates each date’s Summary (Max Day N) only — not individual shifts or shift Max. Turn Summary on. Placed before all date columns."
+                      title="With Summary on: aggregates each date’s Summary (Max Day N). With Summary off: aggregates all shift cells across dates. Does not use shift Max columns. Placed before all date columns."
                       aria-label="About all-day column"
                     >
                       <Info size={13} />
@@ -2484,18 +2744,18 @@ export const BulkFieldsModal = ({
                       const colCount = Math.max(labels.length + (summaryOn ? 1 : 0), 1);
                       const sampleVals = (di) => labels.map((_, i) => 8 + ((di + i) % 3));
                       const summaryType = shiftDraft.summaryColumn?.type || 'max';
-                      // All day looks up Summary (Max Day N) only — not shifts / shift Max.
+                      // Summary on → All day from day Summaries; off → from all shift cells.
                       const daySummaryVals = summaryOn
                         ? days.map((_, di) =>
                             aggregateShiftValues(summaryType, sampleVals(di)),
                           )
                         : [];
-                      const allDaySample = summaryOn
-                        ? aggregateShiftValues(
-                            shiftDraft.allDayColumn?.type || 'max',
-                            daySummaryVals.filter((v) => typeof v === 'number'),
-                          )
-                        : '—';
+                      const allShiftVals = days.flatMap((_, di) => sampleVals(di));
+                      const allDaySourceVals = summaryOn ? daySummaryVals : allShiftVals;
+                      const allDaySample = aggregateShiftValues(
+                        shiftDraft.allDayColumn?.type || 'max',
+                        allDaySourceVals.filter((v) => typeof v === 'number'),
+                      );
                       const emptyDay = labels.length === 0 && !summaryOn;
                       const allDayColor = normalizeColumnColor(shiftDraft.allDayColumn?.color);
                       const summaryColor = normalizeColumnColor(shiftDraft.summaryColumn?.color);
@@ -2635,38 +2895,49 @@ export const BulkFieldsModal = ({
 
         {tab === 'deps' && (
           <div className="exams-bulk-body exams-bulk-deps">
-            <p className="exams-bulk-deps-intro">
-              A lookup field stores the row you pick from another table. Tick columns to also show them as read-only
-              fields that follow that row.
-            </p>
+            {(() => {
+              const phoneSources = sourceRows.filter((r) => r.dataType === 'phone');
+              const pickSources = sourceRows.filter((r) => r.dataType !== 'phone');
+              const phoneTables = new Set(phoneSources.map((r) => r.lookupTable).filter(Boolean));
 
-            {sourceRows.length === 0 && orphanRows.length === 0 && (
-              <div className="exams-bulk-deps-empty">
-                <Network size={22} aria-hidden="true" />
-                <strong>No lookup fields yet</strong>
-                <span>
-                  In the Fields tab, set a field’s <em>Options from</em> to <em>Table column</em> and choose a table and
-                  column. It will appear here.
-                </span>
-                <button type="button" className="exams-btn secondary compact" onClick={() => setTab('fields')}>
-                  Go to Fields
-                </button>
-              </div>
-            )}
-
-            <div className="exams-bulk-deps-grid">
-              {sourceRows.map((src) => {
+              const renderDepCard = (src, { phone } = {}) => {
                 const linkedOf = linkedRows.filter((l) => l.linkedRid === src.rid);
                 return (
-                  <section key={src.rid} className="exams-dep-card" aria-label={`Dependencies of ${src.label || 'field'}`}>
+                  <section
+                    key={src.rid}
+                    className={`exams-dep-card${phone ? ' is-phone-match' : ''}`}
+                    aria-label={`Dependencies of ${src.label || 'field'}`}
+                  >
                     <header className="exams-dep-head">
-                      <strong>{src.label.trim() || 'Untitled field'}</strong>
+                      <div className="exams-dep-head-main">
+                        <strong>{src.label.trim() || 'Untitled field'}</strong>
+                        {phone ? (
+                          <span className="exams-dep-mode">Phone match</span>
+                        ) : (
+                          <span className="exams-dep-mode is-pick">Row picker</span>
+                        )}
+                      </div>
                       <span className="exams-dep-source">
                         {tableLabelOf(src.lookupTable)} › {columnLabel(src.lookupTable, src.lookupColumn)}
                       </span>
                     </header>
 
-                    <span className="exams-dep-sub">Also show these columns</span>
+                    <p className="exams-dep-hint">
+                      {phone
+                        ? `Type a number in “${src.label.trim() || 'this field'}”. If it matches one ${tableLabelOf(src.lookupTable)} row on ${columnLabel(src.lookupTable, src.lookupColumn)}, tick columns below. For each, choose Use existing (your field) or Insert new.`
+                        : `User picks a ${tableLabelOf(src.lookupTable)} row here. Tick columns, then choose Use existing or Insert new for each.`}
+                    </p>
+
+                    {!phone && phoneTables.has(src.lookupTable) && (
+                      <p className="exams-dep-hint is-warn">
+                        Same table as a phone match above. If this should fill from the phone number, clear Table/Column
+                        on this field in Fields, then tick the column under the phone card instead.
+                      </p>
+                    )}
+
+                    <span className="exams-dep-sub">
+                      {phone ? 'Auto-fill these columns (locked)' : 'Also show these columns'}
+                    </span>
                     <div className="exams-dep-chips" role="group" aria-label="Columns to show">
                       {columnsOf(src.lookupTable)
                         .filter((c) => c.key !== src.lookupColumn)
@@ -2688,69 +2959,172 @@ export const BulkFieldsModal = ({
 
                     {linkedOf.length > 0 && (
                       <ul className="exams-dep-list">
-                        {linkedOf.map((l) => (
-                          <li key={l.rid} className="exams-dep-item">
-                            <CornerDownRight size={14} aria-hidden="true" />
-                            <input
-                              type="text"
-                              value={l.label}
-                              onChange={(e) => update(l.rid, { label: e.target.value })}
-                              aria-label={`Name of the field showing ${columnLabel(src.lookupTable, l.linkedColumn)}`}
-                              className={cellError(rows.indexOf(l), 'label') ? 'invalid' : ''}
-                            />
-                            <span className="exams-dep-col">shows {columnLabel(src.lookupTable, l.linkedColumn)}</span>
-                            <button
-                              type="button"
-                              className="exams-bulk-remove"
-                              onClick={() => removeLinked(l)}
-                              aria-label={`Remove ${l.label || 'linked value'}`}
-                              title="Remove this linked value"
+                        {linkedOf.map((l) => {
+                          const colName = columnLabel(src.lookupTable, l.linkedColumn);
+                          const dedicated = isDedicatedLinked(l);
+                          const targetValue = dedicated ? LINK_TARGET_NEW : l.rid;
+                          const targetOptions = [
+                            { value: LINK_TARGET_NEW, label: '＋ Insert new field' },
+                            ...eligibleLinkTargets(src, l).map((r) => ({
+                              value: r.rid,
+                              label: `Use existing · ${r.label.trim() || r.key || 'Untitled'}`,
+                            })),
+                          ];
+                          // Keep current selection visible even if filters would hide it.
+                          if (!dedicated && !targetOptions.some((o) => o.value === l.rid)) {
+                            targetOptions.splice(1, 0, {
+                              value: l.rid,
+                              label: `Use existing · ${l.label.trim() || l.key || 'Untitled'}`,
+                            });
+                          }
+                          return (
+                            <li
+                              key={l.rid}
+                              className={`exams-dep-item exams-dep-item-map${dedicated ? '' : ' is-existing'}`}
                             >
-                              <Trash2 size={14} />
-                            </button>
-                          </li>
-                        ))}
+                              <CornerDownRight size={14} aria-hidden="true" />
+                              <SearchableSelect
+                                className="exams-bulk-select exams-dep-target"
+                                portal
+                                value={targetValue}
+                                options={targetOptions}
+                                searchThreshold={6}
+                                ariaLabel={`Field that shows ${colName}`}
+                                onChange={(next) => setLinkedTarget(src, l.linkedColumn, l, next)}
+                              />
+                              {dedicated ? (
+                                <input
+                                  type="text"
+                                  value={l.label}
+                                  onChange={(e) => update(l.rid, { label: e.target.value })}
+                                  aria-label={`Name of the new field showing ${colName}`}
+                                  className={cellError(rows.indexOf(l), 'label') ? 'invalid' : ''}
+                                  placeholder="New field name"
+                                />
+                              ) : null}
+                              <span className="exams-dep-col">shows {colName}</span>
+                              <button
+                                type="button"
+                                className="exams-bulk-remove"
+                                onClick={() => {
+                                  if (!dedicated) {
+                                    setRows((prev) => prev.map((r) => (r.rid === l.rid ? revertFromLinked(r) : r)));
+                                    return;
+                                  }
+                                  removeLinked(l);
+                                }}
+                                aria-label={`Remove ${l.label || 'linked value'}`}
+                                title="Remove this mapping"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </section>
                 );
-              })}
+              };
 
-              {orphanRows.length > 0 && (
-                <section className="exams-dep-card exams-dep-warn" aria-label="Linked values that need attention">
-                  <header className="exams-dep-head">
-                    <strong>Needs attention</strong>
-                    <span className="exams-dep-source">Their lookup field is missing</span>
-                  </header>
-                  <ul className="exams-dep-list">
-                    {orphanRows.map((l) => (
-                      <li key={l.rid} className="exams-dep-item exams-dep-item-stack">
-                        <span className="exams-dep-orphan-name">{l.label || 'Linked value'}</span>
-                        <SearchableSelect
-                          className="exams-bulk-select"
-                          portal
-                          value=""
-                          options={sourceRows.map((r) => ({ value: r.rid, label: r.label.trim() || r.key || 'Untitled field' }))}
-                          placeholder="Move to field…"
-                          searchThreshold={8}
-                          disabled={sourceRows.length === 0}
-                          ariaLabel={`Move ${l.label || 'linked value'} to another lookup field`}
-                          onChange={(next) => update(l.rid, { linkedRid: next, linkedColumn: '' })}
-                        />
-                        <button type="button" className="exams-bulk-remove" onClick={() => removeLinked(l)} aria-label={`Remove ${l.label || 'linked value'}`}>
-                          <Trash2 size={14} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </div>
+              return (
+                <>
+                  <p className="exams-bulk-deps-intro">
+                    Two kinds of links: <strong>Phone match</strong> (type a number → fill locked fields) and{' '}
+                    <strong>Row picker</strong> (search and pick a row). Tick columns on the card you actually use.
+                  </p>
+
+                  {sourceRows.length === 0 && orphanRows.length === 0 && (
+                    <div className="exams-bulk-deps-empty">
+                      <Network size={22} aria-hidden="true" />
+                      <strong>No lookup fields yet</strong>
+                      <span>
+                        For phone auto-fill: in Fields set the Phone field’s Table + match Column (e.g. SeqView ›
+                        Mobile). It appears here so you can tick Name, Status, etc.
+                      </span>
+                      <button type="button" className="exams-btn secondary compact" onClick={() => setTab('fields')}>
+                        Go to Fields
+                      </button>
+                    </div>
+                  )}
+
+                  {phoneSources.length > 0 && (
+                    <div className="exams-bulk-deps-group">
+                      <h3 className="exams-bulk-deps-group-title">Phone match</h3>
+                      <div className="exams-bulk-deps-grid">
+                        {phoneSources.map((src) => renderDepCard(src, { phone: true }))}
+                      </div>
+                    </div>
+                  )}
+
+                  {pickSources.length > 0 && (
+                    <div className="exams-bulk-deps-group">
+                      <h3 className="exams-bulk-deps-group-title">Row pickers</h3>
+                      <p className="exams-bulk-deps-group-hint">
+                        These fields open a search list. They are not filled by typing a phone number.
+                      </p>
+                      <div className="exams-bulk-deps-grid">
+                        {pickSources.map((src) => renderDepCard(src, { phone: false }))}
+                      </div>
+                    </div>
+                  )}
+
+                  {orphanRows.length > 0 && (
+                    <div className="exams-bulk-deps-grid">
+                      <section className="exams-dep-card exams-dep-warn" aria-label="Linked values that need attention">
+                        <header className="exams-dep-head">
+                          <strong>Needs attention</strong>
+                          <span className="exams-dep-source">Their lookup field is missing</span>
+                        </header>
+                        <ul className="exams-dep-list">
+                          {orphanRows.map((l) => (
+                            <li key={l.rid} className="exams-dep-item exams-dep-item-stack">
+                              <span className="exams-dep-orphan-name">{l.label || 'Linked value'}</span>
+                              <SearchableSelect
+                                className="exams-bulk-select"
+                                portal
+                                value=""
+                                options={sourceRows.map((r) => ({
+                                  value: r.rid,
+                                  label: r.label.trim() || r.key || 'Untitled field',
+                                }))}
+                                placeholder="Move to field…"
+                                searchThreshold={8}
+                                disabled={sourceRows.length === 0}
+                                ariaLabel={`Move ${l.label || 'linked value'} to another lookup field`}
+                                onChange={(next) => update(l.rid, { linkedRid: next, linkedColumn: '' })}
+                              />
+                              <button
+                                type="button"
+                                className="exams-bulk-remove"
+                                onClick={() => removeLinked(l)}
+                                aria-label={`Remove ${l.label || 'linked value'}`}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 
         {tab === 'fields' && (
-        <div className="exams-bulk-body" ref={bodyRef} onScroll={() => tip && setTip(null)}>
+        <div
+          className="exams-bulk-body"
+          ref={bodyRef}
+          onScroll={() => tip && setTip(null)}
+          onDragOver={(e) => {
+            if (!isFieldDraggingRef.current) return;
+            e.preventDefault();
+            noteFieldDragPointer(e.clientY);
+          }}
+        >
           <table
             ref={tableRef}
             className="exams-bulk-table"
@@ -2828,7 +3202,16 @@ export const BulkFieldsModal = ({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {visibleFieldRows.length === 0 ? (
+                <tr className="exams-bulk-empty-search">
+                  <td colSpan={14}>
+                    {fieldSearchQ
+                      ? `No fields match “${fieldSearch.trim()}”.`
+                      : 'No fields yet.'}
+                  </td>
+                </tr>
+              ) : null}
+              {visibleFieldRows.map(({ row, i }) => {
                 const needsOptions = OPTIONS_FIELD_TYPES.has(row.dataType);
                 const isPhone = row.dataType === 'phone';
                 const isLast = i === rows.length - 1;
@@ -2840,11 +3223,14 @@ export const BulkFieldsModal = ({
                     onDragOver={(e) => {
                       if (!dragRid) return;
                       e.preventDefault();
+                      noteFieldDragPointer(e.clientY);
                       if (dragOverRid !== row.rid) setDragOverRid(row.rid);
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
                       moveRow(dragRid, row.rid);
+                      isFieldDraggingRef.current = false;
+                      stopFieldDragAutoScroll();
                       setDragRid(null);
                       setDragOverRid(null);
                     }}
@@ -2858,9 +3244,13 @@ export const BulkFieldsModal = ({
                         onDragStart={(e) => {
                           e.dataTransfer.effectAllowed = 'move';
                           e.dataTransfer.setData('text/plain', row.rid);
+                          isFieldDraggingRef.current = true;
+                          noteFieldDragPointer(e.clientY);
                           setDragRid(row.rid);
                         }}
                         onDragEnd={() => {
+                          isFieldDraggingRef.current = false;
+                          stopFieldDragAutoScroll();
                           setDragRid(null);
                           setDragOverRid(null);
                         }}
@@ -3103,6 +3493,13 @@ export const BulkFieldsModal = ({
                         <span className="exams-bulk-static-chip" title="Expression goes in the Options column">
                           Formula
                         </span>
+                      ) : isPhone ? (
+                        <span
+                          className="exams-bulk-static-chip"
+                          title="Exact-match a source table by this phone number, then fill Linked values from Dependencies"
+                        >
+                          Phone match
+                        </span>
                       ) : needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions ? (
                         <SearchableSelect
                           className="exams-bulk-select"
@@ -3118,24 +3515,37 @@ export const BulkFieldsModal = ({
                       )}
                     </td>
                     <td data-label="Table">
-                      {needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions && effectiveSource(row) === 'table' ? (
+                      {isPhone ||
+                      (needsOptions &&
+                        CHOICE_FIELD_TYPES.has(row.dataType) &&
+                        !row.lockOptions &&
+                        effectiveSource(row) === 'table') ? (
                         <SearchableSelect
                           className="exams-bulk-select"
                           portal
                           value={row.lookupTable}
-                          options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
+                          options={[
+                            ...(isPhone ? [{ value: '', label: 'No lookup' }] : []),
+                            ...lookupSources.map((t) => ({ value: t.table, label: t.label })),
+                          ]}
                           placeholder={lookupSources.length ? 'Select table…' : 'No tables'}
                           searchThreshold={8}
                           disabled={lookupSources.length === 0}
                           ariaLabel={`Row ${i + 1} source table`}
-                          onChange={(next) => update(row.rid, { lookupTable: next, lookupColumn: '', lookupDetail: '' })}
+                          onChange={(next) =>
+                            update(row.rid, { lookupTable: next, lookupColumn: '', lookupDetail: '' })
+                          }
                         />
                       ) : (
                         <input type="text" disabled placeholder="—" aria-hidden="true" tabIndex={-1} />
                       )}
                     </td>
                     <td data-label="Column">
-                      {needsOptions && CHOICE_FIELD_TYPES.has(row.dataType) && !row.lockOptions && effectiveSource(row) === 'table' ? (
+                      {isPhone ||
+                      (needsOptions &&
+                        CHOICE_FIELD_TYPES.has(row.dataType) &&
+                        !row.lockOptions &&
+                        effectiveSource(row) === 'table') ? (
                         <SearchableSelect
                           className="exams-bulk-select"
                           portal
@@ -3144,7 +3554,13 @@ export const BulkFieldsModal = ({
                             value: c.key,
                             label: c.label,
                           }))}
-                          placeholder={row.lookupTable ? 'Select column…' : '—'}
+                          placeholder={
+                            row.lookupTable
+                              ? isPhone
+                                ? 'Match column…'
+                                : 'Select column…'
+                              : '—'
+                          }
                           searchPlaceholder="Search columns…"
                           searchThreshold={6}
                           disabled={!row.lookupTable}
@@ -3191,6 +3607,20 @@ export const BulkFieldsModal = ({
                         <>
                           <input type="text" disabled placeholder="Read from the table" aria-hidden="true" tabIndex={-1} />
                           {cellError(i, 'optionsText') && <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>}
+                        </>
+                      ) : isPhone && row.lookupTable ? (
+                        <>
+                          <button
+                            type="button"
+                            className={`exams-bulk-dep-link${cellError(i, 'optionsText') ? ' invalid' : ''}`}
+                            onClick={() => setTab('deps')}
+                            title="Choose which columns to auto-fill in Dependencies"
+                          >
+                            Auto-fill in Dependencies
+                          </button>
+                          {cellError(i, 'optionsText') && (
+                            <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>
+                          )}
                         </>
                       ) : needsOptions && !row.lockOptions && effectiveSource(row) === 'userTags' ? (
                         <TagPickCellButton
@@ -3352,7 +3782,9 @@ export const BulkFieldsModal = ({
                 }${allDayOn ? ` · ${allDayHeader}` : ''}${
                   summaryOn ? ` · ${summaryHeader}` : ''
                 }${dateShiftsDirty ? ' · unsaved' : ''}`
-              : `${rows.length} rows · `}
+              : fieldSearchQ
+                ? `${visibleFieldRows.length} of ${rows.length} rows · `
+                : `${rows.length} rows · `}
             {tab !== 'dateShifts' &&
               (errorCount ? (
                 <>
@@ -3424,6 +3856,7 @@ export const BulkFieldsModal = ({
           examId={canImportFromExam ? examId : null}
           currentView={currentView}
           presetSources={canImportFromPreset ? presetSources : null}
+          initialPresetId={initialImportPresetId}
           existingUniqueRowKeys={pendingUniqueRowKeys || uniqueRowKeys}
           existingUniqueRowAggregates={
             pendingUniqueRowAggregates || uniqueRowAggregates

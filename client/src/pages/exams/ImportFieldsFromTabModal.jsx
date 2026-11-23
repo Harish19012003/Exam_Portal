@@ -252,6 +252,8 @@ export const ImportFieldsFromTabModal = ({
   currentFields = [],
   /** Other presets to import from (Settings → Field presets). */
   presetSources = null,
+  /** Prefill source preset when opened from the rail dropdown. */
+  initialPresetId = '',
   /** Existing unique-import config so the user can re-edit it. */
   existingUniqueRowKeys = null,
   existingUniqueRowAggregates = null,
@@ -318,7 +320,12 @@ export const ImportFieldsFromTabModal = ({
     if (seededOpenRef.current) return undefined;
     seededOpenRef.current = true;
     setSourceView(firstTabKey);
-    setSourcePresetId(presetSourcesRef.current?.[0]?.id || '');
+    {
+      const list = presetSourcesRef.current || [];
+      const wanted = String(initialPresetId || '').trim();
+      const hit = wanted && list.find((p) => String(p.id) === wanted);
+      setSourcePresetId(hit ? String(hit.id) : list[0]?.id || '');
+    }
     setCombineMode(false);
     setCombineLabel('');
     setCombineSeparator(DEFAULT_COMBINE_SEPARATOR);

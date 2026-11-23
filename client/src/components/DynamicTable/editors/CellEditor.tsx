@@ -1,6 +1,7 @@
 import type { CellEditorProps } from '../types';
 import { isCompositeColumn, isFieldColumn } from '../types';
 import { TextEditor } from './TextEditor';
+import { PhoneEditor } from './PhoneEditor';
 import { NumberEditor } from './NumberEditor';
 import { DropdownEditor } from './DropdownEditor';
 import { MultiSelectDropdownEditor } from './MultiSelectDropdownEditor';
@@ -25,6 +26,11 @@ export function CellEditor(props: CellEditorProps) {
   // Assign people filtered by the field's user tags (stores user id[]).
   if (isFieldColumn(column) && column.userTags) {
     return <UserAssigneeEditor {...props} />;
+  }
+
+  // Phone with table match still uses PhoneEditor (type + exact match), not the search picker.
+  if (isFieldColumn(column) && column.dataType === 'phone') {
+    return <PhoneEditor {...props} />;
   }
 
   // A column that reads its choices from another table is edited by searching that table.
@@ -60,7 +66,6 @@ export function CellEditor(props: CellEditorProps) {
     case 'attachment':
       return <AttachmentEditor {...props} />;
     case 'email':
-    case 'phone':
     default:
       return <TextEditor {...props} />;
   }

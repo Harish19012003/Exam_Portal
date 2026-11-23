@@ -83,6 +83,19 @@ export const updateExamRow = async (examId, rowId, values, view = DEFAULT_EXAM_V
     }),
   );
 
+/** Batch update multiple rows with individual value patches in one HTTP call. */
+export const updateExamRowsBulkIndividual = async (
+  examId,
+  patches,
+  view = DEFAULT_EXAM_VIEW,
+) =>
+  unwrap(
+    await apiClient.post(`${base(examId)}/rows/bulk-patch`, {
+      patches,
+      ...withView(view),
+    }),
+  );
+
 /**
  * Mass Edit against the database.
  * - `{ all: true, values }` → every row in the exam table
@@ -113,8 +126,37 @@ export const bulkUpdateExamRows = async (
     }),
   );
 
-export const deleteExamRows = async (examId, ids) =>
-  unwrap(await apiClient.post(`${base(examId)}/rows/delete`, { ids }));
+/**
+ * Delete rows.
+ * - `deleteExamRows(examId, ids)` → those ids
+ * - `deleteExamRows(examId, { all: true, view })` → entire table for that view (one DB wipe)
+ * - `deleteExamRows(examId, { ids, view })` → those ids
+ */
+export const deleteExamRows = async (examId, idsOrOpts) => {
+  if (idsOrOpts && !Array.isArray(idsOrOpts) && typeof idsOrOpts === 'object') {
+    const { ids, all = false, view } = idsOrOpts;
+    return unwrap(
+      await apiClient.post(`${base(examId)}/rows/delete`, {
+        ...(Array.isArray(ids) ? { ids } : {}),
+        all: Boolean(all),
+        ...withView(view),
+      }),
+    );
+  }
+  return unwrap(await apiClient.post(`${base(examId)}/rows/delete`, { ids: idsOrOpts }));
+};
+
+/** Expand / soft-hide Op/Guard Calling rows (chunked — pass centerOffset/centerLimit for progress). */
+export const syncCallingRows = async (
+  examId,
+  { centerOffset = 0, centerLimit = 200 } = {},
+) =>
+  unwrap(
+    await apiClient.post(`${base(examId)}/rows/sync-calling`, {
+      centerOffset,
+      centerLimit,
+    }),
+  );
 
 /** Server validation message if present, else a generic fallback. */
 export const apiErrorMessage = (error, fallback) =>
