@@ -230,7 +230,7 @@ const emptyDropdownForm = () => ({
   options: [makeOption(), makeOption()],
 });
 
-export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
+export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null }) => {
   const [isWide, setIsWide] = useState(() => window.matchMedia('(min-width: 769px)').matches);
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 769px)');
@@ -242,6 +242,9 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
   const formId = useId();
   const [activeSection, setActiveSection] = useUrlState('section', 'dropdowns', SECTIONS.map((s) => s.id));
   const patchUrl = useUrlParamsPatch();
+  // Field presets → Edit / New is a full page: hide the section tabs and toolbar while it is open.
+  const [presetEditParam] = useUrlState('edit', '');
+  const isPresetEditor = activeSection === 'presets' && Boolean(presetEditParam);
   const selectSection = (sectionId) => {
     if (sectionId === activeSection) return;
     // Leaving Field presets: drop its filter params so the URL matches the active section.
@@ -252,6 +255,8 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
         psvc: '',
         pview: '',
         psort: '',
+        edit: '',
+        fg: '',
       });
       return;
     }
@@ -756,7 +761,7 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
 
   return (
     <div className="config-tab">
-      {inHeader ? (
+      {isPresetEditor ? null : inHeader ? (
         <>
           {createPortal(sectionTabs, tabsSlot)}
           {createPortal(<div className="config-icon-actions">{toolbarActions}</div>, actionsSlot)}
@@ -768,7 +773,10 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
         </div>
       )}
 
-      <div className="config-section-panel" role="tabpanel">
+      <div
+        className={`config-section-panel${isPresetEditor ? ' config-section-panel--page' : ''}`}
+        role="tabpanel"
+      >
         {activeSection === 'dropdowns' && (
           <BoneSkeleton name="settings-config-dropdowns" loading={listsLoading} fallback={<CardGridSkeleton count={6} />}>
             {listsLoading ? null : (
@@ -863,6 +871,8 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null }) => {
             importTick={presetImportTick}
             exportTick={presetExportTick}
             onPresetCountChange={setPresetCount}
+            // Wide screens: the preset editor's Back button / title join the "Config" title row.
+            headerSlots={isWide && leadSlot && tabsSlot ? { lead: leadSlot, title: tabsSlot } : null}
           />
         )}
       </div>

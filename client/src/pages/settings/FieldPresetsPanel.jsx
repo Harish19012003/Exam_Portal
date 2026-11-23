@@ -1,5 +1,5 @@
 import { useConfirm } from '../../feedback';
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   FileUp,
@@ -13,43 +13,26 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import {
-  CALLING_EXPAND_MODES,
-  CALLING_LABEL_MODES,
-  DEFAULT_EXAM_VIEW,
-  EXAM_VIEWS,
-  OPERATOR_GUARD_CALLING_VIEW,
-  emptyCallingLabelCategory,
-  examViewLabel,
-  isExamViewKey,
-  normalizeCallingExpand,
-  normalizeCallingLabel,
-} from '@exam-view/shared';
+import { DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel, isExamViewKey } from '@exam-view/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { BoneSkeleton } from '../../components/ui/BoneSkeleton';
 import { CardGridSkeleton } from '../../components/ui/SettingsSkeletons';
 import { useUrlParamsPatch, useUrlState } from '../../hooks/useUrlState';
-import { InfoTip } from '../../components/PageHeading';
-import { ExamFieldBuilder } from '../exams/ExamFieldBuilder';
 import { SearchableSelect } from '../exams/SearchableSelect';
-import { loadExamFields, resolveFieldOptions } from '../exams/examFieldTypes';
+import { resolveFieldOptions } from '../exams/examFieldTypes';
 import {
   bulkSaveExamPresets,
-  createExamPreset,
   deleteExamPreset,
   listExamPresets,
-  updateExamPreset,
 } from '../exams/examPresetApi';
-import { ensureFocusDateFields } from '../exams/dateShiftsConfig';
-import { focusDateTargetsFromAggregates } from '../exams/examUniqueRows';
 import { apiErrorMessage } from '../exams/examTableApi';
+import { FieldPresetEditorPage } from './FieldPresetEditorPage';
 import './FieldPresetsPanel.css';
 
 // SearchableSelect ignores empty option values, so "All" uses a sentinel.
 const ALL_VALUE = '__all__';
-const NONE_VALUE = '__none__';
 const SORT_OPTIONS = [
   { value: 'default', label: 'Sort: Default' },
   { value: 'name-asc', label: 'Name (A → Z)' },
@@ -61,18 +44,6 @@ const SORT_OPTIONS = [
   { value: 'fields-asc', label: 'Fewest fields' },
   { value: 'service-asc', label: 'Service (A → Z)' },
 ];
-
-const emptyForm = () => ({
-  id: null,
-  name: '',
-  serviceValue: '',
-  view: DEFAULT_EXAM_VIEW,
-  fields: [],
-  features: {},
-});
-
-const pairKey = (serviceValue, view) =>
-  `${String(serviceValue || '').trim().toLowerCase()}::${String(view || DEFAULT_EXAM_VIEW)}`;
 
 const NO_PRESETS = [];
 const SORT_KEYS = ['default', 'name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'fields-desc', 'fields-asc', 'service-asc'];
@@ -155,9 +126,9 @@ export const FieldPresetsPanel = ({
   importTick = 0,
   exportTick = 0,
   onPresetCountChange,
+  headerSlots = null,
 }) => {
   const confirm = useConfirm();
-  const formId = useId();
   const importFileRef = useRef(null);
   const queryClient = useQueryClient();
   // Shared with the Exam explore page, so presets load once and both pages reuse the cache.
@@ -167,9 +138,6 @@ export const FieldPresetsPanel = ({
   const [actionError, setActionError] = useState('');
   const loadError = actionError || (presetsQuery.error ? apiErrorMessage(presetsQuery.error, 'Could not load presets') : '');
   const [serviceOptions, setServiceOptions] = useState([]);
-  const [form, setForm] = useState(null); // null = editor closed
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useUrlState('pq', '');
   const [serviceFilter, setServiceFilter] = useUrlState('psvc', '');
   const [viewFilter, setViewFilter] = useUrlState('pview', '');
@@ -193,10 +161,10 @@ export const FieldPresetsPanel = ({
     onPresetCountChange?.(presets.length);
   }, [presets.length, onPresetCountChange]);
 
-  const openCreate = useCallback(() => {
-    setForm(emptyForm());
-    setFormError('');
-  }, []);
+  // Edit / New open a full page (?edit=<id|new>), pushed to history so browser Back returns here.
+  const [editParam] = useUrlState('edit', '');
+  const openCreate = useCallback(() => patchUrl({ edit: 'new', fg: '' }, { replace: false }), [patchUrl]);
+  const closeEditorPage = useCallback(() => patchUrl({ edit: '', fg: '' }), [patchUrl]);
 
   const openImport = useCallback(() => {
     setImportText('');
@@ -240,77 +208,31 @@ export const FieldPresetsPanel = ({
     downloadPresetsJson([preset], `field-preset-${name}-${view}-${stamp}.json`);
   };
 
+  // Toolbar ticks: act once per click. The handlers change identity on every URL change
+  // (setSearchParams) or preset refetch, so without these refs Back from "New preset"
+  // re-opened it and Export re-downloaded. Initialised to the mount value so a remount
+  // doesn't replay an old click.
+  const handledTicks = useRef({ create: createTick, import: importTick, export: exportTick });
+
   useEffect(() => {
-    if (createTick > 0) openCreate();
+    if (createTick === handledTicks.current.create) return;
+    handledTicks.current.create = createTick;
+    openCreate();
   }, [createTick, openCreate]);
 
   useEffect(() => {
-    if (importTick > 0) openImport();
+    if (importTick === handledTicks.current.import) return;
+    handledTicks.current.import = importTick;
+    openImport();
   }, [importTick, openImport]);
 
   useEffect(() => {
-    if (exportTick > 0) handleExport();
+    if (exportTick === handledTicks.current.export) return;
+    handledTicks.current.export = exportTick;
+    handleExport();
   }, [exportTick, handleExport]);
 
-  const openEdit = (preset) => {
-    const features =
-      preset.features != null && typeof preset.features === 'object' && !Array.isArray(preset.features)
-        ? { ...preset.features }
-        : {};
-    const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
-      features.uniqueRowAggregates,
-    );
-    const { fields: nextFields } = ensureFocusDateFields(preset.fields || [], {
-      countTargetKey,
-      sumTargetKey,
-    });
-    setForm({
-      id: preset.id,
-      name: preset.name,
-      serviceValue: preset.serviceValue,
-      view: preset.view || DEFAULT_EXAM_VIEW,
-      fields: nextFields,
-      features,
-    });
-    setFormError('');
-  };
-
-  const closeEditor = () => {
-    setForm(null);
-    setFormError('');
-  };
-
-  const patchForm = (patch) => {
-    setForm((prev) => ({ ...prev, ...patch }));
-    if (formError) setFormError('');
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) return setFormError('Preset name is required.');
-    if (!form.serviceValue.trim()) return setFormError('Choose the service this preset is for.');
-    if (!form.view) return setFormError('Choose the exam page this preset is for.');
-    setSaving(true);
-    try {
-      const payload = {
-        name: form.name,
-        serviceValue: form.serviceValue,
-        view: form.view,
-        fields: form.fields,
-        features:
-          form.features != null && typeof form.features === 'object' && !Array.isArray(form.features)
-            ? form.features
-            : {},
-      };
-      if (form.id) await updateExamPreset(form.id, payload);
-      else await createExamPreset(payload);
-      closeEditor();
-      await load();
-    } catch (err) {
-      setFormError(apiErrorMessage(err, 'Could not save the preset'));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openEdit = (preset) => patchUrl({ edit: preset.id, fg: '' }, { replace: false });
 
   const handleDelete = async (preset) => {
     const ok = await confirm({
@@ -362,16 +284,6 @@ export const FieldPresetsPanel = ({
     }
   };
 
-  // One preset per (service, page). Same service can have presets on other pages.
-  const usedPairs = new Set(
-    presets.filter((p) => p.id !== form?.id).map((p) => pairKey(p.serviceValue, p.view || DEFAULT_EXAM_VIEW)),
-  );
-  const serviceChoices = serviceOptions.filter((o) => {
-    if (!form?.view) return true;
-    return !usedPairs.has(pairKey(o, form.view));
-  });
-  const hasCurrentInChoices = !form?.serviceValue || serviceChoices.includes(form.serviceValue);
-
   const missingCenterList = serviceOptions.filter(
     (o) => !presets.some(
       (p) => p.serviceValue.toLowerCase() === String(o).toLowerCase()
@@ -413,6 +325,21 @@ export const FieldPresetsPanel = ({
     // One URL write — three separate setSearchParams calls can leave stale params behind.
     patchUrl({ pq: '', psvc: '', pview: '' });
   };
+
+  if (editParam) {
+    return (
+      <FieldPresetEditorPage
+        key={editParam}
+        presetId={editParam}
+        presets={presets}
+        presetsLoading={loading}
+        serviceOptions={serviceOptions}
+        onExit={closeEditorPage}
+        onSwitch={(id) => patchUrl({ edit: id, fg: '' })}
+        headerSlots={headerSlots}
+      />
+    );
+  }
 
   return (
     <div className="fpp">
@@ -550,510 +477,6 @@ export const FieldPresetsPanel = ({
           </span>
         </p>
       )}
-
-      <ExamFieldBuilder
-        open={Boolean(form)}
-        fields={form?.fields || []}
-        title={form?.id ? 'Edit preset' : 'New preset'}
-        subtitle={
-          form
-            ? [
-                `${form.fields.length} field${form.fields.length === 1 ? '' : 's'}`,
-                examViewLabel(form.view),
-                form.serviceValue || 'service',
-                Array.isArray(form.features?.uniqueRowKeys) && form.features.uniqueRowKeys.length
-                  ? `unique · ${form.features.uniqueRowKeys.join(' · ')}`
-                  : null,
-                form.view === OPERATOR_GUARD_CALLING_VIEW
-                  ? `expand · ${
-                      normalizeCallingExpand(form.features?.callingExpand).mode ===
-                      CALLING_EXPAND_MODES.PER_SHIFT
-                        ? 'per shift'
-                        : 'Max Day N'
-                    }`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : undefined
-        }
-        examSourceFields={loadExamFields()}
-        enableFromExam
-        currentView={form?.view}
-        presetSources={presets.filter((p) => p.id !== form?.id)}
-        currentServiceValue={form?.serviceValue || ''}
-        bulkWorkingContext={
-          form
-            ? [
-                'Field preset',
-                form.name?.trim() || null,
-                form.serviceValue?.trim() || null,
-                examViewLabel(form.view),
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : ''
-        }
-        onClose={() => !saving && closeEditor()}
-        onChange={(fields) => patchForm({ fields })}
-        // Center list presets: Bulk add → Date shifts (shift format for exams).
-        enableDateShifts={form?.view === DEFAULT_EXAM_VIEW}
-        dateShifts={form?.view === DEFAULT_EXAM_VIEW ? form?.features?.dateShifts || null : null}
-        onDateShiftsChange={
-          form?.view === DEFAULT_EXAM_VIEW
-            ? (dateShifts) =>
-                patchForm({
-                  features: {
-                    ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-                    dateShifts,
-                  },
-                })
-            : null
-        }
-        uniqueRowKeys={form?.features?.uniqueRowKeys}
-        uniqueRowAggregates={form?.features?.uniqueRowAggregates}
-        onUniqueImportChange={(payload) => {
-          const nextFeatures = {
-            ...(form?.features && typeof form.features === 'object' ? form.features : {}),
-            ...(payload?.uniqueRowKeys !== undefined
-              ? { uniqueRowKeys: payload.uniqueRowKeys }
-              : {}),
-            ...(payload?.uniqueRowAggregates !== undefined
-              ? { uniqueRowAggregates: payload.uniqueRowAggregates }
-              : {}),
-          };
-          const { countTargetKey, sumTargetKey } = focusDateTargetsFromAggregates(
-            nextFeatures.uniqueRowAggregates,
-          );
-          const { fields: nextFields, changed } = ensureFocusDateFields(form?.fields || [], {
-            countTargetKey,
-            sumTargetKey,
-          });
-          patchForm({
-            features: nextFeatures,
-            ...(changed ? { fields: nextFields } : {}),
-          });
-        }}
-        topSlot={
-          form && (
-            <div className="fpp-meta">
-              {formError && <div className="config-form-error" role="alert">{formError}</div>}
-
-              <div className="config-form-group">
-                <label htmlFor={`${formId}-name`}>Preset name</label>
-                <input
-                  id={`${formId}-name`}
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => patchForm({ name: e.target.value })}
-                  placeholder="e.g. Bio-Metric · Mock Day"
-                  maxLength={120}
-                  autoFocus
-                />
-              </div>
-
-              <div className="fpp-meta-row">
-                <div className="config-form-group">
-                  <div className="fpp-label-row">
-                    <label htmlFor={`${formId}-service`}>Service</label>
-                    <InfoTip label="About service and page" className="fpp-info">
-                      One preset per service and page. An exam only recommends the preset that matches both.
-                    </InfoTip>
-                  </div>
-                  {serviceOptions.length > 0 ? (
-                    <SearchableSelect
-                      id={`${formId}-service`}
-                      portal
-                      value={form.serviceValue || NONE_VALUE}
-                      onChange={(v) => patchForm({ serviceValue: v === NONE_VALUE ? '' : v })}
-                      options={[
-                        { value: NONE_VALUE, label: 'Select a service…' },
-                        ...(!hasCurrentInChoices && form.serviceValue ? [{ value: form.serviceValue, label: form.serviceValue }] : []),
-                        ...serviceChoices.map((o) => ({ value: o, label: o })),
-                      ]}
-                    />
-                  ) : (
-                    <input
-                      id={`${formId}-service`}
-                      type="text"
-                      value={form.serviceValue}
-                      onChange={(e) => patchForm({ serviceValue: e.target.value })}
-                      placeholder="Must match the exam's Service value"
-                      maxLength={191}
-                    />
-                  )}
-                </div>
-
-                <div className="config-form-group">
-                  <label htmlFor={`${formId}-view`}>Exam page</label>
-                  <SearchableSelect
-                    id={`${formId}-view`}
-                    portal
-                    value={form.view}
-                    onChange={(v) => patchForm({ view: v })}
-                    options={EXAM_VIEWS.map((v) => ({ value: v.key, label: v.label }))}
-                  />
-                </div>
-              </div>
-
-              {form.view === OPERATOR_GUARD_CALLING_VIEW && (() => {
-                const expand = normalizeCallingExpand(form.features?.callingExpand);
-                const label = normalizeCallingLabel(form.features?.callingLabel);
-                const patchCallingFeatures = (patch) => {
-                  const prev =
-                    form.features && typeof form.features === 'object' ? form.features : {};
-                  patchForm({
-                    features: {
-                      ...prev,
-                      ...patch,
-                    },
-                  });
-                };
-                const defaultFriskingCategories = () => [
-                  {
-                    ...emptyCallingLabelCategory(),
-                    id: 'male',
-                    matchLabel: 'Male',
-                    headCandidate: true,
-                    headLabel: 'H M Guard',
-                    itemPrefix: 'M Guard',
-                    priority: 10,
-                  },
-                  {
-                    ...emptyCallingLabelCategory(),
-                    id: 'female',
-                    matchLabel: 'Female',
-                    headCandidate: true,
-                    headLabel: 'H F Guard',
-                    itemPrefix: 'F Guard',
-                    priority: 20,
-                  },
-                  {
-                    ...emptyCallingLabelCategory(),
-                    id: 'baggage',
-                    matchLabel: 'Baggage',
-                    headCandidate: false,
-                    headLabel: '',
-                    itemPrefix: 'Baggage',
-                    priority: 30,
-                  },
-                ];
-                return (
-                  <div className="fpp-calling-features">
-                    <div className="config-form-group fpp-calling-expand">
-                      <div className="fpp-label-row">
-                        <label htmlFor={`${formId}-calling-expand`}>Expand by (from Center list)</label>
-                        <InfoTip label="About expand by" className="fpp-info">
-                          Sync creates/hides rows from Center list. Lowering counts hides rows — does
-                          not delete them.
-                        </InfoTip>
-                      </div>
-                      <SearchableSelect
-                        id={`${formId}-calling-expand`}
-                        portal
-                        value={
-                          label.mode === CALLING_LABEL_MODES.CATEGORY_HEAD
-                            ? CALLING_EXPAND_MODES.CATEGORY_COUNTS
-                            : expand.mode
-                        }
-                        onChange={(mode) => {
-                          let nextMode = CALLING_EXPAND_MODES.MAX_DAY_N;
-                          if (mode === CALLING_EXPAND_MODES.PER_SHIFT) {
-                            nextMode = CALLING_EXPAND_MODES.PER_SHIFT;
-                          } else if (mode === CALLING_EXPAND_MODES.CATEGORY_COUNTS) {
-                            nextMode = CALLING_EXPAND_MODES.CATEGORY_COUNTS;
-                          }
-                          patchCallingFeatures({
-                            callingExpand: { ...expand, mode: nextMode },
-                            ...(nextMode === CALLING_EXPAND_MODES.CATEGORY_COUNTS &&
-                            label.mode === CALLING_LABEL_MODES.NONE
-                              ? {
-                                  callingLabel: {
-                                    ...label,
-                                    mode: CALLING_LABEL_MODES.CATEGORY_HEAD,
-                                    categories:
-                                      label.categories.length > 0
-                                        ? label.categories
-                                        : defaultFriskingCategories(),
-                                  },
-                                }
-                              : {}),
-                          });
-                        }}
-                        options={[
-                          {
-                            value: CALLING_EXPAND_MODES.MAX_DAY_N,
-                            label: 'Max Day N slots (center × date × N)',
-                          },
-                          {
-                            value: CALLING_EXPAND_MODES.PER_SHIFT,
-                            label: 'Per shift (center × date × shift)',
-                          },
-                          {
-                            value: CALLING_EXPAND_MODES.CATEGORY_COUNTS,
-                            label: 'Category counts (Male + Female + Baggage…)',
-                          },
-                        ]}
-                      />
-                    </div>
-
-                    <div className="config-form-group">
-                      <label htmlFor={`${formId}-calling-label-mode`}>Row label rule</label>
-                      <SearchableSelect
-                        id={`${formId}-calling-label-mode`}
-                        portal
-                        value={label.mode}
-                        onChange={(mode) => {
-                          let nextMode = CALLING_LABEL_MODES.NONE;
-                          if (mode === CALLING_LABEL_MODES.FIRST_NUMBERED) {
-                            nextMode = CALLING_LABEL_MODES.FIRST_NUMBERED;
-                          } else if (mode === CALLING_LABEL_MODES.CATEGORY_HEAD) {
-                            nextMode = CALLING_LABEL_MODES.CATEGORY_HEAD;
-                          } else if (mode === CALLING_LABEL_MODES.CONSTANT) {
-                            nextMode = CALLING_LABEL_MODES.CONSTANT;
-                          }
-                          const nextLabel = {
-                            ...label,
-                            mode: nextMode,
-                            ...(nextMode === CALLING_LABEL_MODES.CATEGORY_HEAD &&
-                            !label.categories.length
-                              ? { categories: defaultFriskingCategories() }
-                              : {}),
-                          };
-                          patchCallingFeatures({
-                            callingLabel: nextLabel,
-                            ...(nextMode === CALLING_LABEL_MODES.CATEGORY_HEAD
-                              ? {
-                                  callingExpand: {
-                                    ...expand,
-                                    mode: CALLING_EXPAND_MODES.CATEGORY_COUNTS,
-                                  },
-                                }
-                              : {}),
-                          });
-                        }}
-                        options={[
-                          { value: CALLING_LABEL_MODES.NONE, label: 'None (manual labels)' },
-                          {
-                            value: CALLING_LABEL_MODES.FIRST_NUMBERED,
-                            label: 'First + numbered (Supervisor, Bio Opr 1…)',
-                          },
-                          {
-                            value: CALLING_LABEL_MODES.CATEGORY_HEAD,
-                            label: 'Category head (H M Guard / F Guard / Baggage…)',
-                          },
-                          {
-                            value: CALLING_LABEL_MODES.CONSTANT,
-                            label: 'Constant (same value on every row)',
-                          },
-                        ]}
-                      />
-                    </div>
-
-                    <div className="config-form-group">
-                      <div className="fpp-label-row">
-                        <label htmlFor={`${formId}-calling-label-key`}>Label column key</label>
-                        <InfoTip label="About label column key" className="fpp-info">
-                          Pick the Calling field that receives the generated row labels.
-                        </InfoTip>
-                      </div>
-                      <SearchableSelect
-                        id={`${formId}-calling-label-key`}
-                        portal
-                        value={label.targetKey || ''}
-                        placeholder="Select a field…"
-                        searchPlaceholder="Search by name or key…"
-                        onChange={(key) =>
-                          patchCallingFeatures({
-                            callingLabel: { ...label, targetKey: key },
-                          })
-                        }
-                        options={(() => {
-                          const opts = (form.fields || [])
-                            .filter((f) => f?.key)
-                            .map((f) => ({
-                              value: f.key,
-                              label: f.label && f.label !== f.key ? `${f.label} · ${f.key}` : f.key,
-                            }));
-                          // Keep a saved key selectable even if its field was removed from the preset.
-                          if (label.targetKey && !opts.some((o) => o.value === label.targetKey)) {
-                            opts.unshift({ value: label.targetKey, label: `${label.targetKey} (not in this preset)` });
-                          }
-                          return opts;
-                        })()}
-                      />
-                    </div>
-
-                    {label.mode === CALLING_LABEL_MODES.CONSTANT && (
-                      <div className="config-form-group">
-                        <label htmlFor={`${formId}-calling-constant`}>Constant value</label>
-                        <input
-                          id={`${formId}-calling-constant`}
-                          type="text"
-                          value={label.constantValue}
-                          onChange={(e) =>
-                            patchCallingFeatures({
-                              callingLabel: { ...label, constantValue: e.target.value },
-                            })
-                          }
-                          placeholder="e.g. abc"
-                          maxLength={120}
-                        />
-                      </div>
-                    )}
-
-                    {label.mode === CALLING_LABEL_MODES.FIRST_NUMBERED && (
-                      <div className="fpp-meta-row">
-                        <div className="config-form-group">
-                          <label htmlFor={`${formId}-calling-first`}>First row label</label>
-                          <input
-                            id={`${formId}-calling-first`}
-                            type="text"
-                            value={label.firstLabel}
-                            onChange={(e) =>
-                              patchCallingFeatures({
-                                callingLabel: { ...label, firstLabel: e.target.value },
-                              })
-                            }
-                            placeholder="Supervisor"
-                            maxLength={80}
-                          />
-                        </div>
-                        <div className="config-form-group">
-                          <label htmlFor={`${formId}-calling-rest`}>Rest prefix</label>
-                          <input
-                            id={`${formId}-calling-rest`}
-                            type="text"
-                            value={label.restPrefix}
-                            onChange={(e) =>
-                              patchCallingFeatures({
-                                callingLabel: { ...label, restPrefix: e.target.value },
-                              })
-                            }
-                            placeholder="Bio Opr"
-                            maxLength={80}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {label.mode === CALLING_LABEL_MODES.CATEGORY_HEAD && (
-                      <div className="fpp-calling-cats">
-                        <div className="fpp-calling-cats-head">
-                          <div className="fpp-label-row">
-                            <strong>Categories</strong>
-                            <InfoTip label="About categories" className="fpp-info">
-                              matchLabel should match Center list shift names (Male, Female,
-                              Baggage/Crowd). One head only — highest priority head-candidate with
-                              count &gt; 0.
-                            </InfoTip>
-                          </div>
-                          <button
-                            type="button"
-                            className="exams-btn secondary compact"
-                            onClick={() =>
-                              patchCallingFeatures({
-                                callingLabel: {
-                                  ...label,
-                                  categories: [
-                                    ...label.categories,
-                                    {
-                                      ...emptyCallingLabelCategory(),
-                                      id: `cat_${label.categories.length + 1}`,
-                                      priority: (label.categories.length + 1) * 10,
-                                    },
-                                  ],
-                                },
-                              })
-                            }
-                          >
-                            + Add
-                          </button>
-                        </div>
-                        {label.categories.map((cat, idx) => (
-                          <div key={cat.id || idx} className="fpp-calling-cat-row">
-                            <input
-                              type="text"
-                              aria-label="Match Center shift label"
-                              value={cat.matchLabel}
-                              placeholder="Male"
-                              onChange={(e) => {
-                                const categories = label.categories.map((c, i) =>
-                                  i === idx ? { ...c, matchLabel: e.target.value } : c,
-                                );
-                                patchCallingFeatures({ callingLabel: { ...label, categories } });
-                              }}
-                            />
-                            <input
-                              type="text"
-                              aria-label="Head label"
-                              value={cat.headLabel}
-                              placeholder="H M Guard"
-                              disabled={!cat.headCandidate}
-                              onChange={(e) => {
-                                const categories = label.categories.map((c, i) =>
-                                  i === idx ? { ...c, headLabel: e.target.value } : c,
-                                );
-                                patchCallingFeatures({ callingLabel: { ...label, categories } });
-                              }}
-                            />
-                            <input
-                              type="text"
-                              aria-label="Item prefix"
-                              value={cat.itemPrefix}
-                              placeholder="M Guard"
-                              onChange={(e) => {
-                                const categories = label.categories.map((c, i) =>
-                                  i === idx ? { ...c, itemPrefix: e.target.value } : c,
-                                );
-                                patchCallingFeatures({ callingLabel: { ...label, categories } });
-                              }}
-                            />
-                            <label className="fpp-calling-cat-head">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(cat.headCandidate)}
-                                onChange={(e) => {
-                                  const categories = label.categories.map((c, i) =>
-                                    i === idx ? { ...c, headCandidate: e.target.checked } : c,
-                                  );
-                                  patchCallingFeatures({ callingLabel: { ...label, categories } });
-                                }}
-                              />
-                              Head
-                            </label>
-                            <button
-                              type="button"
-                              className="exams-btn secondary compact"
-                              aria-label="Remove category"
-                              onClick={() => {
-                                const categories = label.categories.filter((_, i) => i !== idx);
-                                patchCallingFeatures({ callingLabel: { ...label, categories } });
-                              }}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          )
-        }
-        footer={
-          <>
-            <button type="button" className="exams-btn secondary compact" onClick={closeEditor} disabled={saving}>
-              Cancel
-            </button>
-            <button type="button" className="exams-btn primary compact" onClick={handleSave} disabled={saving}>
-              <span>{saving ? 'Saving…' : form?.id ? 'Save' : 'Create'}</span>
-            </button>
-          </>
-        }
-      />
 
       {isImportOpen && (
         <div className="config-modal-overlay" onClick={() => !importing && setIsImportOpen(false)}>

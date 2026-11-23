@@ -309,7 +309,8 @@
   width: 90px;
 }
 
-.sv-api-interval select {
+.sv-api-interval select,
+.sv-api-interval .sv-api-unit-dd {
   flex: 0 0 120px;
   width: 120px;
 }

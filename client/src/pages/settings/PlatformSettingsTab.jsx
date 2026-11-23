@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Building2,
   ImagePlus,
@@ -229,19 +230,16 @@ const GeneralSettings = ({ isDarkMode }) => {
             <span className="ps-card-icon"><Mail size={18} aria-hidden="true" /></span>
             <div>
               <h3 className="ps-card-title">Support contact</h3>
-              <p className="ps-card-desc">Where people should write when they need help. Leave empty to hide it.</p>
+              <p className="ps-card-desc">Email, phone, WhatsApp, hours, help links and FAQs now live in Settings → Support.</p>
             </div>
           </header>
-          <label className="ps-label" htmlFor="ps-support-email">Support email</label>
-          <input
-            id="ps-support-email"
-            className="ps-input"
-            type="email"
-            maxLength={120}
-            value={form.support_email}
-            onChange={(e) => set({ support_email: e.target.value })}
-            placeholder="support@example.com"
-          />
+          <p className="ps-support-current">
+            <span className="ps-label">Support email</span>
+            <span>{form.support_email || 'Not set'}</span>
+          </p>
+          <Link className="ps-btn ps-btn--ghost ps-support-link" to="/settings?tab=support">
+            Manage in Support settings
+          </Link>
         </section>
 
         <section className="ps-card">

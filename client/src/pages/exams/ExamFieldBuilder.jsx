@@ -1,6 +1,8 @@
 import { useConfirm } from '../../feedback';
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
+  ArrowLeft,
   Settings2,
   Plus,
   X,
@@ -30,6 +32,13 @@ import {
   ListPlus,
   Search,
   Copy,
+  LayoutGrid,
+  FileText,
+  GitBranch,
+  Database,
+  KeyRound,
+  Asterisk,
+  Wand2,
 } from 'lucide-react';
 import {
   EXAM_FIELD_TYPES,
@@ -52,6 +61,7 @@ import {
 import { TagMultiPicker } from './TagMultiPicker';
 import { examViewLabel, importedSourceLabel, isSharedImportedField, sourceNameInitials } from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
+import { FIELD_GROUP_ALL, FIELD_GROUP_DETAILS, buildFieldGroups } from './fieldGroups';
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
 import { SearchableSelect } from './SearchableSelect';
@@ -90,6 +100,25 @@ const TYPE_ICONS = {
   combined: Layers,
   linked: Link2,
   fromExam: Copy,
+};
+
+/** Icons for the page-mode rail groups (see fieldGroups.js `kind`). */
+const GROUP_ICONS = {
+  all: LayoutGrid,
+  own: FileText,
+  source: Link2,
+  dependency: GitBranch,
+  phone: Phone,
+  linked: Link2,
+  table: Database,
+  config: List,
+  tags: Tags,
+  exam: Copy,
+  formula: Sigma,
+  combined: Layers,
+  same: Wand2,
+  unique: KeyRound,
+  required: Asterisk,
 };
 
 /**
@@ -175,7 +204,19 @@ export const ExamFieldBuilder = ({
   enableDateShifts = null,
   /** Center-list–hidden shift ids — Exam Day checklist / Add missing skip those families. */
   hiddenExamDayShiftIds = null,
+  /**
+   * 'drawer' (default) = right-side overlay. 'page' = inline full-width editor for a dedicated
+   * page: no overlay / scroll lock, Escape never closes the host, footers become sticky bars.
+   */
+  variant = 'drawer',
+  /** Page mode: rail selection (controlled). FIELD_GROUP_DETAILS shows `topSlot`. */
+  activeGroup: activeGroupProp,
+  onActiveGroupChange,
+  /** Page mode: rail label + icon badge for the `topSlot` pane. */
+  detailsLabel = 'Details',
+  detailsAlert = false,
 }) => {
+  const isPage = variant === 'page';
   const formId = useId();
   const confirm = useConfirm();
   const [editorOpen, setEditorOpen] = useState(false);
@@ -185,12 +226,82 @@ export const ExamFieldBuilder = ({
   const [dragFieldId, setDragFieldId] = useState(null);
   const [dragOverFieldId, setDragOverFieldId] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkAutoImport, setBulkAutoImport] = useState(false);
+  const [bulkImportPresetId, setBulkImportPresetId] = useState('');
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const [importMenuPos, setImportMenuPos] = useState(null);
+  const importMenuRef = useRef(null);
+  const importTriggerRef = useRef(null);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [lookupSources, setLookupSources] = useState([]);
   const [fieldSearch, setFieldSearch] = useState('');
   // Multi-select mode for deleting several fields with one confirmation.
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const rootRef = useRef(null);
+  const [splitEl, setSplitEl] = useState(null);
+
+  // Page mode: size the rail + list to exactly fill the visible area down to the Save bar / footer.
+  useLayoutEffect(() => {
+    const host = rootRef.current;
+    if (!isPage || !splitEl || !host) return undefined;
+    const findScroller = (el) => {
+      for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+        const { overflowY } = getComputedStyle(n);
+        if ((overflowY === 'auto' || overflowY === 'scroll') && n.scrollHeight > 0) return n;
+      }
+      return null;
+    };
+    const scroller = findScroller(host);
+    const page = host.closest('.settings-page') || host.parentElement;
+    let frame = 0;
+    const fit = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (window.matchMedia('(max-width: 768px)').matches) {
+          host.style.removeProperty('--efb-split-max');
+          return;
+        }
+        const split = splitEl.getBoundingClientRect();
+        // Everything that must stay visible under the list: Save bar, card border, page padding.
+        const pageBottom = page ? page.getBoundingClientRect().bottom : split.bottom;
+        let viewTop = 0;
+        let viewHeight = window.innerHeight;
+        let scrollTop = window.scrollY;
+        let padBottom = 0;
+        if (scroller) {
+          const r = scroller.getBoundingClientRect();
+          viewTop = r.top;
+          viewHeight = scroller.clientHeight;
+          scrollTop = scroller.scrollTop;
+          padBottom = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+        }
+        const topInContent = split.top - viewTop + scrollTop;
+        const below = Math.max(0, pageBottom - split.bottom) + padBottom;
+        const avail = Math.floor(viewHeight - topInContent - below);
+        host.style.setProperty('--efb-split-max', `${Math.max(360, avail)}px`);
+      });
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+    if (ro) {
+      if (scroller) ro.observe(scroller);
+      if (page) ro.observe(page);
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', fit);
+      ro?.disconnect();
+      host.style.removeProperty('--efb-split-max');
+    };
+  }, [isPage, splitEl]);
+  const [activeGroupLocal, setActiveGroupLocal] = useState(FIELD_GROUP_ALL);
+  const activeGroup = activeGroupProp ?? activeGroupLocal;
+  const setActiveGroup = (id) => {
+    setActiveGroupLocal(id);
+    onActiveGroupChange?.(id);
+  };
 
   const isEditing = Boolean(form.id);
   const needsOptions = OPTIONS_FIELD_TYPES.has(form.dataType);
@@ -269,18 +380,26 @@ export const ExamFieldBuilder = ({
           setError('');
         } else if (bulkOpen) {
           setBulkOpen(false);
-        } else {
-          onClose();
+        } else if (!isPage) {
+          onClose?.();
         }
       }
     };
-    document.body.style.overflow = 'hidden';
+    if (!isPage) document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      document.body.style.overflow = '';
+      if (!isPage) document.body.style.overflow = '';
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [open, editorOpen, bulkOpen, onClose]);
+  }, [open, editorOpen, bulkOpen, onClose, isPage]);
+
+  // Page mode: bring the inline field editor into view where it opened (list stays in place).
+  useEffect(() => {
+    if (!isPage || !open || !editorOpen) return;
+    const el = rootRef.current?.querySelector('.efb-inline-editor');
+    el?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    el?.querySelector('input:not([type="hidden"]), select, textarea')?.focus({ preventScroll: true });
+  }, [isPage, open, editorOpen, form.id]);
 
   // Tables a field can read options from (table lookup, phone match, or linked value editor).
   const wantsLookupSources =
@@ -301,6 +420,9 @@ export const ExamFieldBuilder = ({
   }, [wantsLookupSources, lookupSources.length]);
 
   if (!open) return null;
+
+  const Shell = isPage ? 'section' : 'aside';
+  const footerClass = `exams-drawer-footer exams-drawer-footer-compact${isPage ? ' exams-drawer-footer--sticky' : ''}`;
 
   const typeLabel = (value) =>
     EXAM_FIELD_TYPES.find((t) => t.value === value)?.label || value;
@@ -345,9 +467,28 @@ export const ExamFieldBuilder = ({
     return parts.join(' · ');
   };
 
+  // Page mode rail: origin (own / imported per preset) and dependency groups, plus "used by" links.
+  const { sections: groupSections, usedBy } = buildFieldGroups(fields, {
+    presets: presetSources || [],
+    currentServiceValue,
+    uniqueRowKeys,
+  });
+  const hasDetails = isPage && Boolean(topSlot);
+  const showDetails = hasDetails && activeGroup === FIELD_GROUP_DETAILS;
+  const groupItems = groupSections.flatMap((sec) => sec.items);
+  const activeItem = isPage
+    ? groupItems.find((it) => it.id === activeGroup) || groupItems[0]
+    : null;
+  /** When viewing an Imported-from source, Add / Bulk add should import from that preset. */
+  const activeImportPresetId =
+    activeItem?.kind === 'source' && activeItem.presetId ? String(activeItem.presetId) : '';
+  const groupFields = activeItem && activeItem.id !== FIELD_GROUP_ALL
+    ? fields.filter((f) => activeItem.ids.has(f.id))
+    : fields;
+
   const searchQuery = fieldSearch.trim().toLowerCase();
   const visibleFields = searchQuery
-    ? fields.filter((field) => {
+    ? groupFields.filter((field) => {
       const haystack = [
         field.label,
         field.key,
@@ -360,7 +501,146 @@ export const ExamFieldBuilder = ({
         .toLowerCase();
       return haystack.includes(searchQuery);
     })
-    : fields;
+    : groupFields;
+  const isFiltered = Boolean(searchQuery) || groupFields.length !== fields.length;
+
+  const searchBox = (
+    <div className={`exams-field-list-search${isPage ? ' exams-field-list-search--inline' : ''}`}>
+      <Search size={14} strokeWidth={2.2} aria-hidden="true" />
+      <input
+        type="search"
+        value={fieldSearch}
+        onChange={(e) => setFieldSearch(e.target.value)}
+        placeholder="Search fields…"
+        aria-label="Search fields"
+        autoComplete="off"
+      />
+      {fieldSearch && (
+        <button
+          type="button"
+          className="exams-field-list-search-clear"
+          onClick={() => setFieldSearch('')}
+          aria-label="Clear search"
+          title="Clear"
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  );
+
+  const groupIcon = (kind) => GROUP_ICONS[kind] || Layers;
+  // Page mode always lists "Imported from" when other presets exist, so the shortcut is reachable.
+  const canImportPreset = isPage && Array.isArray(presetSources) && presetSources.length > 0;
+  const railSections =
+    canImportPreset && !groupSections.some((sec) => sec.id === 'imported')
+      ? [
+          ...groupSections.slice(0, 1),
+          { id: 'imported', title: 'Imported from', items: [] },
+          ...groupSections.slice(1),
+        ]
+      : groupSections;
+  const rail = isPage ? (
+    <nav className="efb-rail" aria-label="Field groups">
+      {hasDetails && (
+        <div className="efb-rail-section">
+          <button
+            type="button"
+            className={`efb-rail-item${showDetails ? ' is-active' : ''}`}
+            aria-current={showDetails ? 'page' : undefined}
+            onClick={() => setActiveGroup(FIELD_GROUP_DETAILS)}
+          >
+            <Settings2 size={15} aria-hidden="true" />
+            <span className="efb-rail-label">{detailsLabel}</span>
+            {detailsAlert && <span className="efb-rail-alert" title="Needs attention" aria-label="Needs attention">!</span>}
+          </button>
+        </div>
+      )}
+      {railSections.map((sec) => (
+        <div key={sec.id} className="efb-rail-section">
+          <div className="efb-rail-title">{sec.title}</div>
+          {sec.items.map((it) => {
+            const Icon = groupIcon(it.kind);
+            const active = !showDetails && activeItem?.id === it.id;
+            return (
+              <button
+                key={it.id}
+                type="button"
+                className={`efb-rail-item${active ? ' is-active' : ''}${it.kind === 'source' ? ' is-source' : ''}`}
+                aria-current={active ? 'page' : undefined}
+                title={it.hint || it.label}
+                onClick={() => {
+                  setActiveGroup(it.id);
+                  setFieldSearch('');
+                }}
+              >
+                <Icon size={15} aria-hidden="true" />
+                <span className="efb-rail-label">{it.label}</span>
+                <span className="efb-rail-count">{it.ids.size}</span>
+              </button>
+            );
+          })}
+          {sec.id === 'imported' && canImportPreset && (
+            <div className="efb-rail-import">
+              <button
+                ref={importTriggerRef}
+                type="button"
+                className={`efb-rail-item efb-rail-action${importMenuOpen ? ' is-open' : ''}`}
+                onClick={() => setImportMenuOpen((v) => !v)}
+                aria-haspopup="listbox"
+                aria-expanded={importMenuOpen}
+                title="Import shared fields from another field preset"
+              >
+                <Plus size={15} aria-hidden="true" />
+                <span className="efb-rail-label">Import from preset</span>
+              </button>
+              {importMenuOpen &&
+                importMenuPos &&
+                createPortal(
+                  <div
+                    ref={importMenuRef}
+                    className="efb-rail-import-menu"
+                    role="listbox"
+                    aria-label="Choose a preset to import"
+                    style={{
+                      left: importMenuPos.left,
+                      width: importMenuPos.width,
+                      maxHeight: importMenuPos.maxHeight,
+                      ...(importMenuPos.top != null
+                        ? { top: importMenuPos.top }
+                        : { bottom: importMenuPos.bottom }),
+                    }}
+                  >
+                    <div className="efb-rail-import-hint">Choose a preset</div>
+                    {(presetSources || []).map((p) => {
+                      const count = p.fieldCount ?? p.fields?.length ?? 0;
+                      const page = examViewLabel(p.view);
+                      const subParts = [p.serviceValue, page].filter(Boolean);
+                      if (count) subParts.push(`${count} field${count === 1 ? '' : 's'}`);
+                      const sub = subParts.join(' · ');
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          role="option"
+                          className="efb-rail-import-option"
+                          onClick={() => openImportFromPreset(p.id)}
+                          title={p.name}
+                        >
+                          <span className="efb-rail-import-name">{p.name || 'Untitled preset'}</span>
+                          {sub ? <span className="efb-rail-import-meta">{sub}</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>,
+                  document.body,
+                )}
+            </div>
+          )}
+        </div>
+      ))}
+    </nav>
+  ) : null;
 
   const openCreate = (dataType = 'text') => {
     setForm({
@@ -414,12 +694,87 @@ export const ExamFieldBuilder = ({
     setEditorOpen(true);
   };
 
-  const openBulk = () => {
+  // Rail shortcut: Bulk add with Import open on a chosen preset (or first if none picked).
+  const openImportFromPreset = (presetId = '') => {
+    setImportMenuOpen(false);
     setTypesOpen(false);
+    setBulkImportPresetId(presetId ? String(presetId) : '');
+    setBulkAutoImport(true);
     setBulkOpen(true);
   };
 
-  const closeBulk = () => setBulkOpen(false);
+  const openBulk = () => {
+    // On an Imported-from source, jump straight into importing more from that preset.
+    if (activeImportPresetId) {
+      openImportFromPreset(activeImportPresetId);
+      return;
+    }
+    setTypesOpen(false);
+    setBulkAutoImport(false);
+    setBulkImportPresetId('');
+    setBulkOpen(true);
+  };
+
+  const openAddMenu = () => {
+    if (activeImportPresetId) {
+      openImportFromPreset(activeImportPresetId);
+      return;
+    }
+    setTypesOpen((v) => !v);
+  };
+
+  const closeBulk = () => {
+    setBulkOpen(false);
+    setBulkAutoImport(false);
+    setBulkImportPresetId('');
+  };
+
+  useLayoutEffect(() => {
+    if (!importMenuOpen || !importTriggerRef.current) {
+      setImportMenuPos(null);
+      return undefined;
+    }
+    const place = () => {
+      const r = importTriggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.min(340, Math.max(260, window.innerWidth - 24));
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const maxHeight = Math.max(160, Math.min(320, Math.max(below, above)));
+      const openUp = below < 200 && above > below;
+      setImportMenuPos(
+        openUp
+          ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight }
+          : { left, width, top: r.bottom + 6, maxHeight },
+      );
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [importMenuOpen]);
+
+  useEffect(() => {
+    if (!importMenuOpen) return undefined;
+    const onPointer = (e) => {
+      const t = e.target;
+      if (importMenuRef.current?.contains(t) || importTriggerRef.current?.contains(t)) return;
+      setImportMenuOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setImportMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [importMenuOpen]);
 
   const handleBulkAdd = (newFields, updatedFields = [], removedIds = [], order = [], meta = {}) => {
     const hasFieldEdits =
@@ -790,16 +1145,674 @@ export const ExamFieldBuilder = ({
     onChange(copy.map((f, i) => ({ ...f, order: i + 1 })));
   };
 
+  // Field form. Drawer: replaces the list. Page: renders inline under the edited row (or at the
+  // top of the list for a new field) so the rail and list never go away.
+  const fieldEditor = (
+    <form className="exams-drawer-form" onSubmit={handleSave}>
+      <div className="exams-drawer-body">
+        {error && <div className="exams-form-error">{error}</div>}
+
+        <div className="exams-form-group">
+          <label htmlFor={`${formId}-label`}>Label</label>
+          <input
+            id={`${formId}-label`}
+            type="text"
+            value={form.label}
+            onChange={(e) => {
+              const nextLabel = e.target.value;
+              setForm((p) => {
+                const next = { ...p, label: nextLabel };
+                // Auto-fill key from label until the user edits the key (create only)
+                if (!isEditing && !p.keyTouched) {
+                  next.key = slugifyKey(nextLabel);
+                }
+                return next;
+              });
+              if (error) setError('');
+            }}
+            placeholder="e.g. Exam Type"
+            required
+            autoFocus
+          />
+        </div>
+
+        <div className="exams-form-group">
+          <label htmlFor={`${formId}-key`}>
+            Key{!isEditing ? ' *' : ''}
+          </label>
+          <input
+            id={`${formId}-key`}
+            type="text"
+            value={form.key}
+            onChange={(e) => {
+              if (isEditing) return;
+              // Allow typing underscores; full normalize runs on save
+              const raw = e.target.value
+                .toLowerCase()
+                .replace(/[^a-z0-9_]/g, '_')
+                .slice(0, 40);
+              setForm((p) => ({
+                ...p,
+                key: raw,
+                keyTouched: true,
+              }));
+              if (error) setError('');
+            }}
+            placeholder="e.g. exam_type"
+            required={!isEditing}
+            readOnly={isEditing}
+            disabled={isEditing}
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby={`${formId}-key-hint`}
+          />
+          <p id={`${formId}-key-hint`} className="exams-field-key-hint">
+            {isEditing
+              ? 'Key is locked after create (used in SQL form values).'
+              : 'Stable id for SQL — letters, numbers, underscore. Auto-filled from label.'}
+          </p>
+        </div>
+
+        <SearchableSelect
+          id={`${formId}-type`}
+          label="Field type"
+          value={form.dataType}
+          options={EXAM_FIELD_TYPES}
+          searchPlaceholder="Search field types…"
+          onChange={(next) => {
+            setForm((p) => ({
+              ...p,
+              dataType: next,
+              allowMultiple:
+                next === 'multiselect' || next === 'tags'
+                  ? true
+                  : next === 'dropdown' || next === 'status'
+                    ? false
+                    : p.allowMultiple,
+              sameAsFieldKey: DATE_LINK_TYPES.has(next) ? p.sameAsFieldKey : '',
+              phoneValidation:
+                next === 'phone'
+                  ? p.phoneValidation || emptyPhoneValidation()
+                  : emptyPhoneValidation(),
+            }));
+            if (error) setError('');
+          }}
+        />
+
+        {form.dataType === 'phone' && (
+          <div className="exams-options-block">
+            <SearchableSelect
+              id={`${formId}-phone-validation`}
+              label="Phone validation"
+              value={form.phoneValidation?.mode || 'none'}
+              options={PHONE_VALIDATION_PRESETS}
+              searchPlaceholder="Search rules…"
+              onChange={(next) =>
+                setForm((p) => ({
+                  ...p,
+                  phoneValidation: {
+                    mode: next,
+                    pattern: next === 'custom' ? p.phoneValidation?.pattern || '' : '',
+                    message: p.phoneValidation?.message || '',
+                  },
+                }))
+              }
+            />
+            {(form.phoneValidation?.mode || 'none') !== 'none' &&
+              form.phoneValidation?.mode !== 'custom' && (
+                <p className="exams-config-empty-hint">
+                  {
+                    PHONE_VALIDATION_PRESETS.find(
+                      (p) => p.value === form.phoneValidation?.mode,
+                    )?.message
+                  }
+                </p>
+              )}
+            {form.phoneValidation?.mode === 'custom' && (
+              <>
+                <div className="exams-form-group">
+                  <label htmlFor={`${formId}-phone-regex`}>Custom regex *</label>
+                  <input
+                    id={`${formId}-phone-regex`}
+                    type="text"
+                    value={form.phoneValidation?.pattern || ''}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        phoneValidation: {
+                          ...p.phoneValidation,
+                          mode: 'custom',
+                          pattern: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="e.g. ^[6-9]\d{9}$"
+                    spellCheck={false}
+                    required
+                  />
+                </div>
+                <div className="exams-form-group">
+                  <label htmlFor={`${formId}-phone-msg`}>Error message</label>
+                  <input
+                    id={`${formId}-phone-msg`}
+                    type="text"
+                    value={form.phoneValidation?.message || ''}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        phoneValidation: {
+                          ...p.phoneValidation,
+                          mode: 'custom',
+                          message: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="Shown when the number does not match"
+                  />
+                </div>
+              </>
+            )}
+            <SearchableSelect
+              id={`${formId}-phone-lookup-table`}
+              label="Match from table (optional)"
+              value={form.lookupTable || ''}
+              options={[
+                { value: '', label: 'No lookup' },
+                ...lookupSources.map((t) => ({ value: t.table, label: t.label })),
+              ]}
+              searchPlaceholder="Search tables…"
+              onChange={(next) =>
+                setForm((p) => ({
+                  ...p,
+                  lookupTable: next,
+                  lookupColumn: '',
+                  lookupDetail: '',
+                  fillColumns: [],
+                }))
+              }
+            />
+            {form.lookupTable ? (
+              <>
+                <SearchableSelect
+                  id={`${formId}-phone-lookup-column`}
+                  label="Match column (phone number)"
+                  value={form.lookupColumn || ''}
+                  options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
+                  searchPlaceholder="Search columns…"
+                  onChange={(next) => setForm((p) => ({ ...p, lookupColumn: next }))}
+                />
+                {form.lookupColumn ? (
+                  <div className="exams-fill-columns">
+                    <span className="exams-audit-label">Also fill from the same row (locked)</span>
+                    <p className="exams-config-empty-hint">
+                      When the number matches one row, these Linked values fill automatically and stay
+                      live from the source table.
+                    </p>
+                    <div className="exams-fill-grid">
+                      {lookupColumns
+                        .filter((c) => c.key !== form.lookupColumn)
+                        .map((c) => (
+                          <label key={c.key} className="exams-check-row">
+                            <input
+                              type="checkbox"
+                              checked={(form.fillColumns || []).includes(c.key)}
+                              onChange={(e) =>
+                                setForm((p) => ({
+                                  ...p,
+                                  fillColumns: e.target.checked
+                                    ? [...(p.fillColumns || []), c.key]
+                                    : (p.fillColumns || []).filter((k) => k !== c.key),
+                                }))
+                              }
+                            />
+                            <span>{c.label}</span>
+                          </label>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        )}
+
+        {/* Auto-fill + Width are create-form options — not used by Field presets (page mode). */}
+        {!isPage && (
+        <div className="exams-form-row">
+          {form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
+            <SearchableSelect
+              id={`${formId}-autofill`}
+              label="Auto-fill"
+              value={form.autoFill || 'none'}
+              options={AUTO_FILL_OPTIONS}
+              searchPlaceholder="Search…"
+              onChange={(next) =>
+                setForm((p) => ({
+                  ...p,
+                  autoFill: next,
+                  required: next !== 'none' ? false : p.required,
+                }))
+              }
+            />
+          ) : null}
+          <div className="exams-form-group">
+            <label htmlFor={`${formId}-layout`}>Width</label>
+            <select
+              id={`${formId}-layout`}
+              value={form.layout || 'full'}
+              onChange={(e) => setForm((p) => ({ ...p, layout: e.target.value }))}
+            >
+              <option value="full">Full width</option>
+              <option value="half">Half (side by side)</option>
+            </select>
+          </div>
+        </div>
+        )}
+
+        {(!form.autoFill || form.autoFill === 'none') &&
+          form.dataType !== 'linked' &&
+          form.dataType !== 'fromExam' && (
+            <label className="exams-check-row">
+              <input
+                type="checkbox"
+                checked={form.required}
+                onChange={(e) => setForm((p) => ({ ...p, required: e.target.checked }))}
+              />
+              <span>Required on create form</span>
+            </label>
+          )}
+
+        {allowUnique && UNIQUE_FIELD_TYPES.has(form.dataType) && (
+          <label className="exams-check-row">
+            <input
+              type="checkbox"
+              checked={Boolean(form.unique)}
+              onChange={(e) => setForm((p) => ({ ...p, unique: e.target.checked }))}
+            />
+            <span>Unique: no two records can have the same value</span>
+          </label>
+        )}
+
+        {isDateLinkable && (
+          <div className="exams-options-block">
+            <SearchableSelect
+              id={`${formId}-schedule-role`}
+              label="Date chips (Exam management)"
+              value={form.scheduleRole || ''}
+              options={SCHEDULE_ROLE_OPTIONS}
+              placeholder="Not used for chips"
+              searchThreshold={8}
+              onChange={(next) => setForm((p) => ({ ...p, scheduleRole: next }))}
+            />
+            <p className="exams-config-empty-hint">
+              Map this field as Schedule start or Schedule end for Upcoming / Today / Last 7 days. One of each.
+            </p>
+            <SearchableSelect
+              id={`${formId}-same-as`}
+              label="Same as date field"
+              value={form.sameAsFieldKey || ''}
+              options={dateLinkOptions}
+              placeholder="None"
+              searchPlaceholder="Search date fields…"
+              onChange={(next) =>
+                setForm((p) => ({
+                  ...p,
+                  sameAsFieldKey: next,
+                  sameAsDefaultOn: next ? p.sameAsDefaultOn !== false : true,
+                }))
+              }
+            />
+            {form.sameAsFieldKey ? (
+              <label className="exams-check-row">
+                <input
+                  type="checkbox"
+                  checked={form.sameAsDefaultOn !== false}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, sameAsDefaultOn: e.target.checked }))
+                  }
+                />
+                <span>Default “same as” ON in create form</span>
+              </label>
+            ) : (
+              <p className="exams-config-empty-hint">
+                {dateLinkOptions.length > 1
+                  ? 'Pick another date field to mirror on the create form.'
+                  : 'Add another date field first, then you can link this one to it.'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {needsOptions && (
+          <div className="exams-options-block">
+            {(isChoiceField || form.dataType === 'tags') && (
+              <div className="exams-form-group">
+                <span className="exams-audit-label">Options source</span>
+                <div className="exams-source-toggle" role="group" aria-label="Options source">
+                  <button
+                    type="button"
+                    className={`exams-source-btn ${(form.optionsSource || 'manual') === 'manual' ? 'active' : ''}`}
+                    onClick={() => {
+                      setForm((p) => ({ ...p, optionsSource: 'manual' }));
+                      if (error) setError('');
+                    }}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    className={`exams-source-btn ${form.optionsSource === 'config' ? 'active' : ''}`}
+                    onClick={() => {
+                      setForm((p) => ({ ...p, optionsSource: 'config' }));
+                      if (error) setError('');
+                    }}
+                  >
+                    Config list
+                  </button>
+                  {isChoiceField && (
+                    <button
+                      type="button"
+                      className={`exams-source-btn ${form.optionsSource === 'table' ? 'active' : ''}`}
+                      onClick={() => {
+                        setForm((p) => ({ ...p, optionsSource: 'table' }));
+                        if (error) setError('');
+                      }}
+                    >
+                      Table column
+                    </button>
+                  )}
+                  {isChoiceField && (
+                    <button
+                      type="button"
+                      className={`exams-source-btn ${form.optionsSource === 'userTags' ? 'active' : ''}`}
+                      onClick={() => {
+                        setForm((p) => ({
+                          ...p,
+                          optionsSource: 'userTags',
+                          // Keep current multi flag — Dropdown stays single; Multiselect dropdown stays multi.
+                        }));
+                        if (error) setError('');
+                      }}
+                    >
+                      User tags
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {isChoiceField && form.dataType !== 'multiselect' && form.dataType !== 'dropdown' && (
+              <label className="exams-check-row">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.allowMultiple)}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, allowMultiple: e.target.checked }))
+                  }
+                />
+                <span>Allow multiple selection</span>
+              </label>
+            )}
+            {form.dataType === 'dropdown' && (
+              <p className="exams-config-empty-hint">
+                Dropdown allows one option only. Use Multiselect dropdown to pick several.
+              </p>
+            )}
+            {form.dataType === 'multiselect' && form.optionsSource === 'userTags' && (
+              <p className="exams-config-empty-hint">
+                Multiselect: one center row can be assigned to several people (e.g. 2 VMs + 1 ZM).
+                Assigned people see that row; empty means no extra restriction.
+              </p>
+            )}
+
+            {form.optionsSource === 'userTags' ? (
+              <TagMultiPicker
+                value={form.userTagIds || []}
+                onChange={(next) => {
+                  setForm((p) => ({ ...p, userTagIds: next }));
+                  if (error) setError('');
+                }}
+              />
+            ) : form.optionsSource === 'table' ? (
+              <>
+                <SearchableSelect
+                  id={`${formId}-lookup-table`}
+                  label="Read from table"
+                  value={form.lookupTable}
+                  options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
+                  placeholder={lookupSources.length ? 'Select a table…' : 'Loading tables…'}
+                  searchThreshold={8}
+                  onChange={(next) => {
+                    setForm((p) => ({ ...p, lookupTable: next, lookupColumn: '', lookupDetail: '' }));
+                    if (error) setError('');
+                  }}
+                />
+                {form.lookupTable && (
+                  <>
+                    <SearchableSelect
+                      id={`${formId}-lookup-column`}
+                      label="Show this column"
+                      value={form.lookupColumn}
+                      options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
+                      placeholder="Select a column…"
+                      searchPlaceholder="Search columns…"
+                      onChange={(next) => {
+                        setForm((p) => ({ ...p, lookupColumn: next }));
+                        if (error) setError('');
+                      }}
+                    />
+                    <SearchableSelect
+                      id={`${formId}-lookup-detail`}
+                      label="Also show (optional)"
+                      value={form.lookupDetail}
+                      options={[
+                        { value: '', label: 'None' },
+                        ...lookupColumns.filter((c) => c.key !== form.lookupColumn).map((c) => ({ value: c.key, label: c.label })),
+                      ]}
+                      placeholder="None"
+                      searchPlaceholder="Search columns…"
+                      onChange={(next) => setForm((p) => ({ ...p, lookupDetail: next }))}
+                    />
+                  </>
+                )}
+                {form.lookupTable && form.lookupColumn && (
+                  <div className="exams-fill-columns">
+                    <span className="exams-audit-label">Also fill from the same row</span>
+                    <p className="exams-config-empty-hint">
+                      Each ticked column becomes a read-only field that shows that column of the row picked here.
+                    </p>
+                    <div className="exams-fill-grid">
+                      {lookupColumns
+                        .filter((c) => c.key !== form.lookupColumn)
+                        .map((c) => (
+                          <label key={c.key} className="exams-check-row">
+                            <input
+                              type="checkbox"
+                              checked={(form.fillColumns || []).includes(c.key)}
+                              onChange={(e) =>
+                                setForm((p) => ({
+                                  ...p,
+                                  fillColumns: e.target.checked
+                                    ? [...(p.fillColumns || []), c.key]
+                                    : (p.fillColumns || []).filter((k) => k !== c.key),
+                                }))
+                              }
+                            />
+                            <span>{c.label}</span>
+                          </label>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                <p className="exams-config-empty-hint">
+                  Read live from that table each time the form opens. The field stores only the row, so a
+                  rename there shows up here. Nothing is copied.
+                </p>
+              </>
+            ) : (form.optionsSource || 'manual') === 'manual' ? (
+              <div className="exams-form-group">
+                <label htmlFor={`${formId}-options`}>Options (one per line)</label>
+                <textarea
+                  id={`${formId}-options`}
+                  value={form.optionsText}
+                  onChange={(e) => {
+                    setForm((p) => ({ ...p, optionsText: e.target.value }));
+                    if (error) setError('');
+                  }}
+                  placeholder={'Active\nInactive\nPending'}
+                  rows={5}
+                />
+              </div>
+            ) : configListOptions.length === 0 ? (
+              <p className="exams-config-empty-hint">
+                No Config lists yet. Create one in Settings → Config, then come back.
+              </p>
+            ) : (
+              <>
+                <SearchableSelect
+                  id={`${formId}-config-list`}
+                  label="Config dropdown list"
+                  value={form.configListId || ''}
+                  options={configListOptions}
+                  placeholder="Select a list…"
+                  searchPlaceholder="Search lists…"
+                  onChange={(next) => {
+                    setForm((p) => ({ ...p, configListId: next }));
+                    if (error) setError('');
+                  }}
+                />
+                {previewConfigOptions.length > 0 && (
+                  <div className="exams-config-preview">
+                    <span className="exams-audit-label">Live options (follows Config)</span>
+                    <div className="exams-options-chips">
+                      {previewConfigOptions.map((opt) => (
+                        <span key={opt} className="exams-option-chip">
+                          {opt}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {form.dataType === 'linked' && (
+          <div className="exams-options-block">
+            {linkSourceFields.length === 0 ? (
+              <p className="exams-config-empty-hint">
+                Add a field that reads from a table (options source “Table column”) first, then link to it here.
+              </p>
+            ) : (
+              <>
+                <SearchableSelect
+                  id={`${formId}-linked-field`}
+                  label="Read from field"
+                  value={form.linkedFieldKey}
+                  options={linkSourceFields.map((f) => ({ value: f.key, label: f.label }))}
+                  placeholder="Select a field…"
+                  searchThreshold={8}
+                  onChange={(next) => {
+                    setForm((p) => ({ ...p, linkedFieldKey: next, linkedColumn: '' }));
+                    if (error) setError('');
+                  }}
+                />
+                {linkSource && (
+                  <SearchableSelect
+                    id={`${formId}-linked-column`}
+                    label="Show this column"
+                    value={form.linkedColumn}
+                    options={linkColumns.map((c) => ({ value: c.key, label: c.label }))}
+                    placeholder={linkColumns.length ? 'Select a column…' : 'Loading columns…'}
+                    searchPlaceholder="Search columns…"
+                    onChange={(next) => {
+                      setForm((p) => ({ ...p, linkedColumn: next }));
+                      if (error) setError('');
+                    }}
+                  />
+                )}
+                <p className="exams-config-empty-hint">
+                  Read-only. Shows that column of the row picked in the field above, and follows it live.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {form.dataType === 'fromExam' && (
+          <div className="exams-options-block">
+            {examFieldOptions.length === 0 ? (
+              <p className="exams-config-empty-hint">
+                “From exam” mirrors a value from Exam management onto every center row. Open this builder from a
+                center list after exam fields exist.
+              </p>
+            ) : (
+              <>
+                <SearchableSelect
+                  id={`${formId}-exam-field`}
+                  label="Exam field to show"
+                  value={form.examFieldKey}
+                  options={examFieldOptions}
+                  placeholder="Select an exam field…"
+                  searchThreshold={8}
+                  onChange={(next) => {
+                    setForm((p) => ({ ...p, examFieldKey: next }));
+                    if (error) setError('');
+                  }}
+                />
+                <p className="exams-config-empty-hint">
+                  Read-only. Every center row shows that exam’s current value (not stored on the center).
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {needsFormula && (
+          <div className="exams-form-group">
+            <label htmlFor={`${formId}-formula`}>Formula</label>
+            <input
+              id={`${formId}-formula`}
+              type="text"
+              value={form.formula}
+              onChange={(e) => {
+                setForm((p) => ({ ...p, formula: e.target.value }));
+                if (error) setError('');
+              }}
+              placeholder="e.g. {shifts} * {centres}"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className={isPage ? 'exams-drawer-footer exams-drawer-footer-compact efb-inline-editor-foot' : footerClass}>
+        <button type="button" className="exams-btn secondary compact" onClick={closeEditor}>
+          Cancel
+        </button>
+        <button type="submit" className="exams-btn primary compact">
+          <Plus size={14} />
+          <span>{isEditing ? 'Save' : 'Create'}</span>
+        </button>
+      </div>
+    </form>
+  );
+
   return (
     <>
-      <div className="exams-drawer-overlay" onClick={onClose}>
-        <aside
-          className="exams-drawer exams-field-builder"
+      <div
+        className={isPage ? 'exams-field-builder-host' : 'exams-drawer-overlay'}
+        onClick={isPage ? undefined : onClose}
+      >
+        <Shell
+          ref={rootRef}
+          className={isPage ? 'exams-field-builder exams-field-builder--page' : 'exams-drawer exams-field-builder'}
           onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Field builder"
+          {...(isPage
+            ? { 'aria-label': 'Field builder' }
+            : { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Field builder' })}
         >
+          {!isPage && (
           <div className="exams-drawer-header exams-drawer-header-compact">
             <div className="exams-field-header-text">
               <h2 className="exams-drawer-title">
@@ -822,23 +1835,37 @@ export const ExamFieldBuilder = ({
               title={editorOpen ? 'Back' : 'Close'}
               aria-label={editorOpen ? 'Back' : 'Close'}
             >
-              <X size={16} />
+              {isPage ? <ArrowLeft size={16} /> : <X size={16} />}
             </button>
           </div>
+          )}
 
-          {!editorOpen ? (
+          {!editorOpen || isPage ? (
             <>
-              <div className="exams-drawer-body exams-field-list-body">
-                {topSlot}
-                {fields.length > 0 && (
+              <div
+                ref={isPage ? setSplitEl : undefined}
+                className={`exams-drawer-body exams-field-list-body${isPage ? ' efb-split' : ''}`}
+              >
+                {rail}
+                <div className={isPage ? 'efb-detail' : 'efb-flow'}>
+                {(!isPage || showDetails) && topSlot}
+                {isPage && editorOpen && !isEditing && !showDetails && (
+                  <div className="efb-inline-editor efb-inline-editor--new">
+                    <div className="efb-inline-editor-head">
+                      <Plus size={13} aria-hidden="true" />
+                      <span>New <strong>{typeLabel(form.dataType)}</strong> field</span>
+                    </div>
+                    {fieldEditor}
+                  </div>
+                )}
+                {!showDetails && fields.length > 0 && (
                   <div className="exams-fields-panel">
                     <div className="exams-field-section-bar">
-                      <span>
-                        Fields ·{' '}
-                        {searchQuery && visibleFields.length !== fields.length
-                          ? `${visibleFields.length} of ${fields.length}`
-                          : fields.length}
+                      <span className="efb-group-title">
+                        {activeItem && activeItem.id !== FIELD_GROUP_ALL ? activeItem.label : 'Fields'} ·{' '}
+                        {isFiltered ? `${visibleFields.length} of ${fields.length}` : fields.length}
                       </span>
+                      {isPage && searchBox}
                       <span className="exams-field-section-actions">
                         <button
                           type="button"
@@ -849,9 +1876,18 @@ export const ExamFieldBuilder = ({
                           <SquareCheck size={13} />
                           {selectMode ? 'Cancel' : 'Select'}
                         </button>
-                        <button type="button" className="exams-text-add-btn" onClick={openBulk}>
+                        <button
+                          type="button"
+                          className="exams-text-add-btn"
+                          onClick={openBulk}
+                          title={
+                            activeImportPresetId
+                              ? `Import more fields from ${activeItem?.label || 'this preset'}`
+                              : 'Bulk add fields'
+                          }
+                        >
                           <ListPlus size={13} />
-                          Bulk add
+                          {activeImportPresetId ? 'Import more' : 'Bulk add'}
                         </button>
                         <button type="button" className="exams-text-add-btn" onClick={() => setGroupsOpen(true)}>
                           <Link2 size={13} />
@@ -860,37 +1896,25 @@ export const ExamFieldBuilder = ({
                         <button
                           type="button"
                           className="exams-text-add-btn"
-                          onClick={() => setTypesOpen((v) => !v)}
-                          aria-expanded={typesOpen}
+                          onClick={openAddMenu}
+                          aria-expanded={activeImportPresetId ? undefined : typesOpen}
+                          title={
+                            activeImportPresetId
+                              ? `Import fields from ${activeItem?.label || 'this preset'}`
+                              : undefined
+                          }
                         >
                           <Plus size={13} />
-                          {typesOpen ? 'Close' : 'Add'}
+                          {activeImportPresetId ? 'Add from preset' : typesOpen ? 'Close' : 'Add'}
                         </button>
                       </span>
                     </div>
 
-                    <div className="exams-field-list-search">
-                      <Search size={14} strokeWidth={2.2} aria-hidden="true" />
-                      <input
-                        type="search"
-                        value={fieldSearch}
-                        onChange={(e) => setFieldSearch(e.target.value)}
-                        placeholder="Search fields…"
-                        aria-label="Search fields"
-                        autoComplete="off"
-                      />
-                      {fieldSearch && (
-                        <button
-                          type="button"
-                          className="exams-field-list-search-clear"
-                          onClick={() => setFieldSearch('')}
-                          aria-label="Clear search"
-                          title="Clear"
-                        >
-                          <X size={13} />
-                        </button>
-                      )}
-                    </div>
+                    {activeItem?.hint && activeItem.id !== FIELD_GROUP_ALL && (
+                      <p className="efb-group-hint">{activeItem.hint}</p>
+                    )}
+
+                    {!isPage && searchBox}
 
                     {selectMode && (
                       <div className="exams-field-select-bar" role="toolbar" aria-label="Bulk field actions">
@@ -921,18 +1945,38 @@ export const ExamFieldBuilder = ({
                     )}
 
                     {visibleFields.length === 0 ? (
-                      <p className="exams-field-list-empty">No fields match “{fieldSearch.trim()}”.</p>
+                      <div className="exams-field-list-empty">
+                        <p>
+                          {searchQuery
+                            ? `No fields match “${fieldSearch.trim()}”.`
+                            : activeImportPresetId
+                              ? `No fields imported from ${activeItem?.label || 'this preset'} yet.`
+                              : 'No fields in this group.'}
+                        </p>
+                        {activeImportPresetId && !searchQuery ? (
+                          <button
+                            type="button"
+                            className="exams-text-add-btn"
+                            onClick={() => openImportFromPreset(activeImportPresetId)}
+                          >
+                            <Plus size={13} />
+                            Import from {activeItem?.label || 'preset'}
+                          </button>
+                        ) : null}
+                      </div>
                     ) : (
                       <ul className="exams-field-list">
                         {visibleFields.map((field) => {
                           const Icon = TYPE_ICONS[field.dataType] || Type;
                           const isDragging = dragFieldId === field.id;
                           const isDragOver = dragOverFieldId === field.id && dragFieldId !== field.id;
-                          const canReorder = !searchQuery;
+                          const canReorder = !isFiltered;
+                          const users = field.key ? usedBy.get(field.key) || [] : [];
+                          const isEditingRow = isPage && editorOpen && isEditing && form.id === field.id;
                           return (
+                            <React.Fragment key={field.id}>
                             <li
-                              key={field.id}
-                              className={`exams-field-row${selectMode && selectedIds.has(field.id) ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
+                              className={`exams-field-row${isEditingRow ? ' is-editing' : ''}${selectMode && selectedIds.has(field.id) ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
                               onDragOver={
                                 canReorder
                                   ? (e) => {
@@ -975,7 +2019,7 @@ export const ExamFieldBuilder = ({
                                 className="exams-field-drag-handle"
                                 draggable={canReorder}
                                 disabled={!canReorder}
-                                title={canReorder ? 'Drag to reorder' : 'Clear search to reorder'}
+                                title={canReorder ? 'Drag to reorder' : 'Show all fields and clear search to reorder'}
                                 aria-label={`Drag to reorder ${field.label}`}
                                 onDragStart={
                                   canReorder
@@ -1022,9 +2066,9 @@ export const ExamFieldBuilder = ({
                                           aria-label={src ? `Imported · from ${src}` : 'Imported'}
                                         >
                                           <Link2 size={12} strokeWidth={2.25} aria-hidden="true" />
-                                          {abbr ? (
+                                          {(isPage ? src : abbr) ? (
                                             <span className="exams-field-imported-abbr" aria-hidden="true">
-                                              {abbr}
+                                              {isPage ? src : abbr}
                                             </span>
                                           ) : null}
                                         </span>
@@ -1032,6 +2076,23 @@ export const ExamFieldBuilder = ({
                                     })()}
                                   </span>
                                   <span className="exams-field-row-meta">{fieldMeta(field)}</span>
+                                  {users.length > 0 && (
+                                    <span
+                                      className="efb-used-by"
+                                      title={users.map((u) => `${u.label} (${u.how})`).join('\n')}
+                                    >
+                                      <span className="efb-used-by-label">Used by</span>
+                                      {users.slice(0, 4).map((u) => (
+                                        <span key={`${u.key}-${u.how}`} className="efb-used-by-chip">
+                                          {u.label}
+                                          <em>{u.how}</em>
+                                        </span>
+                                      ))}
+                                      {users.length > 4 && (
+                                        <span className="efb-used-by-chip is-more">+{users.length - 4}</span>
+                                      )}
+                                    </span>
+                                  )}
                                 </span>
                               </button>
 
@@ -1056,6 +2117,16 @@ export const ExamFieldBuilder = ({
                                 </button>
                               </div>
                             </li>
+                            {isEditingRow && (
+                              <li className="efb-inline-editor" aria-label={`Edit ${field.label}`}>
+                                <div className="efb-inline-editor-head">
+                                  <Pencil size={13} aria-hidden="true" />
+                                  <span>Editing <strong>{field.label}</strong></span>
+                                </div>
+                                {fieldEditor}
+                              </li>
+                            )}
+                            </React.Fragment>
                           );
                         })}
                       </ul>
@@ -1063,7 +2134,7 @@ export const ExamFieldBuilder = ({
                   </div>
                 )}
 
-                {(fields.length === 0 || typesOpen) && (
+                {!showDetails && !activeImportPresetId && (fields.length === 0 || typesOpen) && (
                   <div className={`exams-type-picker ${fields.length > 0 ? 'with-fields' : ''}`}>
                     <div className="exams-field-section-bar">
                       <span>{fields.length === 0 ? 'Choose a field type' : 'Add field type'}</span>
@@ -1098,657 +2169,14 @@ export const ExamFieldBuilder = ({
                     </div>
                   </div>
                 )}
+                </div>
               </div>
-              {footer && <div className="exams-drawer-footer exams-drawer-footer-compact">{footer}</div>}
+              {footer && <div className={footerClass}>{footer}</div>}
             </>
           ) : (
-            <form className="exams-drawer-form" onSubmit={handleSave}>
-              <div className="exams-drawer-body">
-                {error && <div className="exams-form-error">{error}</div>}
-
-                <div className="exams-form-group">
-                  <label htmlFor={`${formId}-label`}>Label</label>
-                  <input
-                    id={`${formId}-label`}
-                    type="text"
-                    value={form.label}
-                    onChange={(e) => {
-                      const nextLabel = e.target.value;
-                      setForm((p) => {
-                        const next = { ...p, label: nextLabel };
-                        // Auto-fill key from label until the user edits the key (create only)
-                        if (!isEditing && !p.keyTouched) {
-                          next.key = slugifyKey(nextLabel);
-                        }
-                        return next;
-                      });
-                      if (error) setError('');
-                    }}
-                    placeholder="e.g. Exam Type"
-                    required
-                    autoFocus
-                  />
-                </div>
-
-                <div className="exams-form-group">
-                  <label htmlFor={`${formId}-key`}>
-                    Key{!isEditing ? ' *' : ''}
-                  </label>
-                  <input
-                    id={`${formId}-key`}
-                    type="text"
-                    value={form.key}
-                    onChange={(e) => {
-                      if (isEditing) return;
-                      // Allow typing underscores; full normalize runs on save
-                      const raw = e.target.value
-                        .toLowerCase()
-                        .replace(/[^a-z0-9_]/g, '_')
-                        .slice(0, 40);
-                      setForm((p) => ({
-                        ...p,
-                        key: raw,
-                        keyTouched: true,
-                      }));
-                      if (error) setError('');
-                    }}
-                    placeholder="e.g. exam_type"
-                    required={!isEditing}
-                    readOnly={isEditing}
-                    disabled={isEditing}
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-describedby={`${formId}-key-hint`}
-                  />
-                  <p id={`${formId}-key-hint`} className="exams-field-key-hint">
-                    {isEditing
-                      ? 'Key is locked after create (used in SQL form values).'
-                      : 'Stable id for SQL — letters, numbers, underscore. Auto-filled from label.'}
-                  </p>
-                </div>
-
-                <SearchableSelect
-                  id={`${formId}-type`}
-                  label="Field type"
-                  value={form.dataType}
-                  options={EXAM_FIELD_TYPES}
-                  searchPlaceholder="Search field types…"
-                  onChange={(next) => {
-                    setForm((p) => ({
-                      ...p,
-                      dataType: next,
-                      allowMultiple:
-                        next === 'multiselect' || next === 'tags'
-                          ? true
-                          : next === 'dropdown' || next === 'status'
-                            ? false
-                            : p.allowMultiple,
-                      sameAsFieldKey: DATE_LINK_TYPES.has(next) ? p.sameAsFieldKey : '',
-                      phoneValidation:
-                        next === 'phone'
-                          ? p.phoneValidation || emptyPhoneValidation()
-                          : emptyPhoneValidation(),
-                    }));
-                    if (error) setError('');
-                  }}
-                />
-
-                {form.dataType === 'phone' && (
-                  <div className="exams-options-block">
-                    <SearchableSelect
-                      id={`${formId}-phone-validation`}
-                      label="Phone validation"
-                      value={form.phoneValidation?.mode || 'none'}
-                      options={PHONE_VALIDATION_PRESETS}
-                      searchPlaceholder="Search rules…"
-                      onChange={(next) =>
-                        setForm((p) => ({
-                          ...p,
-                          phoneValidation: {
-                            mode: next,
-                            pattern: next === 'custom' ? p.phoneValidation?.pattern || '' : '',
-                            message: p.phoneValidation?.message || '',
-                          },
-                        }))
-                      }
-                    />
-                    {(form.phoneValidation?.mode || 'none') !== 'none' &&
-                      form.phoneValidation?.mode !== 'custom' && (
-                        <p className="exams-config-empty-hint">
-                          {
-                            PHONE_VALIDATION_PRESETS.find(
-                              (p) => p.value === form.phoneValidation?.mode,
-                            )?.message
-                          }
-                        </p>
-                      )}
-                    {form.phoneValidation?.mode === 'custom' && (
-                      <>
-                        <div className="exams-form-group">
-                          <label htmlFor={`${formId}-phone-regex`}>Custom regex *</label>
-                          <input
-                            id={`${formId}-phone-regex`}
-                            type="text"
-                            value={form.phoneValidation?.pattern || ''}
-                            onChange={(e) =>
-                              setForm((p) => ({
-                                ...p,
-                                phoneValidation: {
-                                  ...p.phoneValidation,
-                                  mode: 'custom',
-                                  pattern: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder="e.g. ^[6-9]\d{9}$"
-                            spellCheck={false}
-                            required
-                          />
-                        </div>
-                        <div className="exams-form-group">
-                          <label htmlFor={`${formId}-phone-msg`}>Error message</label>
-                          <input
-                            id={`${formId}-phone-msg`}
-                            type="text"
-                            value={form.phoneValidation?.message || ''}
-                            onChange={(e) =>
-                              setForm((p) => ({
-                                ...p,
-                                phoneValidation: {
-                                  ...p.phoneValidation,
-                                  mode: 'custom',
-                                  message: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder="Shown when the number does not match"
-                          />
-                        </div>
-                      </>
-                    )}
-                    <SearchableSelect
-                      id={`${formId}-phone-lookup-table`}
-                      label="Match from table (optional)"
-                      value={form.lookupTable || ''}
-                      options={[
-                        { value: '', label: 'No lookup' },
-                        ...lookupSources.map((t) => ({ value: t.table, label: t.label })),
-                      ]}
-                      searchPlaceholder="Search tables…"
-                      onChange={(next) =>
-                        setForm((p) => ({
-                          ...p,
-                          lookupTable: next,
-                          lookupColumn: '',
-                          lookupDetail: '',
-                          fillColumns: [],
-                        }))
-                      }
-                    />
-                    {form.lookupTable ? (
-                      <>
-                        <SearchableSelect
-                          id={`${formId}-phone-lookup-column`}
-                          label="Match column (phone number)"
-                          value={form.lookupColumn || ''}
-                          options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
-                          searchPlaceholder="Search columns…"
-                          onChange={(next) => setForm((p) => ({ ...p, lookupColumn: next }))}
-                        />
-                        {form.lookupColumn ? (
-                          <div className="exams-fill-columns">
-                            <span className="exams-audit-label">Also fill from the same row (locked)</span>
-                            <p className="exams-config-empty-hint">
-                              When the number matches one row, these Linked values fill automatically and stay
-                              live from the source table.
-                            </p>
-                            <div className="exams-fill-grid">
-                              {lookupColumns
-                                .filter((c) => c.key !== form.lookupColumn)
-                                .map((c) => (
-                                  <label key={c.key} className="exams-check-row">
-                                    <input
-                                      type="checkbox"
-                                      checked={(form.fillColumns || []).includes(c.key)}
-                                      onChange={(e) =>
-                                        setForm((p) => ({
-                                          ...p,
-                                          fillColumns: e.target.checked
-                                            ? [...(p.fillColumns || []), c.key]
-                                            : (p.fillColumns || []).filter((k) => k !== c.key),
-                                        }))
-                                      }
-                                    />
-                                    <span>{c.label}</span>
-                                  </label>
-                                ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                )}
-
-                <div className="exams-form-row">
-                  {form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
-                    <SearchableSelect
-                      id={`${formId}-autofill`}
-                      label="Auto-fill"
-                      value={form.autoFill || 'none'}
-                      options={AUTO_FILL_OPTIONS}
-                      searchPlaceholder="Search…"
-                      onChange={(next) =>
-                        setForm((p) => ({
-                          ...p,
-                          autoFill: next,
-                          required: next !== 'none' ? false : p.required,
-                        }))
-                      }
-                    />
-                  ) : null}
-                  <div className="exams-form-group">
-                    <label htmlFor={`${formId}-layout`}>Width</label>
-                    <select
-                      id={`${formId}-layout`}
-                      value={form.layout || 'full'}
-                      onChange={(e) => setForm((p) => ({ ...p, layout: e.target.value }))}
-                    >
-                      <option value="full">Full width</option>
-                      <option value="half">Half (side by side)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {(!form.autoFill || form.autoFill === 'none') &&
-                  form.dataType !== 'linked' &&
-                  form.dataType !== 'fromExam' && (
-                    <label className="exams-check-row">
-                      <input
-                        type="checkbox"
-                        checked={form.required}
-                        onChange={(e) => setForm((p) => ({ ...p, required: e.target.checked }))}
-                      />
-                      <span>Required on create form</span>
-                    </label>
-                  )}
-
-                {allowUnique && UNIQUE_FIELD_TYPES.has(form.dataType) && (
-                  <label className="exams-check-row">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(form.unique)}
-                      onChange={(e) => setForm((p) => ({ ...p, unique: e.target.checked }))}
-                    />
-                    <span>Unique: no two records can have the same value</span>
-                  </label>
-                )}
-
-                {isDateLinkable && (
-                  <div className="exams-options-block">
-                    <SearchableSelect
-                      id={`${formId}-schedule-role`}
-                      label="Date chips (Exam management)"
-                      value={form.scheduleRole || ''}
-                      options={SCHEDULE_ROLE_OPTIONS}
-                      placeholder="Not used for chips"
-                      searchThreshold={8}
-                      onChange={(next) => setForm((p) => ({ ...p, scheduleRole: next }))}
-                    />
-                    <p className="exams-config-empty-hint">
-                      Map this field as Schedule start or Schedule end for Upcoming / Today / Last 7 days. One of each.
-                    </p>
-                    <SearchableSelect
-                      id={`${formId}-same-as`}
-                      label="Same as date field"
-                      value={form.sameAsFieldKey || ''}
-                      options={dateLinkOptions}
-                      placeholder="None"
-                      searchPlaceholder="Search date fields…"
-                      onChange={(next) =>
-                        setForm((p) => ({
-                          ...p,
-                          sameAsFieldKey: next,
-                          sameAsDefaultOn: next ? p.sameAsDefaultOn !== false : true,
-                        }))
-                      }
-                    />
-                    {form.sameAsFieldKey ? (
-                      <label className="exams-check-row">
-                        <input
-                          type="checkbox"
-                          checked={form.sameAsDefaultOn !== false}
-                          onChange={(e) =>
-                            setForm((p) => ({ ...p, sameAsDefaultOn: e.target.checked }))
-                          }
-                        />
-                        <span>Default “same as” ON in create form</span>
-                      </label>
-                    ) : (
-                      <p className="exams-config-empty-hint">
-                        {dateLinkOptions.length > 1
-                          ? 'Pick another date field to mirror on the create form.'
-                          : 'Add another date field first, then you can link this one to it.'}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {needsOptions && (
-                  <div className="exams-options-block">
-                    {(isChoiceField || form.dataType === 'tags') && (
-                      <div className="exams-form-group">
-                        <span className="exams-audit-label">Options source</span>
-                        <div className="exams-source-toggle" role="group" aria-label="Options source">
-                          <button
-                            type="button"
-                            className={`exams-source-btn ${(form.optionsSource || 'manual') === 'manual' ? 'active' : ''}`}
-                            onClick={() => {
-                              setForm((p) => ({ ...p, optionsSource: 'manual' }));
-                              if (error) setError('');
-                            }}
-                          >
-                            Manual
-                          </button>
-                          <button
-                            type="button"
-                            className={`exams-source-btn ${form.optionsSource === 'config' ? 'active' : ''}`}
-                            onClick={() => {
-                              setForm((p) => ({ ...p, optionsSource: 'config' }));
-                              if (error) setError('');
-                            }}
-                          >
-                            Config list
-                          </button>
-                          {isChoiceField && (
-                            <button
-                              type="button"
-                              className={`exams-source-btn ${form.optionsSource === 'table' ? 'active' : ''}`}
-                              onClick={() => {
-                                setForm((p) => ({ ...p, optionsSource: 'table' }));
-                                if (error) setError('');
-                              }}
-                            >
-                              Table column
-                            </button>
-                          )}
-                          {isChoiceField && (
-                            <button
-                              type="button"
-                              className={`exams-source-btn ${form.optionsSource === 'userTags' ? 'active' : ''}`}
-                              onClick={() => {
-                                setForm((p) => ({
-                                  ...p,
-                                  optionsSource: 'userTags',
-                                  // Keep current multi flag — Dropdown stays single; Multiselect dropdown stays multi.
-                                }));
-                                if (error) setError('');
-                              }}
-                            >
-                              User tags
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {isChoiceField && form.dataType !== 'multiselect' && form.dataType !== 'dropdown' && (
-                      <label className="exams-check-row">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(form.allowMultiple)}
-                          onChange={(e) =>
-                            setForm((p) => ({ ...p, allowMultiple: e.target.checked }))
-                          }
-                        />
-                        <span>Allow multiple selection</span>
-                      </label>
-                    )}
-                    {form.dataType === 'dropdown' && (
-                      <p className="exams-config-empty-hint">
-                        Dropdown allows one option only. Use Multiselect dropdown to pick several.
-                      </p>
-                    )}
-                    {form.dataType === 'multiselect' && form.optionsSource === 'userTags' && (
-                      <p className="exams-config-empty-hint">
-                        Multiselect: one center row can be assigned to several people (e.g. 2 VMs + 1 ZM).
-                        Assigned people see that row; empty means no extra restriction.
-                      </p>
-                    )}
-
-                    {form.optionsSource === 'userTags' ? (
-                      <TagMultiPicker
-                        value={form.userTagIds || []}
-                        onChange={(next) => {
-                          setForm((p) => ({ ...p, userTagIds: next }));
-                          if (error) setError('');
-                        }}
-                      />
-                    ) : form.optionsSource === 'table' ? (
-                      <>
-                        <SearchableSelect
-                          id={`${formId}-lookup-table`}
-                          label="Read from table"
-                          value={form.lookupTable}
-                          options={lookupSources.map((t) => ({ value: t.table, label: t.label }))}
-                          placeholder={lookupSources.length ? 'Select a table…' : 'Loading tables…'}
-                          searchThreshold={8}
-                          onChange={(next) => {
-                            setForm((p) => ({ ...p, lookupTable: next, lookupColumn: '', lookupDetail: '' }));
-                            if (error) setError('');
-                          }}
-                        />
-                        {form.lookupTable && (
-                          <>
-                            <SearchableSelect
-                              id={`${formId}-lookup-column`}
-                              label="Show this column"
-                              value={form.lookupColumn}
-                              options={lookupColumns.map((c) => ({ value: c.key, label: c.label }))}
-                              placeholder="Select a column…"
-                              searchPlaceholder="Search columns…"
-                              onChange={(next) => {
-                                setForm((p) => ({ ...p, lookupColumn: next }));
-                                if (error) setError('');
-                              }}
-                            />
-                            <SearchableSelect
-                              id={`${formId}-lookup-detail`}
-                              label="Also show (optional)"
-                              value={form.lookupDetail}
-                              options={[
-                                { value: '', label: 'None' },
-                                ...lookupColumns.filter((c) => c.key !== form.lookupColumn).map((c) => ({ value: c.key, label: c.label })),
-                              ]}
-                              placeholder="None"
-                              searchPlaceholder="Search columns…"
-                              onChange={(next) => setForm((p) => ({ ...p, lookupDetail: next }))}
-                            />
-                          </>
-                        )}
-                        {form.lookupTable && form.lookupColumn && (
-                          <div className="exams-fill-columns">
-                            <span className="exams-audit-label">Also fill from the same row</span>
-                            <p className="exams-config-empty-hint">
-                              Each ticked column becomes a read-only field that shows that column of the row picked here.
-                            </p>
-                            <div className="exams-fill-grid">
-                              {lookupColumns
-                                .filter((c) => c.key !== form.lookupColumn)
-                                .map((c) => (
-                                  <label key={c.key} className="exams-check-row">
-                                    <input
-                                      type="checkbox"
-                                      checked={(form.fillColumns || []).includes(c.key)}
-                                      onChange={(e) =>
-                                        setForm((p) => ({
-                                          ...p,
-                                          fillColumns: e.target.checked
-                                            ? [...(p.fillColumns || []), c.key]
-                                            : (p.fillColumns || []).filter((k) => k !== c.key),
-                                        }))
-                                      }
-                                    />
-                                    <span>{c.label}</span>
-                                  </label>
-                                ))}
-                            </div>
-                          </div>
-                        )}
-                        <p className="exams-config-empty-hint">
-                          Read live from that table each time the form opens. The field stores only the row, so a
-                          rename there shows up here. Nothing is copied.
-                        </p>
-                      </>
-                    ) : (form.optionsSource || 'manual') === 'manual' ? (
-                      <div className="exams-form-group">
-                        <label htmlFor={`${formId}-options`}>Options (one per line)</label>
-                        <textarea
-                          id={`${formId}-options`}
-                          value={form.optionsText}
-                          onChange={(e) => {
-                            setForm((p) => ({ ...p, optionsText: e.target.value }));
-                            if (error) setError('');
-                          }}
-                          placeholder={'Active\nInactive\nPending'}
-                          rows={5}
-                        />
-                      </div>
-                    ) : configListOptions.length === 0 ? (
-                      <p className="exams-config-empty-hint">
-                        No Config lists yet. Create one in Settings → Config, then come back.
-                      </p>
-                    ) : (
-                      <>
-                        <SearchableSelect
-                          id={`${formId}-config-list`}
-                          label="Config dropdown list"
-                          value={form.configListId || ''}
-                          options={configListOptions}
-                          placeholder="Select a list…"
-                          searchPlaceholder="Search lists…"
-                          onChange={(next) => {
-                            setForm((p) => ({ ...p, configListId: next }));
-                            if (error) setError('');
-                          }}
-                        />
-                        {previewConfigOptions.length > 0 && (
-                          <div className="exams-config-preview">
-                            <span className="exams-audit-label">Live options (follows Config)</span>
-                            <div className="exams-options-chips">
-                              {previewConfigOptions.map((opt) => (
-                                <span key={opt} className="exams-option-chip">
-                                  {opt}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {form.dataType === 'linked' && (
-                  <div className="exams-options-block">
-                    {linkSourceFields.length === 0 ? (
-                      <p className="exams-config-empty-hint">
-                        Add a field that reads from a table (options source “Table column”) first, then link to it here.
-                      </p>
-                    ) : (
-                      <>
-                        <SearchableSelect
-                          id={`${formId}-linked-field`}
-                          label="Read from field"
-                          value={form.linkedFieldKey}
-                          options={linkSourceFields.map((f) => ({ value: f.key, label: f.label }))}
-                          placeholder="Select a field…"
-                          searchThreshold={8}
-                          onChange={(next) => {
-                            setForm((p) => ({ ...p, linkedFieldKey: next, linkedColumn: '' }));
-                            if (error) setError('');
-                          }}
-                        />
-                        {linkSource && (
-                          <SearchableSelect
-                            id={`${formId}-linked-column`}
-                            label="Show this column"
-                            value={form.linkedColumn}
-                            options={linkColumns.map((c) => ({ value: c.key, label: c.label }))}
-                            placeholder={linkColumns.length ? 'Select a column…' : 'Loading columns…'}
-                            searchPlaceholder="Search columns…"
-                            onChange={(next) => {
-                              setForm((p) => ({ ...p, linkedColumn: next }));
-                              if (error) setError('');
-                            }}
-                          />
-                        )}
-                        <p className="exams-config-empty-hint">
-                          Read-only. Shows that column of the row picked in the field above, and follows it live.
-                        </p>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {form.dataType === 'fromExam' && (
-                  <div className="exams-options-block">
-                    {examFieldOptions.length === 0 ? (
-                      <p className="exams-config-empty-hint">
-                        “From exam” mirrors a value from Exam management onto every center row. Open this builder from a
-                        center list after exam fields exist.
-                      </p>
-                    ) : (
-                      <>
-                        <SearchableSelect
-                          id={`${formId}-exam-field`}
-                          label="Exam field to show"
-                          value={form.examFieldKey}
-                          options={examFieldOptions}
-                          placeholder="Select an exam field…"
-                          searchThreshold={8}
-                          onChange={(next) => {
-                            setForm((p) => ({ ...p, examFieldKey: next }));
-                            if (error) setError('');
-                          }}
-                        />
-                        <p className="exams-config-empty-hint">
-                          Read-only. Every center row shows that exam’s current value (not stored on the center).
-                        </p>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {needsFormula && (
-                  <div className="exams-form-group">
-                    <label htmlFor={`${formId}-formula`}>Formula</label>
-                    <input
-                      id={`${formId}-formula`}
-                      type="text"
-                      value={form.formula}
-                      onChange={(e) => {
-                        setForm((p) => ({ ...p, formula: e.target.value }));
-                        if (error) setError('');
-                      }}
-                      placeholder="e.g. {shifts} * {centres}"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="exams-drawer-footer exams-drawer-footer-compact">
-                <button type="button" className="exams-btn secondary compact" onClick={closeEditor}>
-                  Cancel
-                </button>
-                <button type="submit" className="exams-btn primary compact">
-                  <Plus size={14} />
-                  <span>{isEditing ? 'Save' : 'Create'}</span>
-                </button>
-              </div>
-            </form>
+            fieldEditor
           )}
-        </aside>
+        </Shell>
       </div>
       {groupsOpen && (
         <ColumnGroupsModal
@@ -1767,6 +2195,8 @@ export const ExamFieldBuilder = ({
           examId={examId}
           currentView={currentView}
           presetSources={presetSources}
+          autoOpenImport={bulkAutoImport}
+          initialImportPresetId={bulkImportPresetId}
           currentServiceValue={currentServiceValue}
           dateShifts={dateShifts}
           enableDateShifts={enableDateShifts}

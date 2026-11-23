@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as settingsController from './settings.controller.js';
 import * as platformSettingsController from './platform-settings.controller.js';
+import * as supportSettingsController from './support-settings.controller.js';
 import * as messageTemplatesController from './message-templates.controller.js';
 import * as emailIntegrationController from './integration-email.controller.js';
 import * as storageIntegrationController from './integration-storage.controller.js';
@@ -30,6 +31,10 @@ router.put(
 router.get('/platform', platformSettingsController.getPlatformSettings);
 router.put('/platform', requirePage('settings'), platformSettingsController.putPlatformSettings);
 router.post('/platform/branding/signature', requireSuperAdmin, platformSettingsController.getBrandingUploadSignature);
+
+/** Help & Support content: everyone reads (Help modal); the Settings page right can change it */
+router.get('/support', supportSettingsController.getSupportSettings);
+router.put('/support', requirePage('settings'), supportSettingsController.putSupportSettings);
 
 // Email templates: super admin only (they decide what every user receives)
 router.get('/message-templates', requireSuperAdmin, messageTemplatesController.list);

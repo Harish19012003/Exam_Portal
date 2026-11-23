@@ -1,5 +1,6 @@
-import { Vendor, SeqView } from '../../../database/entities/index.js';
+import { Vendor, SeqView, Device } from '../../../database/entities/index.js';
 import * as vendorFields from '../vendors/vendor-fields.repository.js';
+import * as deviceFields from '../devices/device-fields.repository.js';
 import * as seqViewFields from '../seq-views/seq-view-fields.repository.js';
 
 /**
@@ -32,6 +33,14 @@ register({
   entity: Vendor,
   accessTable: 'vendors',
   listColumns: () => vendorFields.listFields(),
+});
+
+register({
+  key: 'devices',
+  label: 'Device Master',
+  entity: Device,
+  accessTable: 'devices',
+  listColumns: () => deviceFields.listFields(),
 });
 
 register({

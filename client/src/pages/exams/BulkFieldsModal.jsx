@@ -685,6 +685,10 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  /** Open the Import picker as soon as Bulk add opens (rail shortcut “+ Import from preset”). */
+  autoOpenImport = false,
+  /** Prefill Import’s source preset (from the rail preset dropdown). */
+  initialImportPresetId = '',
   /** Current preset service — maps sharedFromView → source preset name for badges. */
   currentServiceValue = '',
   /** Existing unique-import config (features) so Import can re-edit it. */
@@ -1125,6 +1129,11 @@ export const BulkFieldsModal = ({
   // Explicit null = feature off; [] still shows the button (empty state inside the modal).
   const canImportFromPreset = !examId && Array.isArray(presetSources);
   const canImportShared = canImportFromExam || canImportFromPreset;
+  useEffect(() => {
+    if (autoOpenImport && canImportShared) openImportModal(false);
+    // Only on open — the shortcut should not re-trigger after the picker closes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     let cancelled = false;
     listLookupSources()
@@ -3847,6 +3856,7 @@ export const BulkFieldsModal = ({
           examId={canImportFromExam ? examId : null}
           currentView={currentView}
           presetSources={canImportFromPreset ? presetSources : null}
+          initialPresetId={initialImportPresetId}
           existingUniqueRowKeys={pendingUniqueRowKeys || uniqueRowKeys}
           existingUniqueRowAggregates={
             pendingUniqueRowAggregates || uniqueRowAggregates

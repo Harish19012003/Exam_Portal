@@ -5192,3 +5192,705 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
   .exams-field-select-delete { min-height: 44px; }
   .exams-field-row-check { width: 20px; height: 20px; }
 }
+
+/* ── Field builder · page variant (full-page editors, e.g. Settings → Field presets) ── */
+
+.exams-field-builder-host {
+  width: 100%;
+  min-width: 0;
+}
+
+.exams-field-builder--page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--bg-card, #ffffff);
+}
+
+.exams-field-builder--page .exams-drawer-body,
+.exams-field-builder--page .exams-field-list-body {
+  flex: none;
+  overflow: visible;
+  min-height: 0;
+}
+
+.exams-field-builder--page .exams-drawer-form > .exams-drawer-body {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.exams-drawer-footer--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  justify-content: flex-end;
+  padding: 12px clamp(12px, 3vw, 24px);
+  box-shadow: 0 -6px 18px rgba(3, 7, 18, 0.06);
+}
+
+.exams-drawer-footer--sticky .exams-btn {
+  flex: 0 0 auto;
+  min-width: 120px;
+}
+
+[data-theme='dark'] .exams-drawer-footer--sticky {
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 768px) {
+  .exams-drawer-footer--sticky .exams-btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* ── Field builder · page rail (Access-Rights style split: groups left, list right) ── */
+
+.efb-flow {
+  display: contents;
+}
+
+.exams-field-builder--page .efb-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 0;
+}
+
+.efb-rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-primary, #f9fafb);
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 100%;
+}
+
+.efb-rail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.efb-rail-title {
+  padding: 0 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+
+.efb-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary, #030712);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  min-width: 0;
+}
+
+.efb-rail-item svg {
+  flex-shrink: 0;
+  color: var(--text-secondary, #6b7280);
+}
+
+.efb-rail-item:hover {
+  background: rgba(92, 67, 250, 0.06);
+}
+
+.efb-rail-item:focus-visible {
+  outline: 2px solid var(--primary-color, #5c43fa);
+  outline-offset: 1px;
+}
+
+.efb-rail-item.is-active {
+  background: rgba(92, 67, 250, 0.1);
+  color: var(--primary-color, #5c43fa);
+}
+
+.efb-rail-item.is-active svg {
+  color: var(--primary-color, #5c43fa);
+}
+
+.efb-rail-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.efb-rail-count {
+  flex-shrink: 0;
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: var(--text-secondary, #6b7280);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.efb-rail-item.is-active .efb-rail-count {
+  border-color: rgba(92, 67, 250, 0.3);
+  color: var(--primary-color, #5c43fa);
+}
+
+.efb-rail-alert {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.efb-detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.efb-group-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.efb-group-hint {
+  margin: -4px 0 8px;
+  padding: 0 clamp(12px, 3vw, 24px);
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+/* "Used by" — which fields read from this one (linked fill, formula, same-as, combined). */
+.efb-used-by {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.efb-used-by-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  margin-right: 2px;
+}
+
+.efb-used-by-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #047857;
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.efb-used-by-chip em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.efb-used-by-chip.is-more {
+  background: transparent;
+}
+
+/* Page mode shows the full source name on the imported badge, so let it breathe. */
+.exams-field-builder--page .exams-field-imported-abbr {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .efb-rail {
+  background: rgba(255, 255, 255, 0.02);
+  border-right-color: var(--border-color, #1f2937);
+}
+
+[data-theme='dark'] .efb-rail-item {
+  color: var(--text-primary, #f9fafb);
+}
+
+[data-theme='dark'] .efb-rail-item:hover {
+  background: rgba(139, 122, 255, 0.1);
+}
+
+[data-theme='dark'] .efb-rail-item.is-active {
+  background: rgba(139, 122, 255, 0.18);
+  color: #b4a8ff;
+}
+
+[data-theme='dark'] .efb-rail-item.is-active svg,
+[data-theme='dark'] .efb-rail-item.is-active .efb-rail-count {
+  color: #b4a8ff;
+}
+
+[data-theme='dark'] .efb-rail-count {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color, #1f2937);
+}
+
+[data-theme='dark'] .efb-used-by-chip {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+@media (max-width: 1024px) {
+  .exams-field-builder--page .efb-split {
+    grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+  }
+}
+
+/* Phones / small tablets: rail becomes a horizontally scrolling chip strip above the list. */
+@media (max-width: 768px) {
+  .exams-field-builder--page .efb-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .efb-rail {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    flex-direction: row;
+    gap: 6px;
+    max-height: none;
+    min-height: 0;
+    padding: 8px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    background: var(--bg-card, #ffffff);
+    scrollbar-width: none;
+  }
+
+  .efb-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .efb-rail-section {
+    flex-direction: row;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .efb-rail-title {
+    display: none;
+  }
+
+  .efb-rail-item {
+    width: auto;
+    min-height: 44px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+
+  .efb-rail-label {
+    max-width: 180px;
+  }
+
+  [data-theme='dark'] .efb-rail {
+    background: var(--bg-card, #111827);
+  }
+}
+
+/* Page mode: field search sits on the "Fields · N" bar between the title and the actions. */
+.exams-field-builder--page .exams-field-section-bar {
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.exams-field-builder--page .efb-group-title {
+  flex: 0 1 auto;
+}
+
+.exams-field-list-search--inline {
+  flex: 1 1 260px;
+  max-width: 560px;
+  margin: 0 auto 0 8px;
+  min-height: 36px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.exams-field-list-search--inline input {
+  min-height: 34px;
+  padding: 6px 0;
+  text-transform: none;
+}
+
+.exams-field-builder--page .exams-field-section-actions {
+  flex-shrink: 0;
+}
+
+/* Tablet: keep one row but let the search shrink first. */
+@media (max-width: 1024px) {
+  .exams-field-list-search--inline {
+    flex-basis: 180px;
+  }
+}
+
+/* Mobile: search drops to its own full-width row under the title + actions. */
+@media (max-width: 768px) {
+  .exams-field-builder--page .exams-field-section-bar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .exams-field-list-search--inline {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .exams-field-list-search--inline input {
+    min-height: 44px;
+  }
+}
+
+/* Page mode: cap the editor to the viewport (like Access Rights). Rail and field list scroll on
+   their own; the "Fields · N" bar stays pinned at the top of the list, Save bar stays below. */
+.exams-field-builder--page {
+  --efb-split-max: max(420px, calc(100dvh - 260px));
+}
+
+.exams-field-builder--page .efb-split {
+  align-items: stretch;
+  max-height: var(--efb-split-max);
+  overflow: hidden;
+}
+
+.exams-field-builder--page .efb-rail {
+  position: static;
+  max-height: var(--efb-split-max);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.exams-field-builder--page .efb-detail {
+  max-height: var(--efb-split-max);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Phones: rail is a chip strip, so let the page scroll naturally instead. */
+@media (max-width: 768px) {
+  .exams-field-builder--page .efb-split,
+  .exams-field-builder--page .efb-detail {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .exams-field-builder--page .efb-rail {
+    position: sticky;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+/* Rail background runs the full height of the list column. */
+.exams-field-builder--page .efb-rail {
+  align-self: stretch;
+}
+
+/* Rail action (e.g. "+ Import from preset") — dashed, accent text, sits under its section. */
+.efb-rail-action {
+  margin-top: 4px;
+  border: 1px dashed rgba(92, 67, 250, 0.35);
+  color: var(--primary-color, #5c43fa);
+}
+
+.efb-rail-action svg {
+  color: var(--primary-color, #5c43fa);
+}
+
+.efb-rail-action:hover,
+.efb-rail-action.is-open {
+  border-style: solid;
+  background: rgba(92, 67, 250, 0.06);
+}
+
+.efb-rail-import {
+  position: relative;
+  margin-top: 4px;
+}
+
+.efb-rail-import .efb-rail-action {
+  margin-top: 0;
+  width: 100%;
+}
+
+.efb-rail-import-menu {
+  position: fixed;
+  z-index: 1400;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-card, #ffffff);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  box-sizing: border-box;
+}
+
+.efb-rail-import-hint {
+  padding: 4px 8px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+}
+
+.efb-rail-import-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary, #030712);
+  cursor: pointer;
+}
+
+.efb-rail-import-option:hover,
+.efb-rail-import-option:focus-visible {
+  background: rgba(92, 67, 250, 0.08);
+  outline: none;
+}
+
+.efb-rail-import-name {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.efb-rail-import-meta {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary, #6b7280);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.efb-rail-import-count {
+  font-weight: 400;
+  color: var(--text-secondary, #9ca3af);
+}
+
+[data-theme='dark'] .efb-rail-action,
+[data-theme='dark'] .efb-rail-action svg {
+  color: #b4a8ff;
+  border-color: rgba(139, 122, 255, 0.4);
+}
+
+[data-theme='dark'] .efb-rail-import-menu {
+  background: #111827;
+  border-color: #1f2937;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .efb-rail-import-option:hover,
+[data-theme='dark'] .efb-rail-import-option:focus-visible {
+  background: rgba(139, 122, 255, 0.14);
+}
+
+@media (max-width: 768px) {
+  .efb-rail-action {
+    margin-top: 0;
+  }
+}
+
+/* ── Page mode: field editor opens inline, right under the row being edited ─────── */
+.exams-field-row.is-editing {
+  background: rgba(92, 67, 250, 0.06);
+  box-shadow: inset 3px 0 0 var(--primary-color, #5c43fa);
+}
+
+.efb-inline-editor {
+  list-style: none;
+  margin: 4px clamp(8px, 2vw, 16px) 12px;
+  border: 1px solid rgba(92, 67, 250, 0.3);
+  border-radius: 12px;
+  background: var(--bg-card, #ffffff);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  animation: efbInlineIn 0.18s ease-out;
+}
+
+.efb-inline-editor--new {
+  margin-top: 12px;
+}
+
+@keyframes efbInlineIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.efb-inline-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: rgba(92, 67, 250, 0.05);
+  font-size: 12.5px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.efb-inline-editor-head svg {
+  color: var(--primary-color, #5c43fa);
+}
+
+.efb-inline-editor-head strong {
+  color: var(--text-primary, #030712);
+}
+
+/* The form inside fills the card (no drawer max-width / scroll). */
+.exams-field-builder--page .efb-inline-editor .exams-drawer-form > .exams-drawer-body {
+  max-width: none;
+  margin: 0;
+  overflow: visible;
+  padding: 16px;
+}
+
+.exams-field-builder--page .efb-inline-editor .exams-drawer-form {
+  display: block;
+  height: auto;
+}
+
+.efb-inline-editor-foot {
+  position: static;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-primary, #f9fafb);
+}
+
+.efb-inline-editor-foot .exams-btn {
+  flex: 0 0 auto;
+  min-width: 110px;
+}
+
+[data-theme='dark'] .exams-field-row.is-editing {
+  background: rgba(139, 122, 255, 0.1);
+}
+
+[data-theme='dark'] .efb-inline-editor {
+  background: var(--bg-card, #111827);
+  border-color: rgba(139, 122, 255, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='dark'] .efb-inline-editor-head,
+[data-theme='dark'] .efb-inline-editor-foot {
+  border-color: var(--border-color, #1f2937);
+}
+
+[data-theme='dark'] .efb-inline-editor-head strong {
+  color: var(--text-primary, #f9fafb);
+}
+
+[data-theme='dark'] .efb-inline-editor-foot {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+@media (max-width: 768px) {
+  .efb-inline-editor {
+    margin-inline: 0;
+    border-radius: 10px;
+  }
+
+  .efb-inline-editor-foot .exams-btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .efb-inline-editor {
+    animation: none;
+  }
+}
+
+/* Let in-form dropdowns overflow the inline card; round the head/foot instead of clipping. */
+.efb-inline-editor,
+.exams-field-builder--page .efb-inline-editor .exams-drawer-form {
+  overflow: visible;
+}
+
+.efb-inline-editor-head {
+  border-radius: 11px 11px 0 0;
+}
+
+.efb-inline-editor-foot {
+  border-radius: 0 0 11px 11px;
+}
