@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ArrowLeft, ChevronRight, KeyRound, LayoutTemplate, Save } from 'lucide-react';
 import {
   CALLING_EXPAND_MODES,
+  CALLING_LABEL_DEFAULT_TARGET_KEY,
   CALLING_LABEL_MODES,
   DEFAULT_EXAM_VIEW,
   EXAM_VIEWS,
@@ -30,6 +31,62 @@ import { FIELD_GROUP_ALL, FIELD_GROUP_DETAILS } from '../exams/fieldGroups';
 import { useUrlState } from '../../hooks/useUrlState';
 
 const NONE_VALUE = '__none__';
+
+/** Quick picks shown in the left rail for Op/Guard Calling presets. */
+const CALLING_RULE_BIO = 'bio';
+const CALLING_RULE_GUARD = 'guard';
+const CALLING_RULE_NONE = 'none';
+
+const defaultFriskingCategories = () => [
+  {
+    ...emptyCallingLabelCategory(),
+    id: 'male',
+    matchLabel: 'Male',
+    headCandidate: true,
+    headLabel: 'H M Guard',
+    itemPrefix: 'M Guard',
+    priority: 10,
+  },
+  {
+    ...emptyCallingLabelCategory(),
+    id: 'female',
+    matchLabel: 'Female',
+    headCandidate: true,
+    headLabel: 'H F Guard',
+    itemPrefix: 'F Guard',
+    priority: 20,
+  },
+  {
+    ...emptyCallingLabelCategory(),
+    id: 'baggage',
+    matchLabel: 'Baggage',
+    headCandidate: false,
+    headLabel: '',
+    itemPrefix: 'Baggage',
+    priority: 30,
+  },
+];
+
+/** Prefer biometric_designation / designation if those columns exist on the preset. */
+const resolveCallingLabelTargetKey = (fields, currentKey = '') => {
+  const keys = new Set((fields || []).map((f) => String(f?.key || '').trim()).filter(Boolean));
+  const want = String(currentKey || '').trim();
+  if (want && keys.has(want)) return want;
+  if (keys.has('biometric_designation')) return 'biometric_designation';
+  if (keys.has(CALLING_LABEL_DEFAULT_TARGET_KEY)) return CALLING_LABEL_DEFAULT_TARGET_KEY;
+  const byLabel = (fields || []).find((f) =>
+    /designation/i.test(String(f?.label || f?.key || '')),
+  );
+  if (byLabel?.key) return byLabel.key;
+  return want || CALLING_LABEL_DEFAULT_TARGET_KEY;
+};
+
+const callingRuleIdFromFeatures = (features) => {
+  const label = normalizeCallingLabel(features?.callingLabel);
+  if (label.mode === CALLING_LABEL_MODES.FIRST_NUMBERED) return CALLING_RULE_BIO;
+  if (label.mode === CALLING_LABEL_MODES.CATEGORY_HEAD) return CALLING_RULE_GUARD;
+  return CALLING_RULE_NONE;
+};
 
 const emptyForm = () => ({
   id: null,
@@ -179,6 +236,57 @@ export const FieldPresetEditorPage = ({
   }, []);
   const onFieldsChange = useCallback((fields) => patchForm({ fields }), [patchForm]);
 
+  /** Left-rail quick pick: Bio (Supervisor/Bio Opr) or Guard (H M / H F). */
+  const applyCallingRule = useCallback(
+    (ruleId) => {
+      setForm((prev) => {
+        if (!prev) return prev;
+        const expand = normalizeCallingExpand(prev.features?.callingExpand);
+        const label = normalizeCallingLabel(prev.features?.callingLabel);
+        const targetKey = resolveCallingLabelTargetKey(prev.fields, label.targetKey);
+        let nextExpand = { ...expand };
+        let nextLabel = { ...label, targetKey };
+
+        if (ruleId === CALLING_RULE_BIO) {
+          nextExpand = { ...expand, mode: CALLING_EXPAND_MODES.MAX_DAY_N };
+          nextLabel = {
+            ...label,
+            mode: CALLING_LABEL_MODES.FIRST_NUMBERED,
+            targetKey,
+            firstLabel: label.firstLabel || 'Supervisor',
+            restPrefix: label.restPrefix || 'Bio Opr',
+          };
+        } else if (ruleId === CALLING_RULE_GUARD) {
+          nextExpand = { ...expand, mode: CALLING_EXPAND_MODES.CATEGORY_COUNTS };
+          nextLabel = {
+            ...label,
+            mode: CALLING_LABEL_MODES.CATEGORY_HEAD,
+            targetKey,
+            categories:
+              label.categories?.length > 0 ? label.categories : defaultFriskingCategories(),
+          };
+        } else {
+          nextLabel = {
+            ...label,
+            mode: CALLING_LABEL_MODES.NONE,
+            targetKey,
+          };
+        }
+
+        return {
+          ...prev,
+          features: {
+            ...plainFeatures(prev.features),
+            callingExpand: nextExpand,
+            callingLabel: nextLabel,
+          },
+        };
+      });
+      setFormError('');
+    },
+    [],
+  );
+
   const handleSave = async () => {
     if (!form || saving) return;
     const invalid = !form.name.trim()
@@ -242,7 +350,7 @@ export const FieldPresetEditorPage = ({
         <div className="fpe-head">
           <button type="button" className="fpe-back" onClick={exit}>
             <ArrowLeft size={16} aria-hidden="true" />
-            <span>Field presets</span>
+            <span>Service preset</span>
           </button>
         </div>
         <div className="fpe-state" role={missing ? 'alert' : 'status'}>
@@ -250,7 +358,7 @@ export const FieldPresetEditorPage = ({
           <p>{missing ? 'This preset no longer exists. It may have been deleted.' : 'Loading preset…'}</p>
           {missing && (
             <button type="button" className="exams-btn secondary compact" onClick={exit}>
-              Back to Field presets
+              Back to Service preset
             </button>
           )}
         </div>
@@ -290,11 +398,11 @@ export const FieldPresetEditorPage = ({
       className={`fpe-back${inline ? ' fpe-back--icon' : ''}`}
       onClick={leave}
       disabled={saving}
-      title="Back to Field presets"
-      aria-label="Back to Field presets"
+      title="Back to Service preset"
+      aria-label="Back to Service preset"
     >
       <ArrowLeft size={inline ? 18 : 16} aria-hidden="true" />
-      {!inline && <span>Field presets</span>}
+      {!inline && <span>Service preset</span>}
     </button>
   );
   const presetTitle = form.name.trim() || (isNew ? 'New preset' : 'Untitled preset');
@@ -320,7 +428,7 @@ export const FieldPresetEditorPage = ({
           {inline && (
             <>
               <button type="button" className="fpe-crumb" onClick={leave} disabled={saving}>
-                Field presets
+                Service preset
               </button>
               <ChevronRight size={16} className="fpe-crumb-sep" aria-hidden="true" />
             </>
@@ -372,6 +480,25 @@ export const FieldPresetEditorPage = ({
         onActiveGroupChange={setActiveGroup}
         detailsLabel="Preset details"
         detailsAlert={detailsIncomplete}
+        railExtra={
+          form.view === OPERATOR_GUARD_CALLING_VIEW ? (
+            <div className="efb-rail-section efb-rail-calling-rule">
+              <div className="efb-rail-title">Op/Guard Calling rule</div>
+              <SearchableSelect
+                id={`${formId}-rail-calling-rule`}
+                portal
+                ariaLabel="Op/Guard Calling rule"
+                value={callingRuleIdFromFeatures(form.features)}
+                onChange={(v) => applyCallingRule(v)}
+                options={[
+                  { value: CALLING_RULE_BIO, label: 'Supervisor + Bio Opr' },
+                  { value: CALLING_RULE_GUARD, label: 'H M / H F Guard' },
+                  { value: CALLING_RULE_NONE, label: 'None (manual)' },
+                ]}
+              />
+            </div>
+          ) : null
+        }
         fields={form.fields}
         title={isNew ? 'New preset' : 'Edit preset'}
         subtitle={subtitle}
@@ -380,7 +507,7 @@ export const FieldPresetEditorPage = ({
         currentView={form.view}
         presetSources={otherPresets}
         currentServiceValue={form.serviceValue || ''}
-        bulkWorkingContext={['Field preset', form.name?.trim() || null, form.serviceValue?.trim() || null, examViewLabel(form.view)]
+        bulkWorkingContext={['Service preset', form.name?.trim() || null, form.serviceValue?.trim() || null, examViewLabel(form.view)]
           .filter(Boolean)
           .join(' · ')}
         onClose={leave}
@@ -488,35 +615,6 @@ export const FieldPresetEditorPage = ({
                   },
                 });
               };
-              const defaultFriskingCategories = () => [
-                {
-                  ...emptyCallingLabelCategory(),
-                  id: 'male',
-                  matchLabel: 'Male',
-                  headCandidate: true,
-                  headLabel: 'H M Guard',
-                  itemPrefix: 'M Guard',
-                  priority: 10,
-                },
-                {
-                  ...emptyCallingLabelCategory(),
-                  id: 'female',
-                  matchLabel: 'Female',
-                  headCandidate: true,
-                  headLabel: 'H F Guard',
-                  itemPrefix: 'F Guard',
-                  priority: 20,
-                },
-                {
-                  ...emptyCallingLabelCategory(),
-                  id: 'baggage',
-                  matchLabel: 'Baggage',
-                  headCandidate: false,
-                  headLabel: '',
-                  itemPrefix: 'Baggage',
-                  priority: 30,
-                },
-              ];
               return (
                 <div className="fpp-calling-features">
                   <div className="config-form-group fpp-calling-expand">

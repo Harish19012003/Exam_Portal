@@ -5,9 +5,8 @@ import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES } from '@exam-view/shared';
 
 /**
- * Device documents are flat: system fields plus one top-level key per custom field.
- * Documents written before this change keep their values under `values`; they are still
- * read (flattened) and are rewritten flat the next time they are edited.
+ * Param rows in `device_param`: system fields plus one top-level key per custom field.
+ * Each row belongs to one bio exam via `exam_id`.
  */
 const toApi = (doc) => {
   if (!doc) return null;
@@ -44,6 +43,17 @@ export class DeviceRepository {
     return docs.map(toApi);
   }
 
+  async findByExamId(examId) {
+    const em = getEm();
+    const id = String(examId || '').trim();
+    if (!id) return [];
+    const docs = await em.aggregate(Device, [
+      { $match: { exam_id: id } },
+      { $sort: { created_at: -1 } },
+    ]);
+    return docs.map(toApi);
+  }
+
   /** @param {object} data flat custom field values (already validated/encoded) */
   async create(data) {
     const em = getEm();
@@ -77,8 +87,9 @@ export class DeviceRepository {
     if (version !== undefined && version !== null && version !== current) throw conflict();
 
     const legacy = doc.values && typeof doc.values === 'object' ? doc.values : null;
+    const { exam_id: _ignoreExamId, ...safeData } = data || {};
     const update = {
-      $set: { ...(legacy || {}), ...(data || {}), version: current + 1, updated_at: new Date() },
+      $set: { ...(legacy || {}), ...safeData, version: current + 1, updated_at: new Date() },
     };
     if (doc.values !== undefined) update.$unset = { values: '' };
 

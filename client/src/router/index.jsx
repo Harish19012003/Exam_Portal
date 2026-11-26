@@ -20,7 +20,7 @@ import { TablesPage } from '../pages/TablesPage';
 import { ExamDayPage } from '../pages/ExamDayPage';
 import { ExamSubRoute, ExamIndexRedirect } from '../pages/ExamSubPage';
 import { VendorsPage } from '../pages/VendorsPage';
-import { DeviceMasterPage } from '../pages/DeviceMasterPage';
+import { DeviceMasterIndexRedirect, DeviceMasterSubRoute } from '../pages/DeviceMasterSubPage';
 import { SeqViewPage } from '../pages/SeqViewPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -117,7 +117,11 @@ const appRoutes = [
           },
           {
             path: '/device-master',
-            element: <PageGate page="device_master"><DeviceMasterPage /></PageGate>,
+            element: <PageGate page="device_master"><DeviceMasterIndexRedirect /></PageGate>,
+          },
+          {
+            path: '/device-master/:subTab',
+            element: <PageGate page="device_master"><DeviceMasterSubRoute /></PageGate>,
           },
           {
             path: '/vendors',

@@ -13,6 +13,7 @@ import {
   useDevicesConfig,
   useDevicesList,
 } from '../hooks/useDevicesQuery';
+import { useDeviceMasterBioExam } from '../hooks/useDeviceMasterBioExam.jsx';
 import { TABLE_IDS } from '../constants/tableIds';
 import { BulkFieldsModal } from './exams/BulkFieldsModal';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
@@ -24,14 +25,18 @@ import {
 } from './exams/runModeAwareImport';
 import { useConfigLists } from './settings/useConfigLists';
 import { DeviceApiModal } from './DeviceApiModal';
+import { buildDeviceApiImportFields } from './deviceApiImportColumns';
+import { deviceMasterViewMeta } from './deviceMasterViews';
 import './ExamsPage.css';
 
 /** `devices` keeps only these fixed columns; no custom field may use them. */
-const RESERVED_DEVICE_KEYS = ['id', 'version', 'created_at', 'updated_at'];
+const RESERVED_DEVICE_KEYS = ['id', 'version', 'created_at', 'updated_at', 'exam_id'];
 const SYSTEM_VALUE_KEYS = new Set(RESERVED_DEVICE_KEYS);
+const VIEW = deviceMasterViewMeta('devices');
 
 export const DeviceMasterPage = () => {
   const configVersion = useConfigLists();
+  const { examId: bioExamId } = useDeviceMasterBioExam();
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.documentElement.getAttribute('data-theme') === 'dark' ||
            localStorage.getItem('theme') === 'dark';
@@ -48,13 +53,15 @@ export const DeviceMasterPage = () => {
     onResetLayoutToDefault,
   } = useTableLayoutPrefs(TABLE_IDS.DEVICES);
 
-  const listQuery = useDevicesList();
+  const listQuery = useDevicesList(bioExamId);
   const configQuery = useDevicesConfig();
-  const { invalidateList, refetchList, setList, setConfigFields } = useInvalidateDevices();
+  const { invalidateList, refetchList, setList, setConfigFields } = useInvalidateDevices(bioExamId);
   const rows = listQuery.data || [];
   const customFields = Array.isArray(configQuery.data?.fields) ? configQuery.data.fields : [];
   const showSkeleton =
-    !layoutReady || (listQuery.isPending && !listQuery.data) || (configQuery.isPending && !configQuery.data);
+    !layoutReady ||
+    (Boolean(bioExamId) && listQuery.isPending && !listQuery.data) ||
+    (configQuery.isPending && !configQuery.data);
 
   // Confirmations and errors show as toasts (top right) instead of a banner that shifts the table down.
   const { addToast } = useToast();
@@ -67,6 +74,8 @@ export const DeviceMasterPage = () => {
   const saveChain = useRef(Promise.resolve());
   const [savingFields, setSavingFields] = useState(false);
   const [fieldsError, setFieldsError] = useState('');
+  const [seedingImportFields, setSeedingImportFields] = useState(false);
+  const importFieldsSeededRef = useRef(false);
   const { access, can } = useAccess();
   const canConfigure = can('devices', 'configure');
   const tablePerms = useMemo(() => tablePermissions(access, 'devices'), [access]);
@@ -172,6 +181,41 @@ export const DeviceMasterPage = () => {
     }
   };
 
+  /** Persist the TrustView import columns (Shift type / code / Date / Shift indicate). */
+  const seedApiImportFields = useCallback(async () => {
+    if (!canConfigure || seedingImportFields || customFields.length > 0) return;
+    setSeedingImportFields(true);
+    setFieldsError('');
+    const fields = buildDeviceApiImportFields();
+    try {
+      const res = await apiClient.put('/devices/config', { fields });
+      const data = res.data?.data || res.data || {};
+      setConfigFields(Array.isArray(data.fields) ? data.fields : fields);
+      setSuccessMsg('Added Shift type, Shift code, Date, and Shift indicate.');
+      await invalidateList();
+    } catch (err) {
+      importFieldsSeededRef.current = false;
+      setErrorMsg(err.response?.data?.message || err.message || 'Could not add the import columns.');
+    } finally {
+      setSeedingImportFields(false);
+    }
+  }, [canConfigure, seedingImportFields, customFields.length, setConfigFields, setSuccessMsg, setErrorMsg, invalidateList]);
+
+  // Empty Device Master → apply the API import column setup once.
+  useEffect(() => {
+    if (!canConfigure || showSkeleton || !configQuery.isSuccess) return;
+    if (customFields.length > 0 || importFieldsSeededRef.current || seedingImportFields) return;
+    importFieldsSeededRef.current = true;
+    seedApiImportFields();
+  }, [
+    canConfigure,
+    showSkeleton,
+    configQuery.isSuccess,
+    customFields.length,
+    seedingImportFields,
+    seedApiImportFields,
+  ]);
+
   useEffect(() => {
     const observer = new MutationObserver(() => {
       setIsDarkMode(document.documentElement.getAttribute('data-theme') === 'dark');
@@ -269,6 +313,11 @@ export const DeviceMasterPage = () => {
 
   // ── CSV / paste import: Add / Update / Upsert / Replace all ──
   const handleImportRows = async (csvRows, handlers) => {
+    if (!bioExamId) {
+      const msg = 'Select a bio exam before importing Param rows.';
+      setErrorMsg(msg);
+      throw new Error(msg);
+    }
     const mode = handlers?.mode || 'add';
     const matchKey = String(handlers?.matchKey || '').trim();
     const byHeader = new Map();
@@ -303,7 +352,7 @@ export const DeviceMasterPage = () => {
         chunkSize: 400,
         onProgress: handlers?.onProgress,
         createBatch: async (batch) => {
-          await apiClient.post('/devices/import', { rows: batch });
+          await apiClient.post('/devices/import', { examId: bioExamId, rows: batch });
         },
         updateOne: async (id, values) => {
           await apiClient.patch(`/devices/${encodeURIComponent(id)}`, { values });
@@ -335,8 +384,8 @@ export const DeviceMasterPage = () => {
     <PageShell fill className="tables-page--dynamic">
       {/* Page Header */}
       <PageHeading
-        title="Device Master"
-        subtitle="One device list for the whole portal — serials, models and where each device is assigned."
+        title={VIEW.title}
+        subtitle={VIEW.subtitle}
         actions={
           canConfigure ? (
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -366,15 +415,22 @@ export const DeviceMasterPage = () => {
               borderRadius: '14px',
             }}
           >
-            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #030712)' }}>No device fields yet</p>
+            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #030712)' }}>
+              {seedingImportFields ? 'Adding import columns…' : 'No device fields yet'}
+            </p>
             <p style={{ margin: '6px 0 0', fontSize: '13px' }}>
               {canConfigure
-                ? 'Add the columns this table needs, one at a time or many at once.'
+                ? seedingImportFields
+                  ? 'Saving Shift type, Shift code, Date, and Shift indicate.'
+                  : 'Add the columns this table needs, one at a time or many at once.'
                 : 'An administrator needs to create the device fields first.'}
             </p>
-            {canConfigure && (
+            {canConfigure && !seedingImportFields && (
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap', marginTop: '18px' }}>
-                <Button variant="primary" icon={<Plus size={16} />} onClick={openAddField}>
+                <Button variant="primary" icon={<Plus size={16} />} onClick={() => seedApiImportFields()}>
+                  Add shift columns
+                </Button>
+                <Button icon={<Plus size={16} />} onClick={openAddField}>
                   Add a field
                 </Button>
                 <Button icon={<ListPlus size={16} />} onClick={openBulkFields}>
@@ -444,6 +500,9 @@ export const DeviceMasterPage = () => {
         onClose={() => setApiOpen(false)}
         onFetched={refreshRows}
         onNotify={setSuccessMsg}
+        examId={bioExamId}
+        view="devices"
+        title="Param · API request"
       />
 
       <ExamFieldBuilder

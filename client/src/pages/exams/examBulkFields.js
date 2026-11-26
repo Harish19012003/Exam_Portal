@@ -173,6 +173,16 @@ export const toFieldDefinition = (item, order) => {
       separator: item.combine.separator == null ? ', ' : String(item.combine.separator),
     };
   }
+  if (item.dataType === 'summary' && item.summary?.matchKeys?.length && item.summary?.valueKeys?.length) {
+    def.summary = {
+      sourceView: String(item.summary.sourceView || ''),
+      sourceLabel: String(item.summary.sourceLabel || ''),
+      matchKeys: item.summary.matchKeys.map(String),
+      valueKeys: item.summary.valueKeys.map(String),
+      fieldSeparator: item.summary.fieldSeparator == null ? ' – ' : String(item.summary.fieldSeparator),
+      rowSeparator: item.summary.rowSeparator == null ? '\n' : String(item.summary.rowSeparator),
+    };
+  }
   if (item.focusDateColumn === 'totalCenter' || item.focusDateColumn === 'maxAllDay') {
     def.focusDateColumn = item.focusDateColumn;
   }

@@ -4568,6 +4568,16 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
 }
 
 /* Bulk modal: read-only chips in the Fields grid for linked rows */
+button.exams-bulk-static-chip {
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  button.exams-bulk-static-chip {
+    min-height: 44px;
+  }
+}
+
 .exams-bulk-static-chip,
 .exams-bulk-dep-link {
   display: inline-flex;
@@ -5345,6 +5355,21 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
   white-space: nowrap;
 }
 
+.efb-rail-calling-rule {
+  padding: 0 4px 4px;
+}
+
+.efb-rail-calling-rule .exams-search-select {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+.efb-rail-calling-rule .exams-search-select-trigger {
+  min-height: 44px;
+  width: 100%;
+}
+
 .efb-rail-count {
   flex-shrink: 0;
   min-width: 28px;
@@ -5893,4 +5918,40 @@ html.dark .exams-dynamic-table-wrap table tbody span[class*='rounded-md']:not(.d
 
 .efb-inline-editor-foot {
   border-radius: 0 0 11px 11px;
+}
+
+/* ── Device Master · empty placeholder pages ──────────────────────────────── */
+.dm-tab-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  min-height: 220px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+  background: var(--bg-card, #ffffff);
+  border: 1px dashed var(--border-color, #e5e7eb);
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.dm-tab-empty-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #030712);
+}
+
+.dm-tab-empty-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+[data-theme='dark'] .dm-tab-empty {
+  background: var(--bg-card, #111827);
+  border-color: var(--border-color, #1f2937);
 }

@@ -203,6 +203,59 @@ export const saveConfig = (examId, body = {}) =>
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/;
 const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/** Build YYYY-MM-DD when the calendar day exists. Two-digit years land in 2000–2099. */
+const toIsoDate = (y, m, d) => {
+  const year = Number(y);
+  const month = Number(m);
+  const day = Number(d);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const fullYear = year < 100 ? 2000 + year : year;
+  if (fullYear < 1900 || fullYear > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const dt = new Date(Date.UTC(fullYear, month - 1, day));
+  if (dt.getUTCFullYear() !== fullYear || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return null;
+  return `${fullYear}-${pad2(month)}-${pad2(day)}`;
+};
+
+/**
+ * Spreadsheet dates (`11/19/2026`, `19-11-2026`, `19 Nov 2026`, ISO with a time)
+ * become `YYYY-MM-DD`. When both numbers are ≤ 12, the first is the day.
+ * Returns null when the text is not a date.
+ */
+const normalizeDate = (raw) => {
+  let s = String(raw ?? '').trim();
+  if (!s) return null;
+  s = s.replace(/[T ]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/i, '').trim();
+  s = s.replace(/,/g, ' ').replace(/\s+/g, ' ');
+  if (DATE_RE.test(s)) return s;
+
+  let m = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/.exec(s);
+  if (m) return toIsoDate(m[1], m[2], m[3]);
+
+  m = /^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2,4})$/.exec(s);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a > 12 && b <= 12) return toIsoDate(m[3], b, a);
+    if (b > 12 && a <= 12) return toIsoDate(m[3], a, b);
+    return toIsoDate(m[3], b, a);
+  }
+
+  m = /^(\d{1,2})[ -]([A-Za-z]{3,9})[ -](\d{2,4})$/.exec(s);
+  if (m) {
+    const month = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    if (month) return toIsoDate(m[3], month, m[1]);
+  }
+  m = /^([A-Za-z]{3,9})[ -](\d{1,2})[ -](\d{2,4})$/.exec(s);
+  if (m) {
+    const month = MONTHS[m[1].slice(0, 3).toLowerCase()];
+    if (month) return toIsoDate(m[3], month, m[2]);
+  }
+  return null;
+};
 
 const isEmpty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
@@ -219,9 +272,11 @@ const cleanCell = (field, raw) => {
     case 'rating':
       if (!Number.isFinite(Number(raw))) throw fail('must be a number');
       return Number(raw);
-    case 'date':
-      if (!DATE_RE.test(String(raw))) throw fail('must be a valid date');
-      return String(raw);
+    case 'date': {
+      const iso = normalizeDate(raw);
+      if (!iso) throw fail('must be a valid date (for example 2026-11-19 or 19/11/2026)');
+      return iso;
+    }
     case 'datetime':
       if (!DATETIME_RE.test(String(raw))) throw fail('must be a valid date and time');
       return String(raw);
@@ -371,13 +426,20 @@ export const getRow = (examId, rowId) =>
 const isCombinedField = (field) =>
   field?.dataType === 'combined' && Array.isArray(field?.combine?.keys) && field.combine.keys.length >= 2;
 
+const isSummaryField = (field) =>
+  field?.dataType === 'summary' &&
+  Array.isArray(field?.summary?.matchKeys) &&
+  field.summary.matchKeys.length >= 1 &&
+  Array.isArray(field?.summary?.valueKeys) &&
+  field.summary.valueKeys.length >= 1;
+
 /**
  * Shared imports + combined are display-only on shared tabs.
  * Exam Day is a live Center list view — writes go to center-list rows (+ `__exam_day` meta).
  */
 const writableViewFields = (fields, view = DEFAULT_EXAM_VIEW) =>
   (fields || []).filter((f) => {
-    if (isCombinedField(f)) return false;
+    if (isCombinedField(f) || isSummaryField(f)) return false;
     if (isOwnRowSetView(view)) return true;
     return !isSharedImportedField(f);
   });

@@ -2,7 +2,7 @@ import { getEm } from '../../../database/connection.js';
 import { DeviceMeta } from '../../../database/entities/index.js';
 
 export const DEVICE_TABLE = 'devices';
-export const DEVICE_RESERVED_KEYS = ['id', 'version', 'created_at', 'updated_at', 'values', '_id'];
+export const DEVICE_RESERVED_KEYS = ['id', 'version', 'created_at', 'updated_at', 'exam_id', 'values', '_id'];
 
 const META_ID = '1';
 
@@ -72,6 +72,29 @@ export const saveApiConfig = async (apiConfig, userId) => {
   const em = getEm();
   const meta = await ensureMeta(em);
   em.assign(meta, { api_config: apiConfig, updated_by: userId || null, updated_at: new Date() });
+  await em.flush();
+};
+
+/** Per-tab API config (Stats Center, CSR, …). Param/legacy still uses `api_config`. */
+export const getApiConfigForView = async (viewKey) => {
+  const key = String(viewKey || '').trim() || 'devices';
+  const meta = await ensureMeta(getEm());
+  if (key === 'devices') return meta.api_config ?? null;
+  const map = meta.api_configs && typeof meta.api_configs === 'object' ? meta.api_configs : {};
+  return map[key] ?? null;
+};
+
+export const saveApiConfigForView = async (viewKey, apiConfig, userId) => {
+  const key = String(viewKey || '').trim() || 'devices';
+  const em = getEm();
+  const meta = await ensureMeta(em);
+  if (key === 'devices') {
+    em.assign(meta, { api_config: apiConfig, updated_by: userId || null, updated_at: new Date() });
+  } else {
+    const map = { ...(meta.api_configs && typeof meta.api_configs === 'object' ? meta.api_configs : {}) };
+    map[key] = apiConfig;
+    em.assign(meta, { api_configs: map, updated_by: userId || null, updated_at: new Date() });
+  }
   await em.flush();
 };
 

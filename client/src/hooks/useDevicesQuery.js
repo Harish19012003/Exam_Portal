@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 
-const SYSTEM_VALUE_KEYS = new Set(['id', 'version', 'created_at', 'updated_at']);
+const SYSTEM_VALUE_KEYS = new Set(['id', 'version', 'created_at', 'updated_at', 'exam_id']);
 
 export const mapDeviceRows = (list) =>
   (Array.isArray(list) ? list : []).map((v) => ({
@@ -12,8 +12,10 @@ export const mapDeviceRows = (list) =>
     values: Object.fromEntries(Object.entries(v).filter(([k]) => !SYSTEM_VALUE_KEYS.has(k))),
   }));
 
-const fetchDeviceList = async () => {
-  const res = await apiClient.get('/devices');
+const fetchDeviceList = async (examId) => {
+  const res = await apiClient.get('/devices', {
+    params: { examId: String(examId || '') },
+  });
   const list = res.data?.data || res.data;
   return mapDeviceRows(list);
 };
@@ -23,10 +25,11 @@ const fetchDeviceConfig = async () => {
   return res.data?.data || res.data || {};
 };
 
-export const useDevicesList = () =>
+export const useDevicesList = (examId) =>
   useQuery({
-    queryKey: queryKeys.devices.list(),
-    queryFn: fetchDeviceList,
+    queryKey: queryKeys.devices.list(examId),
+    queryFn: () => fetchDeviceList(examId),
+    enabled: Boolean(examId),
   });
 
 export const useDevicesConfig = () =>
@@ -35,23 +38,24 @@ export const useDevicesConfig = () =>
     queryFn: fetchDeviceConfig,
   });
 
-export const useInvalidateDevices = () => {
+export const useInvalidateDevices = (examId) => {
   const queryClient = useQueryClient();
+  const listKey = queryKeys.devices.list(examId);
   const invalidateList = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: queryKeys.devices.list() }),
-    [queryClient],
+    () => queryClient.invalidateQueries({ queryKey: listKey }),
+    [queryClient, listKey],
   );
   const refetchList = useCallback(
-    () => queryClient.refetchQueries({ queryKey: queryKeys.devices.list() }),
-    [queryClient],
+    () => queryClient.refetchQueries({ queryKey: listKey }),
+    [queryClient, listKey],
   );
   const setList = useCallback(
     (updater) => {
-      queryClient.setQueryData(queryKeys.devices.list(), (prev) =>
+      queryClient.setQueryData(listKey, (prev) =>
         typeof updater === 'function' ? updater(prev || []) : updater,
       );
     },
-    [queryClient],
+    [queryClient, listKey],
   );
   const setConfigFields = useCallback(
     (fields) => {

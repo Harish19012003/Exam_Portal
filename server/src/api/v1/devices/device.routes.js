@@ -8,7 +8,7 @@ const router = Router();
 // Group permissions (table actions, columns, row rules) are checked in the controller.
 router.use(authenticate, withAccess);
 
-// Device table config: custom fields (stored in the devices collection's `values`) + Feature Builder settings.
+// Device table config (device_meta) plus Feature Builder settings. Rows are stored in the `shifts` collection.
 // Static paths are declared before '/:id'.
 router.get('/config', deviceController.getConfig);
 router.put('/config', deviceController.saveConfig);
