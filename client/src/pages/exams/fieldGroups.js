@@ -1,5 +1,6 @@
 import { importedSourceLabel, isSharedImportedField, primarySourceName } from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
+import { isSummaryField } from './examSummaryFields';
 import { isLinkedField, isTableSourceField } from './tableLookupApi';
 
 /**
@@ -47,6 +48,10 @@ export const buildUsedByIndex = (fields) => {
     if (f.dataType === 'formula') formulaRefs(f.formula).forEach((k) => add(k, f, 'formula'));
     if (f.sameAsFieldKey) add(f.sameAsFieldKey, f, 'same as');
     if (isCombinedField(f)) (f.combine?.keys || []).forEach((k) => add(k, f, 'combined'));
+    if (isSummaryField(f)) {
+      (f.summary.matchKeys || []).forEach((k) => add(k, f, 'summary'));
+      (f.summary.valueKeys || []).forEach((k) => add(k, f, 'summary'));
+    }
   });
   return index;
 };
@@ -58,6 +63,7 @@ const hasDependency = (f, usedBy) =>
   f.dataType === 'formula' ||
   Boolean(f.sameAsFieldKey) ||
   isCombinedField(f) ||
+  isSummaryField(f) ||
   (usedBy.get(f.key)?.length ?? 0) > 0;
 
 /**
@@ -179,6 +185,13 @@ export const buildFieldGroups = (fields, { presets = [], currentServiceValue = '
       kind: 'combined',
       ids: idsOf((f) => isCombinedField(f) || (usedBy.get(f.key) || []).some((u) => u.how === 'combined')),
       hint: 'Combined columns and their parts',
+    },
+    {
+      id: 'dep:summary',
+      label: 'Summary',
+      kind: 'summary',
+      ids: idsOf((f) => isSummaryField(f) || (usedBy.get(f.key) || []).some((u) => u.how === 'summary')),
+      hint: 'Read-only joins of matching rows',
     },
     {
       id: 'dep:same',

@@ -50,7 +50,10 @@ const AREAS = [
     label: 'Device Master',
     description: 'The portal-wide device list.',
     icon: Smartphone,
-    tables: [{ id: 'devices', label: 'Devices' }],
+    tables: [
+      { id: 'devices', label: 'Devices' },
+      { id: 'center_csr_matching', label: 'Center-CSR-Matching' },
+    ],
   },
   {
     id: 'seq_view',
@@ -193,12 +196,14 @@ const loadCatalog = () => {
       safe(apiClient.get('/vendors/config')),
       safe(apiClient.get('/seq-views/config')),
       safe(apiClient.get('/devices/config')),
-    ]).then(([exams, presets, vendors, seqViews, devices]) => ({
+      safe(apiClient.get('/center-csr-matching/config')),
+    ]).then(([exams, presets, vendors, seqViews, devices, centerCsr]) => ({
       exams: toColumns(exams?.fields),
       exam_rows: uniqueByKey((Array.isArray(presets) ? presets : []).flatMap((p) => toColumns(p.fields))),
       vendors: toColumns(vendors?.fields),
       seq_views: toColumns(seqViews?.fields),
       devices: toColumns(devices?.fields),
+      center_csr_matching: toColumns(centerCsr?.fields),
     }));
     catalogPromise.catch(() => {
       catalogPromise = null;
@@ -215,6 +220,7 @@ const SYSTEM_RULE_FIELDS = {
   ],
   vendors: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Vendor ID', options: [] }],
   devices: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Device ID', options: [] }],
+  center_csr_matching: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Row ID', options: [] }],
   seq_views: [{ key: ROW_RULE_SYSTEM_FIELDS.ROW_ID, label: 'Record ID', options: [] }],
 };
 

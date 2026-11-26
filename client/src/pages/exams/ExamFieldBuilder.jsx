@@ -26,6 +26,7 @@ import {
   Circle,
   Sigma,
   Layers,
+  Rows3,
   Clock,
   BadgeCheck,
   SquareCheck,
@@ -59,8 +60,16 @@ import {
   getDateLinkCandidates,
 } from './examFieldTypes';
 import { TagMultiPicker } from './TagMultiPicker';
-import { examViewLabel, importedSourceLabel, isSharedImportedField, sourceNameInitials } from '@exam-view/shared';
+import {
+  deviceMasterViewLabel,
+  examViewLabel,
+  importedSourceLabel,
+  isDeviceMasterViewKey,
+  isSharedImportedField,
+  sourceNameInitials,
+} from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
+import { isSummaryField, summaryChipText } from './examSummaryFields';
 import { FIELD_GROUP_ALL, FIELD_GROUP_DETAILS, buildFieldGroups } from './fieldGroups';
 import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { isLinkedField, isTableSourceField, linkedFieldsOf, listLookupSources } from './tableLookupApi';
@@ -98,6 +107,7 @@ const TYPE_ICONS = {
   formula: Sigma,
   composite: Layers,
   combined: Layers,
+  summary: Rows3,
   linked: Link2,
   fromExam: Copy,
 };
@@ -116,6 +126,7 @@ const GROUP_ICONS = {
   exam: Copy,
   formula: Sigma,
   combined: Layers,
+  summary: Rows3,
   same: Wand2,
   unique: KeyRound,
   required: Asterisk,
@@ -184,6 +195,8 @@ export const ExamFieldBuilder = ({
   currentView = null,
   /** Enables Bulk add → Import from preset (Settings → Field presets). */
   presetSources = null,
+  /** Shown when presetSources is empty. */
+  sourcesEmptyHint = '',
   /** Current preset service — resolves import badges to the matching source preset name. */
   currentServiceValue = '',
   /** Shown in Bulk add so the user knows which preset / exam page they are editing. */
@@ -215,6 +228,8 @@ export const ExamFieldBuilder = ({
   /** Page mode: rail label + icon badge for the `topSlot` pane. */
   detailsLabel = 'Details',
   detailsAlert = false,
+  /** Page mode: extra rail block after Preset details (e.g. Op/Guard Calling rules). */
+  railExtra = null,
 }) => {
   const isPage = variant === 'page';
   const formId = useId();
@@ -419,6 +434,53 @@ export const ExamFieldBuilder = ({
     };
   }, [wantsLookupSources, lookupSources.length]);
 
+  useLayoutEffect(() => {
+    if (!importMenuOpen || !importTriggerRef.current) {
+      setImportMenuPos(null);
+      return undefined;
+    }
+    const place = () => {
+      const r = importTriggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.min(340, Math.max(260, window.innerWidth - 24));
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const maxHeight = Math.max(160, Math.min(320, Math.max(below, above)));
+      const openUp = below < 200 && above > below;
+      setImportMenuPos(
+        openUp
+          ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight }
+          : { left, width, top: r.bottom + 6, maxHeight },
+      );
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [importMenuOpen]);
+
+  useEffect(() => {
+    if (!importMenuOpen) return undefined;
+    const onPointer = (e) => {
+      const t = e.target;
+      if (importMenuRef.current?.contains(t) || importTriggerRef.current?.contains(t)) return;
+      setImportMenuOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setImportMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [importMenuOpen]);
+
   if (!open) return null;
 
   const Shell = isPage ? 'section' : 'aside';
@@ -455,6 +517,9 @@ export const ExamFieldBuilder = ({
         (src ? ` · ${src}` : ''),
       );
     }
+    if (isSummaryField(field)) {
+      parts.push(`Summary (${summaryChipText(field.summary)})`);
+    }
     if (field.scheduleRole === 'start') parts.push('Schedule start');
     if (field.scheduleRole === 'end') parts.push('Schedule end');
     if (field.autoFill && field.autoFill !== 'none') parts.push('Auto');
@@ -463,7 +528,6 @@ export const ExamFieldBuilder = ({
     if (field.unique) parts.push('Unique');
     if (field.focusDateColumn === 'totalCenter') parts.push('Date count');
     if (field.focusDateColumn === 'maxAllDay') parts.push('Date max');
-    if (field.layout === 'half') parts.push('Half');
     return parts.join(' · ');
   };
 
@@ -556,6 +620,7 @@ export const ExamFieldBuilder = ({
           </button>
         </div>
       )}
+      {railExtra}
       {railSections.map((sec) => (
         <div key={sec.id} className="efb-rail-section">
           <div className="efb-rail-title">{sec.title}</div>
@@ -614,7 +679,9 @@ export const ExamFieldBuilder = ({
                     <div className="efb-rail-import-hint">Choose a preset</div>
                     {(presetSources || []).map((p) => {
                       const count = p.fieldCount ?? p.fields?.length ?? 0;
-                      const page = examViewLabel(p.view);
+                      const page = isDeviceMasterViewKey(p.view)
+                        ? deviceMasterViewLabel(p.view)
+                        : examViewLabel(p.view);
                       const subParts = [p.serviceValue, page].filter(Boolean);
                       if (count) subParts.push(`${count} field${count === 1 ? '' : 's'}`);
                       const sub = subParts.join(' · ');
@@ -728,53 +795,6 @@ export const ExamFieldBuilder = ({
     setBulkAutoImport(false);
     setBulkImportPresetId('');
   };
-
-  useLayoutEffect(() => {
-    if (!importMenuOpen || !importTriggerRef.current) {
-      setImportMenuPos(null);
-      return undefined;
-    }
-    const place = () => {
-      const r = importTriggerRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const width = Math.min(340, Math.max(260, window.innerWidth - 24));
-      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
-      const below = window.innerHeight - r.bottom - 12;
-      const above = r.top - 12;
-      const maxHeight = Math.max(160, Math.min(320, Math.max(below, above)));
-      const openUp = below < 200 && above > below;
-      setImportMenuPos(
-        openUp
-          ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight }
-          : { left, width, top: r.bottom + 6, maxHeight },
-      );
-    };
-    place();
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    return () => {
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
-    };
-  }, [importMenuOpen]);
-
-  useEffect(() => {
-    if (!importMenuOpen) return undefined;
-    const onPointer = (e) => {
-      const t = e.target;
-      if (importMenuRef.current?.contains(t) || importTriggerRef.current?.contains(t)) return;
-      setImportMenuOpen(false);
-    };
-    const onKey = (e) => {
-      if (e.key === 'Escape') setImportMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [importMenuOpen]);
 
   const handleBulkAdd = (newFields, updatedFields = [], removedIds = [], order = [], meta = {}) => {
     const hasFieldEdits =
@@ -963,7 +983,8 @@ export const ExamFieldBuilder = ({
       return;
     }
 
-    if (key === 'id' || key.startsWith('sys_') || reservedKeys.includes(key)) {
+    // Reserved keys only block new fields (editing keeps the existing key).
+    if (!isEditing && (key === 'id' || key.startsWith('sys_') || reservedKeys.includes(key))) {
       setError('This key is reserved. Please choose another.');
       return;
     }
@@ -1037,6 +1058,7 @@ export const ExamFieldBuilder = ({
           : undefined,
       allowMultiple,
       formula: needsFormula ? form.formula.trim() : undefined,
+      summary: form.dataType === 'summary' ? existing?.summary : undefined,
       autoFill: form.autoFill || 'none',
       layout: form.layout || 'full',
       sameAsFieldKey: canLinkDate ? form.sameAsFieldKey || '' : '',
@@ -1376,38 +1398,23 @@ export const ExamFieldBuilder = ({
           </div>
         )}
 
-        {/* Auto-fill + Width are create-form options — not used by Field presets (page mode). */}
-        {!isPage && (
-        <div className="exams-form-row">
-          {form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
-            <SearchableSelect
-              id={`${formId}-autofill`}
-              label="Auto-fill"
-              value={form.autoFill || 'none'}
-              options={AUTO_FILL_OPTIONS}
-              searchPlaceholder="Search…"
-              onChange={(next) =>
-                setForm((p) => ({
-                  ...p,
-                  autoFill: next,
-                  required: next !== 'none' ? false : p.required,
-                }))
-              }
-            />
-          ) : null}
-          <div className="exams-form-group">
-            <label htmlFor={`${formId}-layout`}>Width</label>
-            <select
-              id={`${formId}-layout`}
-              value={form.layout || 'full'}
-              onChange={(e) => setForm((p) => ({ ...p, layout: e.target.value }))}
-            >
-              <option value="full">Full width</option>
-              <option value="half">Half (side by side)</option>
-            </select>
-          </div>
-        </div>
-        )}
+        {/* Auto-fill is a create-form option — not used by Field presets (page mode). */}
+        {!isPage && form.dataType !== 'linked' && form.dataType !== 'fromExam' ? (
+          <SearchableSelect
+            id={`${formId}-autofill`}
+            label="Auto-fill"
+            value={form.autoFill || 'none'}
+            options={AUTO_FILL_OPTIONS}
+            searchPlaceholder="Search…"
+            onChange={(next) =>
+              setForm((p) => ({
+                ...p,
+                autoFill: next,
+                required: next !== 'none' ? false : p.required,
+              }))
+            }
+          />
+        ) : null}
 
         {(!form.autoFill || form.autoFill === 'none') &&
           form.dataType !== 'linked' &&
@@ -2148,8 +2155,8 @@ export const ExamFieldBuilder = ({
                     <div className="exams-type-grid">
                       {EXAM_FIELD_TYPES.filter((t) => {
                         if (t.value === 'fromExam' && !enableFromExam) return false;
-                        // Combined columns are created via Bulk add → Import → Combine.
-                        if (t.value === 'combined') return false;
+                        // Combined and summary columns are created from Bulk add.
+                        if (t.value === 'combined' || t.value === 'summary') return false;
                         return true;
                       }).map((t) => {
                         const Icon = TYPE_ICONS[t.value] || Type;
@@ -2195,6 +2202,7 @@ export const ExamFieldBuilder = ({
           examId={examId}
           currentView={currentView}
           presetSources={presetSources}
+          sourcesEmptyHint={sourcesEmptyHint}
           autoOpenImport={bulkAutoImport}
           initialImportPresetId={bulkImportPresetId}
           currentServiceValue={currentServiceValue}

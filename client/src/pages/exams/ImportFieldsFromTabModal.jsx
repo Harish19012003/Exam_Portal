@@ -2,7 +2,15 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { InfoTip } from '../../components/PageHeading';
 import { ArrowDown, ArrowUp, Plus, Search, Trash2, X } from 'lucide-react';
-import { CENTER_CODE_KEY, DEFAULT_EXAM_VIEW, EXAM_VIEWS, examViewLabel } from '@exam-view/shared';
+import {
+  CENTER_CODE_KEY,
+  DEFAULT_DEVICE_MASTER_VIEW,
+  DEFAULT_EXAM_VIEW,
+  EXAM_VIEWS,
+  deviceMasterViewLabel,
+  examViewLabel,
+  isDeviceMasterViewKey,
+} from '@exam-view/shared';
 import { uniquePrefixedImportKey } from './examFieldTypes';
 import { buildCombinedField, COMBINE_SEPARATORS, DEFAULT_COMBINE_SEPARATOR, separatorForLabel } from './examCombinedFields';
 import {
@@ -43,8 +51,17 @@ const formulaForWhereKey = (whereKey, ...fieldLists) => {
   return '';
 };
 
-const presetLabel = (p) =>
-  `${p.name || p.serviceValue} · ${examViewLabel(p.view || DEFAULT_EXAM_VIEW)}`;
+const pageLabel = (view) => {
+  const key = String(view || '').trim();
+  if (isDeviceMasterViewKey(key)) return deviceMasterViewLabel(key);
+  return examViewLabel(key || DEFAULT_EXAM_VIEW);
+};
+
+const presetLabel = (p) => {
+  const name = p.name || p.serviceValue || 'Untitled';
+  const page = pageLabel(p.view || (p.serviceValue ? DEFAULT_EXAM_VIEW : DEFAULT_DEVICE_MASTER_VIEW));
+  return p.serviceValue ? `${name} · ${p.serviceValue} · ${page}` : `${name} · ${page}`;
+};
 
 /** Deduplicate select options by value — duplicate keys break React list updates / search. */
 const uniqueSelectOptions = (list = []) => {
@@ -252,6 +269,7 @@ export const ImportFieldsFromTabModal = ({
   currentFields = [],
   /** Other presets to import from (Settings → Field presets). */
   presetSources = null,
+  sourcesEmptyHint = '',
   /** Prefill source preset when opened from the rail dropdown. */
   initialPresetId = '',
   /** Existing unique-import config so the user can re-edit it. */
@@ -441,6 +459,13 @@ export const ImportFieldsFromTabModal = ({
   }, [selectedOrder, combineMode]);
 
   useEffect(() => {
+    if (uniqueMode || selectedOrder.length < 2) return undefined;
+    const panel = document.querySelector('.import-fields-combine');
+    panel?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return undefined;
+  }, [uniqueMode, selectedOrder.length]);
+
+  useEffect(() => {
     if (!combineMode || combineLabel.trim()) return;
     const labels = selectedOrder
       .map((key) => sourceFields.find((f) => f.key === key)?.label || key)
@@ -563,11 +588,11 @@ export const ImportFieldsFromTabModal = ({
     ? (presetSources || []).find((p) => String(p.id) === String(sourcePresetId))?.view || DEFAULT_EXAM_VIEW
     : sourceView;
   const resolveSourceLabel = () => {
-    if (!presetMode) return examViewLabel(sourceHomeView);
+    if (!presetMode) return pageLabel(sourceHomeView);
     const sourcePreset = (presetSources || []).find((p) => String(p.id) === String(sourcePresetId));
     return (
       String(sourcePreset?.name || sourcePreset?.serviceValue || '').trim() ||
-      examViewLabel(sourceHomeView)
+      pageLabel(sourceHomeView)
     );
   };
 
@@ -807,7 +832,8 @@ export const ImportFieldsFromTabModal = ({
           {presetMode ? (
             (presetSources || []).length === 0 ? (
               <p className="import-fields-empty">
-                Create at least one other preset first (e.g. Center list for this service), then import its columns here.
+                {sourcesEmptyHint
+                  || 'Create at least one other preset first (e.g. Center list for this service), then import its columns here.'}
               </p>
             ) : (
               <div className="import-fields-source">
@@ -1214,13 +1240,17 @@ export const ImportFieldsFromTabModal = ({
           </div>
           </div>
         ) : (
-          <>
+          <div className="import-fields-body">
             <div className="import-fields-list" role="group" aria-label="Fields to import">
               {loading ? (
                 <p className="import-fields-empty">Loading…</p>
               ) : !sourceFields.length ? (
                 <p className="import-fields-empty">
-                  {presetMode ? 'That preset has no fields yet.' : `“${examViewLabel(sourceView)}” has no fields yet.`}
+                  {presetMode
+                    ? (sourcesEmptyHint && !(presetSources || []).some((p) => (p.fields || []).length)
+                      ? sourcesEmptyHint
+                      : 'That preset has no fields yet.')
+                    : `“${pageLabel(sourceView)}” has no fields yet.`}
                 </p>
               ) : !listFields.length ? (
                 <p className="import-fields-empty">
@@ -1357,14 +1387,14 @@ export const ImportFieldsFromTabModal = ({
                       })}
                     </div>
                     <p className="import-fields-skip">
-                      Only the combined column is added — source columns stay on {examViewLabel(sourceHomeView)}.
+                      Only the combined column is added — source columns stay on {pageLabel(sourceHomeView)}.
                       Empty parts are skipped at display time.
                     </p>
                   </>
                 )}
               </div>
             )}
-          </>
+          </div>
         )}
 
         <footer className="import-fields-footer">

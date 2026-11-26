@@ -293,7 +293,7 @@ export const ExamCustomFieldInput = ({
     return <LinkedValueField field={field} sourceField={linkedSourceField} sourceValue={linkedSourceValue} />;
   }
 
-  if (isAuto || dataType === 'formula' || dataType === 'composite' || dataType === 'combined') {
+  if (isAuto || dataType === 'formula' || dataType === 'composite' || dataType === 'combined' || dataType === 'summary') {
     return (
       <div className="exams-form-group">
         <span className="exams-audit-label">{field.label}</span>
@@ -304,6 +304,8 @@ export const ExamCustomFieldInput = ({
               ? 'Composite'
               : dataType === 'combined'
                 ? (Array.isArray(field.combine?.keys) ? field.combine.keys.join(field.combine.separator ?? ', ') : 'Combined')
+                : dataType === 'summary'
+                  ? (value || 'Summary')
               : value || '—'}
         </div>
       </div>

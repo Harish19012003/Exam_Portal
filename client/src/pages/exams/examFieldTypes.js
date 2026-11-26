@@ -33,6 +33,7 @@ export const EXAM_FIELD_TYPES = [
   { value: 'formula', label: 'Formula' },
   { value: 'composite', label: 'Composite' },
   { value: 'combined', label: 'Combined' },
+  { value: 'summary', label: 'Summary' },
   { value: 'linked', label: 'Linked value' },
   { value: 'fromExam', label: 'From exam' },
 ];

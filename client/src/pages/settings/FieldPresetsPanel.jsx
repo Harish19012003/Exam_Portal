@@ -350,7 +350,7 @@ export const FieldPresetsPanel = ({
         <div className="config-empty-state">
           <LayoutTemplate size={22} />
           <div>
-            <h4 className="config-empty-title">No field presets yet</h4>
+            <h4 className="config-empty-title">No service presets yet</h4>
             <p className="config-empty-hint">
               Create one preset per service and exam page. Opening that page on a matching exam
               recommends this field set.
@@ -485,12 +485,12 @@ export const FieldPresetsPanel = ({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Import field presets"
+            aria-label="Import service presets"
           >
             <div className="config-drawer-header">
               <h2 className="config-drawer-title">
                 <ListPlus size={16} className="config-drawer-title-icon" />
-                <span>Import field presets</span>
+                <span>Import service presets</span>
               </h2>
               <button
                 type="button"

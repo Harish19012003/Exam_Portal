@@ -15,6 +15,13 @@ const toId = (value) => {
   return id;
 };
 
+const toExamId = (value) => {
+  // Exam primary keys are string ids (e.g. exam_<ts>_<uuid>), not Mongo ObjectIds.
+  const id = String(value ?? '').trim();
+  if (!id) throw validationError('examId is required');
+  return id;
+};
+
 const isBlank = (v) => v === undefined || v === null || v === '';
 
 /** Validate + encode one device's custom values; `partial` skips the required check (updates). */
@@ -36,8 +43,9 @@ const requireFields = (fields) => {
   if (!fields.length) throw validationError('Add at least one device field before adding devices');
 };
 
-export async function getAllDevices() {
-  const [rows, fields] = await Promise.all([deviceRepository.findAll(), getCustomFields()]);
+export async function getAllDevices(examId) {
+  const id = toExamId(examId);
+  const [rows, fields] = await Promise.all([deviceRepository.findByExamId(id), getCustomFields()]);
   return rows.map((row) => decodeDevice(row, fields));
 }
 
@@ -47,20 +55,25 @@ export async function getDeviceById(id) {
   return decodeDevice(device, await getCustomFields());
 }
 
-export async function createDevice(input) {
+export async function createDevice(input, examId) {
   const fields = await getCustomFields();
   requireFields(fields);
+  const scopedExamId = toExamId(examId);
   const values = prepare(fields, input);
-  assertUniqueValues(fields, values, await deviceRepository.findAll());
-  const id = await deviceRepository.create(values);
+  assertUniqueValues(fields, values, await deviceRepository.findByExamId(scopedExamId));
+  const id = await deviceRepository.create({ ...values, exam_id: scopedExamId });
   return getDeviceById(id);
 }
 
 export async function updateDevice(id, input, version) {
   const fields = await getCustomFields();
   const deviceId = toId(id);
+  const existing = await deviceRepository.findById(deviceId);
+  if (!existing) throw new AppError('Device not found', 404, ERROR_CODES.NOT_FOUND);
   const values = prepare(fields, input, { partial: true });
-  assertUniqueValues(fields, values, await deviceRepository.findAll(), { excludeId: deviceId });
+  const scopeId = String(existing.exam_id || '').trim();
+  const siblings = scopeId ? await deviceRepository.findByExamId(scopeId) : [];
+  assertUniqueValues(fields, values, siblings, { excludeId: deviceId });
   await deviceRepository.update(deviceId, values, version);
   return getDeviceById(deviceId);
 }
@@ -72,13 +85,15 @@ export async function deleteDevices(ids) {
 }
 
 /** Rows are objects keyed by field key. All-or-nothing; errors name the offending row. */
-export async function importDevices(rows, { ignoreExisting = false } = {}) {
+export async function importDevices(rows, examId, { ignoreExisting = false } = {}) {
   const fields = await getCustomFields();
   requireFields(fields);
+  const scopedExamId = toExamId(examId);
   if (!Array.isArray(rows) || !rows.length) throw validationError('No rows to import');
 
   const prepared = rows.map((row, i) => prepare(fields, row, { prefix: `Row ${i + 1}: ` }));
-  assertUniqueBatch(fields, prepared, await deviceRepository.findAll(), { ignoreExisting });
-  const count = await deviceRepository.createMany(prepared);
+  assertUniqueBatch(fields, prepared, await deviceRepository.findByExamId(scopedExamId), { ignoreExisting });
+  const stamped = prepared.map((row) => ({ ...row, exam_id: scopedExamId }));
+  const count = await deviceRepository.createMany(stamped);
   return { success: true, count };
 }

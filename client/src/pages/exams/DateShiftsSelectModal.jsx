@@ -329,7 +329,7 @@ export const DateShiftsSelectModal = ({
               <CalendarDays size={22} aria-hidden="true" />
               <strong>No shift format found</strong>
               <span>
-                On Settings → Field presets, open this service’s Center list preset → Bulk add →
+                On Settings → Service preset, open this service’s Center list preset → Bulk add →
                 Date shifts, add shift names, Save changes, then save the preset. After that, pick
                 dates here.
               </span>
@@ -488,7 +488,7 @@ export const DateShiftsSelectModal = ({
               ? `${dates.length} date${dates.length === 1 ? '' : 's'} · ${template.shifts.length} shift${template.shifts.length === 1 ? '' : 's'}${
                   dates.length ? ` · ${previewFields.length} columns` : ''
                 }${dirty ? ' · unsaved' : ''}`
-              : 'Save the shift format on the Field preset first'}
+              : 'Save the shift format on the Service preset first'}
           </span>
           <div className="exams-bulk-footer-actions">
             <button type="button" className="exams-btn secondary compact" onClick={onClose}>

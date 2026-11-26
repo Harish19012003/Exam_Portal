@@ -1,0 +1,27 @@
+import { Router } from 'express';
+import { successResponse } from '../../../core/response.js';
+import { authenticate } from '../../../core/auth.middleware.js';
+import { requireTable } from '../../../core/access.js';
+import * as service from './device-preset.service.js';
+
+const router = Router();
+
+const handle = (fn, status = 200) => async (req, res, next) => {
+  try {
+    return successResponse(res, await fn(req), status);
+  } catch (error) {
+    next(error);
+  }
+};
+
+router.use(authenticate);
+
+const canConfigure = requireTable('devices', 'configure');
+
+router.get('/', handle(() => service.listPresets()));
+router.post('/bulk', canConfigure, handle((req) => service.bulkUpsert(req.body, req.user?.id), 201));
+router.post('/', canConfigure, handle((req) => service.createPreset(req.body, req.user?.id), 201));
+router.patch('/:id', canConfigure, handle((req) => service.updatePreset(req.params.id, req.body)));
+router.delete('/:id', canConfigure, handle((req) => service.deletePreset(req.params.id)));
+
+export default router;
