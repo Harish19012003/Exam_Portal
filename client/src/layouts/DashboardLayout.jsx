@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppFooter } from '../components/AppFooter/AppFooter';
 import { examIdFromUrl, examPath } from '../pages/exams/examUrl';
 import { useExamsList } from '../hooks/useExamsQuery';
+import {
+  DeviceMasterBioExamProvider,
+  useDeviceMasterBioExam,
+} from '../hooks/useDeviceMasterBioExam.jsx';
 import { usePlatformSettings } from '../hooks/usePlatformSettings';
 import { SectionErrorBoundary } from '../components/ErrorPage/ErrorPage';
 import { Megaphone } from 'lucide-react';
@@ -50,6 +54,11 @@ import { ExamSwitcher } from './ExamSwitcher';
 import { HelpModal } from '../components/HelpModal/HelpModal';
 import { FeedbackModal } from '../components/Feedback/FeedbackModal';
 import { optimizedLogoUrl } from '../utils/brandingImage';
+import {
+  DEFAULT_DEVICE_MASTER_VIEW,
+  DEVICE_MASTER_VIEWS,
+  deviceMasterPath,
+} from '../pages/deviceMasterViews';
 import './DashboardLayout.css';
 import './ExamSidebar.css';
 
@@ -64,6 +73,7 @@ const EXAM_SUB_ITEMS = [
 
 // Top-level pages whose inner tab/section is restored when re-opened from the sidebar.
 const REMEMBERED_PATHS = ['/settings', '/vendors', '/device-master', '/seq-view', '/tables'];
+const DEFAULT_DEVICE_MASTER_PATH = deviceMasterPath(DEFAULT_DEVICE_MASTER_VIEW);
 
 const NAV_ITEMS = [
   {
@@ -111,7 +121,13 @@ const NAV_ITEMS = [
   },
 ];
 
-export const DashboardLayout = () => {
+export const DashboardLayout = () => (
+  <DeviceMasterBioExamProvider>
+    <DashboardLayoutInner />
+  </DeviceMasterBioExamProvider>
+);
+
+const DashboardLayoutInner = () => {
   // Initialize and hold the global socket connection
   useSocketManager();
   const navigate = useNavigate();
@@ -242,8 +258,14 @@ export const DashboardLayout = () => {
     if (path === '/exam-day') {
       return { label: 'Exam Day', icon: CalendarCheck };
     }
-    if (path === '/device-master') {
-      return { label: 'Device Master', icon: Smartphone };
+    if (path === '/device-master' || path.startsWith('/device-master/')) {
+      return {
+        label: 'Device Master',
+        icon: Smartphone,
+        to: '/device-master',
+        bioExamSwitcher: true,
+        tail: 'Bio exam',
+      };
     }
     if (path === '/dashboard/vendors' || path === '/vendors') {
       return { label: 'Vendor Data', icon: DatabaseZap };
@@ -302,6 +324,11 @@ export const DashboardLayout = () => {
   // Tab title + favicon come from DocumentBranding (works on login too).
   const { data: examsForSidebar } = useExamsList();
   const fallbackExamId = examsForSidebar?.[0]?.id ? String(examsForSidebar[0].id) : '';
+  const {
+    examId: deviceMasterBioExamId,
+    label: deviceMasterBioExamLabel,
+    setExamId: rememberDeviceMasterBioExam,
+  } = useDeviceMasterBioExam();
 
   return (
     <div className="layout">
@@ -339,13 +366,22 @@ export const DashboardLayout = () => {
         <nav className="xs-nav" aria-label="Main Navigation">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const deviceMasterOpen = item.page === 'device_master'
+              && location.pathname.replace(/\/$/, '').startsWith('/device-master');
+            const deviceMasterLink = item.page === 'device_master'
+              ? (lastUrls['/device-master'] || DEFAULT_DEVICE_MASTER_PATH)
+              : (lastUrls[item.to] || item.to);
             return (
               <React.Fragment key={item.to}>
                 <NavLink
-                  to={lastUrls[item.to] || item.to}
+                  to={deviceMasterLink}
                   end={item.end}
                   onClick={closeMobile}
-                  className={({ isActive }) => `xs-nav-item ${isActive ? 'active' : ''}${item.page === 'exams' && examPageId ? ' xs-parent-open' : ''}`}
+                  className={({ isActive }) =>
+                    `xs-nav-item ${isActive || deviceMasterOpen ? 'active' : ''}${
+                      item.page === 'exams' && examPageId ? ' xs-parent-open' : ''
+                    }${deviceMasterOpen ? ' xs-parent-open' : ''}`
+                  }
                   title={item.label}
                 >
                   <Icon className="xs-nav-icon" size={18} strokeWidth={2} />
@@ -367,6 +403,27 @@ export const DashboardLayout = () => {
                           // (all items point at /exams while no exam is open).
                           className={() => `xs-nav-item xs-subnav-item${isActive ? ' active' : ''}${targetExam ? '' : ' xs-subnav-item--idle'}`}
                           title={targetExam ? sub.label : `${sub.label} — pick an exam first`}
+                        >
+                          <SubIcon className="xs-nav-icon" size={16} strokeWidth={2} />
+                          <span className="xs-label">{sub.label}</span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+                {item.page === 'device_master' && (
+                  <div className="xs-subnav" role="group" aria-label="Device Master sections">
+                    {DEVICE_MASTER_VIEWS.map((sub) => {
+                      const SubIcon = sub.icon;
+                      const path = location.pathname.replace(/\/$/, '');
+                      const isActive = path === deviceMasterPath(sub.tab);
+                      return (
+                        <NavLink
+                          key={sub.tab}
+                          to={deviceMasterPath(sub.tab)}
+                          onClick={closeMobile}
+                          className={() => `xs-nav-item xs-subnav-item${isActive ? ' active' : ''}`}
+                          title={sub.label}
                         >
                           <SubIcon className="xs-nav-icon" size={16} strokeWidth={2} />
                           <span className="xs-label">{sub.label}</span>
@@ -503,6 +560,14 @@ export const DashboardLayout = () => {
                       <ChevronRight size={14} className="topbar-breadcrumb-separator" />
                       {examPageId ? (
                         <ExamSwitcher examId={examPageId} label={currentBreadcrumb.tail} />
+                      ) : currentBreadcrumb.bioExamSwitcher ? (
+                        <ExamSwitcher
+                          examId={deviceMasterBioExamId}
+                          label={deviceMasterBioExamLabel}
+                          bioOnly
+                          emptyLabel="No bio exams yet."
+                          onSelect={rememberDeviceMasterBioExam}
+                        />
                       ) : (
                         <span className="topbar-breadcrumb-current">
                           <span>{currentBreadcrumb.tail}</span>

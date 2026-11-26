@@ -14,6 +14,7 @@ import {
   Upload,
   Download,
   FileUp,
+  Smartphone,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../api/queryKeys';
@@ -28,6 +29,7 @@ import {
   updateConfigList,
 } from './configListApi';
 import { FieldPresetsPanel } from './FieldPresetsPanel';
+import { DevicePresetsPanel } from './DevicePresetsPanel';
 import './FieldPresetsPanel.css';
 
 export const parseBulkOptionsText = (
@@ -211,10 +213,18 @@ const SECTIONS = [
   },
   {
     id: 'presets',
-    title: 'Field presets',
+    title: 'Service preset',
     icon: LayoutTemplate,
-    emptyTitle: 'No field presets yet',
+    emptyTitle: 'No service presets yet',
     emptyHint: 'Create one preset per service and exam page; matching exams recommend it on that page.',
+    actionLabel: 'New preset',
+  },
+  {
+    id: 'device-presets',
+    title: 'Device Preset',
+    icon: Smartphone,
+    emptyTitle: 'No device presets yet',
+    emptyHint: 'Create field presets for Device Master layouts.',
     actionLabel: 'New preset',
   },
 ];
@@ -242,21 +252,36 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null
   const formId = useId();
   const [activeSection, setActiveSection] = useUrlState('section', 'dropdowns', SECTIONS.map((s) => s.id));
   const patchUrl = useUrlParamsPatch();
-  // Field presets → Edit / New is a full page: hide the section tabs and toolbar while it is open.
+  // Field / Device presets → Edit / New is a full page: hide the section tabs and toolbar while it is open.
   const [presetEditParam] = useUrlState('edit', '');
-  const isPresetEditor = activeSection === 'presets' && Boolean(presetEditParam);
+  const isPresetEditor =
+    (activeSection === 'presets' || activeSection === 'device-presets') && Boolean(presetEditParam);
   const selectSection = (sectionId) => {
     if (sectionId === activeSection) return;
-    // Leaving Field presets: drop its filter params so the URL matches the active section.
-    if (sectionId !== 'presets') {
+    // Leaving a preset section: drop its filter / editor params so the URL matches the active section.
+    if (sectionId !== 'presets' && sectionId !== 'device-presets') {
       patchUrl({
         section: sectionId === 'dropdowns' ? '' : sectionId,
         pq: '',
         psvc: '',
         pview: '',
         psort: '',
+        dpq: '',
+        dpview: '',
+        dpsort: '',
         edit: '',
         fg: '',
+      });
+      return;
+    }
+    if (sectionId === 'presets' || sectionId === 'device-presets') {
+      patchUrl({
+        section: sectionId,
+        edit: '',
+        fg: '',
+        ...(sectionId === 'presets'
+          ? { dpq: '', dpview: '', dpsort: '' }
+          : { pq: '', psvc: '', pview: '', psort: '' }),
       });
       return;
     }
@@ -277,6 +302,10 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null
   const [presetImportTick, setPresetImportTick] = useState(0);
   const [presetExportTick, setPresetExportTick] = useState(0);
   const [presetCount, setPresetCount] = useState(0);
+  const [devicePresetCreateTick, setDevicePresetCreateTick] = useState(0);
+  const [devicePresetImportTick, setDevicePresetImportTick] = useState(0);
+  const [devicePresetExportTick, setDevicePresetExportTick] = useState(0);
+  const [devicePresetCount, setDevicePresetCount] = useState(0);
 
   // Bulk options inside the drawer
   const [isBulkOpen, setIsBulkOpen] = useState(false);
@@ -662,6 +691,8 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null
       openCreateDropdown();
     } else if (activeSection === 'presets') {
       setPresetCreateTick((t) => t + 1);
+    } else if (activeSection === 'device-presets') {
+      setDevicePresetCreateTick((t) => t + 1);
     }
   };
 
@@ -722,8 +753,8 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null
           <button
             type="button"
             className="config-add-btn secondary"
-            title="Export field presets as JSON"
-            aria-label="Export field presets"
+            title="Export service presets as JSON"
+            aria-label="Export service presets"
             onClick={() => setPresetExportTick((t) => t + 1)}
             disabled={presetCount === 0}
           >
@@ -733,9 +764,35 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null
           <button
             type="button"
             className="config-add-btn secondary"
-            title="Import field presets from JSON"
-            aria-label="Import field presets"
+            title="Import service presets from JSON"
+            aria-label="Import service presets"
             onClick={() => setPresetImportTick((t) => t + 1)}
+          >
+            <Upload size={14} />
+            <span>Import</span>
+          </button>
+        </>
+      )}
+
+      {activeSection === 'device-presets' && (
+        <>
+          <button
+            type="button"
+            className="config-add-btn secondary"
+            title="Export device presets as JSON"
+            aria-label="Export device presets"
+            onClick={() => setDevicePresetExportTick((t) => t + 1)}
+            disabled={devicePresetCount === 0}
+          >
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+          <button
+            type="button"
+            className="config-add-btn secondary"
+            title="Import device presets from JSON"
+            aria-label="Import device presets"
+            onClick={() => setDevicePresetImportTick((t) => t + 1)}
           >
             <Upload size={14} />
             <span>Import</span>
@@ -872,6 +929,16 @@ export const ConfigTab = ({ tabsSlot = null, actionsSlot = null, leadSlot = null
             exportTick={presetExportTick}
             onPresetCountChange={setPresetCount}
             // Wide screens: the preset editor's Back button / title join the "Config" title row.
+            headerSlots={isWide && leadSlot && tabsSlot ? { lead: leadSlot, title: tabsSlot } : null}
+          />
+        )}
+
+        {activeSection === 'device-presets' && (
+          <DevicePresetsPanel
+            createTick={devicePresetCreateTick}
+            importTick={devicePresetImportTick}
+            exportTick={devicePresetExportTick}
+            onPresetCountChange={setDevicePresetCount}
             headerSlots={isWide && leadSlot && tabsSlot ? { lead: leadSlot, title: tabsSlot } : null}
           />
         )}

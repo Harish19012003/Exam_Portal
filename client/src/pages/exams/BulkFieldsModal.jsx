@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ExamDayImportChecklist from './ExamDayImportChecklist.jsx';
-import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Check, ChevronDown, Copy, CornerDownRight, CalendarDays, Download, GripVertical, Info, Link2, ListPlus, Network, Pin, PinOff, Plus, Rows3, Search, Sparkles, Trash2, X } from 'lucide-react';
 import {
   DEFAULT_EXAM_VIEW,
   EXAM_DAY_VIEW,
@@ -39,6 +39,8 @@ import { SCHEDULE_ROLE_OPTIONS } from './examDateWindow';
 import { TagPickCellButton } from './TagMultiPicker';
 import { listAssignableTags } from './assigneeApi';
 import { ImportFieldsFromTabModal } from './ImportFieldsFromTabModal';
+import { SummaryColumnModal } from './SummaryColumnModal';
+import { normalizeSummaryConfig, summaryChipText } from './examSummaryFields';
 import {
   focusDateTargetsFromAggregates,
   normalizeUniqueRowAggregates,
@@ -163,12 +165,9 @@ const BULK_TYPES = EXAM_FIELD_TYPES.filter(
   (t) =>
     t.value !== 'composite' &&
     t.value !== 'linked' &&
-    t.value !== 'combined',
+    t.value !== 'combined' &&
+    t.value !== 'summary',
 );
-const WIDTH_OPTIONS = [
-  { value: 'full', label: 'Full width' },
-  { value: 'half', label: 'Half (side by side)' },
-];
 const INITIAL_ROWS = 5;
 const MAX_ROWS = 100;
 const RESERVED_KEYS = new Set(['id']);
@@ -256,6 +255,7 @@ const rowFromField = (f) => {
     sharedFromLabel: f.sharedFromLabel || '',
     combineKeys: Array.isArray(f.combine?.keys) ? f.combine.keys.map(String) : [],
     combineSeparator: f.combine?.separator == null ? ', ' : String(f.combine.separator),
+    summary: normalizeSummaryConfig(f.summary),
     focusDateColumn: focusKind,
     dateShift: f.dateShift && typeof f.dateShift === 'object' ? f.dateShift : undefined,
     formula: f.dataType === 'formula' ? String(f.formula || '') : '',
@@ -316,7 +316,7 @@ const rowToItem = (r, allowUnique = false) => ({
   label: r.label.trim(),
   key: r.key.trim(),
   dataType: r.dataType,
-  required: r.dataType !== 'linked' && r.dataType !== 'fromExam' && r.autoFill === 'none' && r.required,
+  required: r.dataType !== 'linked' && r.dataType !== 'fromExam' && r.dataType !== 'summary' && r.autoFill === 'none' && r.required,
   unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
   ...optionsPart(r),
   ...phoneLookupPart(r),
@@ -334,6 +334,7 @@ const rowToItem = (r, allowUnique = false) => ({
   ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
     ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
     : {}),
+  ...(r.dataType === 'summary' && r.summary ? { summary: r.summary } : {}),
   ...(r.focusDateColumn === 'totalCenter' || r.focusDateColumn === 'maxAllDay'
     ? { focusDateColumn: r.focusDateColumn }
     : {}),
@@ -388,6 +389,9 @@ const changedField = (r, allowUnique = false) => {
       : item.dataType === 'combined'
         ? {}
         : { combine: undefined }),
+    ...(item.dataType === 'summary' && item.summary
+      ? { summary: item.summary }
+      : { summary: undefined }),
     ...(item.sharedFromView ? { sharedFromView: item.sharedFromView } : {}),
     ...(item.sharedFromLabel ? { sharedFromLabel: item.sharedFromLabel } : {}),
     ...(item.focusDateColumn === 'totalCenter' || item.focusDateColumn === 'maxAllDay'
@@ -421,6 +425,7 @@ const changedField = (r, allowUnique = false) => {
       f.scheduleRole || '',
       f.phoneValidation || null,
       f.combine || null,
+      f.summary || null,
       f.sharedFromView || '',
       f.sharedFromLabel || '',
       f.focusDateColumn || '',
@@ -518,6 +523,10 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
       errors.optionsText = 'Pick an exam field';
     }
 
+    if (row.dataType === 'summary' && !normalizeSummaryConfig(row.summary)) {
+      errors.optionsText = 'Pick match columns and value columns';
+    }
+
     // Max-all-day sum source is resolved from date-shifts; empty formula text is OK.
     const isAllDaySumSourceRow =
       key === DATE_SHIFT_ALL_DAY_KEY || row.dateShift?.kind === 'allDay';
@@ -538,7 +547,7 @@ const validateRows = (rows, existingFields, extraReserved, removedIds = []) => {
 };
 
 
-const COLUMNS = ['label', 'key', 'type', 'options', 'autofill', 'width', 'required', 'unique'];
+const COLUMNS = ['label', 'key', 'type', 'options', 'autofill', 'required', 'unique'];
 const HEADER_WORDS = new Set(['label', 'name', 'field', 'field name', 'field label']);
 const TRUTHY = new Set(['yes', 'y', 'true', '1', 'x', '✓', '✔', 'required', '*']);
 
@@ -621,8 +630,6 @@ const cellPatch = (colName, raw) => {
       const a = matchAutoFill(v);
       return a ? [{ autoFill: a }, null] : [{}, `auto-fill "${v}"`];
     }
-    case 'width':
-      return [{ layout: /^h/i.test(v) ? 'half' : 'full' }, null];
     case 'required':
       return [{ required: TRUTHY.has(v.toLowerCase()) }, null];
     case 'unique':
@@ -642,13 +649,13 @@ const TYPE_WORDS = BULK_TYPES.map((t) => {
 });
 
 const SAMPLE_CSV = [
-  ['Label', 'Key', 'Type', 'Options', 'Auto-fill', 'Width', 'Required'],
-  ['Roll No', 'roll_no', 'text', '', 'none', 'full', 'yes'],
-  ['Candidate Name', 'candidate_name', 'text', '', 'none', 'full', 'yes'],
-  ['Marks', 'marks', 'number', '', 'none', 'half', 'no'],
-  ['Exam Date', 'exam_date', 'date', '', 'today', 'half', 'no'],
-  ['Center', 'center', 'dropdown', 'Lucknow, Delhi, Noida', 'none', 'full', 'no'],
-  ['Present', 'present', 'yes/no', '', 'none', 'half', 'no'],
+  ['Label', 'Key', 'Type', 'Options', 'Auto-fill', 'Required'],
+  ['Roll No', 'roll_no', 'text', '', 'none', 'yes'],
+  ['Candidate Name', 'candidate_name', 'text', '', 'none', 'yes'],
+  ['Marks', 'marks', 'number', '', 'none', 'no'],
+  ['Exam Date', 'exam_date', 'date', '', 'today', 'no'],
+  ['Center', 'center', 'dropdown', 'Lucknow, Delhi, Noida', 'none', 'no'],
+  ['Present', 'present', 'yes/no', '', 'none', 'no'],
 ]
   .map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(','))
   .join('\r\n');
@@ -685,6 +692,7 @@ export const BulkFieldsModal = ({
   currentView = null,
   /** Other field presets — enables “Import from preset” on Settings → Field presets. */
   presetSources = null,
+  sourcesEmptyHint = '',
   /** Open the Import picker as soon as Bulk add opens (rail shortcut “+ Import from preset”). */
   autoOpenImport = false,
   /** Prefill Import’s source preset (from the rail preset dropdown). */
@@ -721,6 +729,7 @@ export const BulkFieldsModal = ({
         (f) =>
           f.dataType === 'linked' ||
           f.dataType === 'combined' ||
+          f.dataType === 'summary' ||
           BULK_TYPES.some((t) => t.value === f.dataType),
       )
       .map((f) => {
@@ -932,6 +941,8 @@ export const BulkFieldsModal = ({
   const [lookupSources, setLookupSources] = useState([]);
   const [assignableTags, setAssignableTags] = useState([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryEditRid, setSummaryEditRid] = useState(null);
   /** Open Import modal scrolled to Unique import (edit existing unique key / count / sum). */
   const [importFocusUnique, setImportFocusUnique] = useState(false);
   /** Composite unique row keys / aggregates from “Unique import” — applied on Save via meta. */
@@ -1184,6 +1195,7 @@ export const BulkFieldsModal = ({
     const bulkable = (f) =>
       f.dataType === 'linked' ||
       f.dataType === 'combined' ||
+      f.dataType === 'summary' ||
       BULK_TYPES.some((t) => t.value === f.dataType);
     const original = (fields || []).filter(bulkable).map((f) => `id:${f.id}`).join('\0');
     const current = rows
@@ -1300,10 +1312,6 @@ export const BulkFieldsModal = ({
     onClose();
   };
 
-  // Auto-fill and Width are rarely changed, so they stay hidden until asked for (or already in use).
-  const [showMore, setShowMore] = useState(() =>
-    rows.some((r) => (r.autoFill || 'none') !== 'none' || (r.layout || 'full') !== 'full'),
-  );
   // Column pinning: columns 0..pinCount (# / Label / Key / Type) stay put while scrolling sideways; null = none.
   // Label (column 1) is pinned by default so rows stay identifiable when scrolling right.
   const [pinCount, setPinCount] = useState(1);
@@ -1612,6 +1620,41 @@ export const BulkFieldsModal = ({
     });
     setNotice(notice);
     setTab('fields');
+  };
+
+  const openSummaryModal = (rid = null) => {
+    setSummaryEditRid(rid);
+    setSummaryOpen(true);
+  };
+
+  const handleSummarySave = (built) => {
+    const summary = normalizeSummaryConfig(built?.summary);
+    if (!summary) return;
+    if (summaryEditRid) {
+      const existing = rows.find((r) => r.rid === summaryEditRid);
+      update(summaryEditRid, {
+        label: built.label,
+        summary,
+        dataType: 'summary',
+        autoFill: 'none',
+        required: false,
+        ...(existing?.existingId ? {} : { key: built.key, keyTouched: true }),
+      });
+      setNotice('Summary column updated. Save to keep it.');
+      return;
+    }
+    insertBulkRows(
+      [{
+        ...newRow('summary'),
+        label: built.label,
+        key: built.key,
+        keyTouched: true,
+        summary,
+        autoFill: 'none',
+        required: false,
+      }],
+      'Summary column added. Save to keep it.',
+    );
   };
 
   /** Pull shared / combined columns from another tab or preset into this bulk grid. */
@@ -2001,7 +2044,7 @@ export const BulkFieldsModal = ({
   const eligibleLinkTargets = (source, currentLinked) =>
     rows.filter((r) => {
       if (!r || r.rid === source.rid) return false;
-      if (r.dataType === 'fromExam' || r.dataType === 'combined' || r.dataType === 'formula') return false;
+      if (r.dataType === 'fromExam' || r.dataType === 'combined' || r.dataType === 'summary' || r.dataType === 'formula') return false;
       if (r.dataType === 'phone') return false;
       if (r.dataType === 'linked' && r.rid !== currentLinked?.rid) return false;
       // Same-table row pickers (e.g. SeqrView Name) can be reused as phone-match targets.
@@ -2103,7 +2146,7 @@ export const BulkFieldsModal = ({
     const observer = new ResizeObserver(measure);
     observer.observe(table);
     return () => observer.disconnect();
-  }, [pinCount, showMore]);
+  }, [pinCount]);
 
   // colIdx: 0 = #, 1 = Label, 2 = Key, 3 = Type
   const pinned = (colIdx, base = '') => {
@@ -2156,6 +2199,15 @@ export const BulkFieldsModal = ({
     const label = String(rows[idx]?.label || rows[idx]?.key || `Row ${idx + 1}`).trim();
     return `${label}: ${msg}`;
   }, [validation, rows]);
+
+  const summaryEditRow = rows.find((r) => r.rid === summaryEditRid) || null;
+  const summaryPageFields = rows
+    .filter((r) => String(r.key || '').trim() && r.rid !== summaryEditRid && r.dataType !== 'summary')
+    .map((r) => ({ key: String(r.key).trim(), label: r.label || r.key, dataType: r.dataType }));
+  const summaryTakenKeys = rows
+    .filter((r) => r.rid !== summaryEditRid)
+    .map((r) => String(r.key || '').trim())
+    .filter(Boolean);
 
   return createPortal(
     <div className="exams-bulk-overlay" onClick={requestClose}>
@@ -2244,7 +2296,7 @@ export const BulkFieldsModal = ({
           </label>
           <span
             className="exams-bulk-tip"
-            title={`Columns: Label · Key · Type · Options · Auto-fill · Width · Required${allowUnique ? ' · Unique' : ''}. Existing fields are listed first and can be edited in place; a new row's key fills in from its label.`}
+            title={`Columns: Label · Key · Type · Options · Auto-fill · Required${allowUnique ? ' · Unique' : ''}. Existing fields are listed first and can be edited in place; a new row's key fills in from its label.`}
           >
             <Info size={14} aria-hidden="true" />
             <span className="exams-bulk-tip-text">Paste rows from Excel or Sheets into any cell.</span>
@@ -2252,15 +2304,6 @@ export const BulkFieldsModal = ({
           <span className="exams-bulk-toolbar-actions">
             <button type="button" className="exams-text-add-btn" onClick={() => addRow()} disabled={rows.length >= maxRows}>
               <Plus size={14} /> Add row
-            </button>
-            <button
-              type="button"
-              className="exams-text-add-btn"
-              onClick={() => setShowMore((v) => !v)}
-              aria-pressed={showMore}
-              title="Auto-fill and Width columns"
-            >
-              {showMore ? 'Hide' : 'Show'} auto-fill &amp; width
             </button>
             {canImportShared && (
               <button
@@ -2276,6 +2319,14 @@ export const BulkFieldsModal = ({
                 <Sparkles size={14} /> {canImportFromPreset ? 'Import from preset' : 'Import from tab'}
               </button>
             )}
+            <button
+              type="button"
+              className="exams-text-add-btn"
+              onClick={() => openSummaryModal(null)}
+              title="Add a read-only column that joins matching rows from a page you choose"
+            >
+              <Rows3 size={14} /> Summary column
+            </button>
             {canImportShared && (
               <button
                 type="button"
@@ -3128,7 +3179,7 @@ export const BulkFieldsModal = ({
           <table
             ref={tableRef}
             className="exams-bulk-table"
-            style={{ width: `max(100%, ${(showMore ? 2220 : 1860) + (allowUnique ? 90 : 0)}px)` }}
+            style={{ width: `max(100%, ${2070 + (allowUnique ? 90 : 0)}px)` }}
           >
             <colgroup>
               <col style={{ width: 124 }} />
@@ -3140,8 +3191,7 @@ export const BulkFieldsModal = ({
               <col style={{ width: 150 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 280 }} />
-              {showMore && <col style={{ width: 210 }} />}
-              {showMore && <col style={{ width: 150 }} />}
+              <col style={{ width: 210 }} />
               <col style={{ width: 90 }} />
               {allowUnique && <col style={{ width: 90 }} />}
               <col style={{ width: 96 }} />
@@ -3190,8 +3240,7 @@ export const BulkFieldsModal = ({
                 <th>Table</th>
                 <th>Column</th>
                 <th>Options</th>
-                {showMore && <th>Auto-fill</th>}
-                {showMore && <th>Width</th>}
+                <th>Auto-fill</th>
                 <th className="col-req">Required</th>
                 {allowUnique && (
                   <th className="col-req" title="No two records can share a value in this field">
@@ -3369,6 +3418,15 @@ export const BulkFieldsModal = ({
                         >
                           Combined
                         </span>
+                      ) : row.dataType === 'summary' ? (
+                        <button
+                          type="button"
+                          className="exams-bulk-static-chip"
+                          onClick={() => openSummaryModal(row.rid)}
+                          title="Edit summary column"
+                        >
+                          Summary
+                        </button>
                       ) : (
                       <SearchableSelect
                         className="exams-bulk-select"
@@ -3489,6 +3547,15 @@ export const BulkFieldsModal = ({
                         >
                           {(row.combineKeys || []).join(row.combineSeparator || ', ') || 'Parts'}
                         </span>
+                      ) : row.dataType === 'summary' ? (
+                        <button
+                          type="button"
+                          className="exams-bulk-static-chip"
+                          onClick={() => openSummaryModal(row.rid)}
+                          title={summaryChipText(row.summary)}
+                        >
+                          {summaryChipText(row.summary)}
+                        </button>
                       ) : row.dataType === 'formula' ? (
                         <span className="exams-bulk-static-chip" title="Expression goes in the Options column">
                           Formula
@@ -3669,7 +3736,6 @@ export const BulkFieldsModal = ({
                         <span className="exams-bulk-err">{cellError(i, 'optionsText')}</span>
                       )}
                     </td>
-                    {showMore && (
                     <td data-label="Auto-fill">
                       <SearchableSelect
                         className="exams-bulk-select"
@@ -3681,19 +3747,6 @@ export const BulkFieldsModal = ({
                         onChange={(next) => update(row.rid, { autoFill: next })}
                       />
                     </td>
-                    )}
-                    {showMore && (
-                    <td data-label="Width">
-                      <SearchableSelect
-                        className="exams-bulk-select"
-                        portal
-                        value={row.layout}
-                        options={WIDTH_OPTIONS}
-                        ariaLabel={`Row ${i + 1} width`}
-                        onChange={(next) => update(row.rid, { layout: next })}
-                      />
-                    </td>
-                    )}
                     <td className="col-req" data-label="Required">
                       <input
                         type="checkbox"
@@ -3721,7 +3774,7 @@ export const BulkFieldsModal = ({
                         className="exams-bulk-remove"
                         onClick={() => duplicateRow(row.rid)}
                         aria-label={`Duplicate row ${i + 1}`}
-                        title="Duplicate row (type, options, width)"
+                        title="Duplicate row (type, options, auto-fill)"
                       >
                         <Copy size={14} />
                       </button>
@@ -3766,7 +3819,7 @@ export const BulkFieldsModal = ({
               ))}
             </ul>
             <p className="exams-bulk-typeinfo-foot">
-              Width: <code>full</code> / <code>half</code> · Required: <code>yes</code> / <code>no</code> · Auto-fill: <code>none</code>, <code>currentUser</code>, <code>today</code>, <code>timestamp</code>, <code>dash</code>
+              Required: <code>yes</code> / <code>no</code> · Auto-fill: <code>none</code>, <code>currentUser</code>, <code>today</code>, <code>timestamp</code>, <code>dash</code>
             </p>
           </div>
         )}
@@ -3856,6 +3909,7 @@ export const BulkFieldsModal = ({
           examId={canImportFromExam ? examId : null}
           currentView={currentView}
           presetSources={canImportFromPreset ? presetSources : null}
+          sourcesEmptyHint={sourcesEmptyHint}
           initialPresetId={initialImportPresetId}
           existingUniqueRowKeys={pendingUniqueRowKeys || uniqueRowKeys}
           existingUniqueRowAggregates={
@@ -3875,6 +3929,20 @@ export const BulkFieldsModal = ({
           onImport={handleImportFromTab}
         />
       )}
+      <SummaryColumnModal
+        open={summaryOpen}
+        examId={examId || null}
+        currentView={currentView || ''}
+        pageFields={summaryPageFields}
+        presetSources={canImportFromPreset ? presetSources : null}
+        takenKeys={summaryTakenKeys}
+        initial={summaryEditRow ? { label: summaryEditRow.label, key: summaryEditRow.key, summary: summaryEditRow.summary } : null}
+        onClose={() => {
+          setSummaryOpen(false);
+          setSummaryEditRid(null);
+        }}
+        onSave={handleSummarySave}
+      />
     </div>,
     document.body
   );

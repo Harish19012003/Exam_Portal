@@ -17,7 +17,7 @@ export const ExamIndexRedirect = () => {
 export const ExamSubRoute = () => {
   const { examId: urlExamId, subTab } = useParams();
   // Device Master moved out of Exams to its own global page.
-  if (subTab === 'device-master') return <Navigate to="/device-master" replace />;
+  if (subTab === 'device-master') return <Navigate to="/device-master/devices" replace />;
   if (!isExamViewKey(subTab)) {
     return <Navigate to={examPath(examIdFromUrl(urlExamId))} replace />;
   }

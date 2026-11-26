@@ -1,5 +1,6 @@
 import { isSharedImportedField } from '@exam-view/shared';
 import { isCombinedField } from './examCombinedFields';
+import { isSummaryField } from './examSummaryFields';
 import {
   isAllDayDateShiftField,
   isDateShiftField,
@@ -20,7 +21,7 @@ const toTableDataType = (field) => {
   const t = getEffectiveDataType(field);
   if (t === 'code' || t === 'mono') return 'text';
   if (t === 'dot') return 'boolean';
-  if (t === 'linked' || t === 'fromExam' || t === 'combined') return 'text';
+  if (t === 'linked' || t === 'fromExam' || t === 'combined' || t === 'summary') return 'text';
   return t || 'text';
 };
 
@@ -92,7 +93,9 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
         ? resolveDateShiftWidthForField(field, dateShifts)
         : dataType === 'date' || dataType === 'datetime'
           ? 150
-          : 180,
+          : isSummaryField(field)
+            ? 260
+            : 180,
       ...(dateShiftCol
         ? {
             dateShiftTemplate: true,
@@ -115,6 +118,7 @@ export const buildFieldColumns = (fields = [], { dateShifts = null } = {}) =>
         field.dataType !== 'linked' &&
         field.dataType !== 'fromExam' &&
         !isCombinedField(field) &&
+        !isSummaryField(field) &&
         !isSharedImportedField(field) &&
         String(field.examDayImportRole || '') !== 'shiftStatus' &&
         String(field.examDayImportRole || '') !== 'shiftFirstT' &&

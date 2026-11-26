@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { useExamsList } from '../hooks/useExamsQuery';
 import { buildExamLabel, pick } from '../pages/exams/examLabel';
+import { isBioMetricService } from '../utils/bioService';
 import { serviceHue } from '../utils/serviceTone';
 
 const STALE_MS = 60 * 1000;
@@ -37,10 +38,17 @@ export const Highlight = ({ text, query }) => {
 };
 
 /**
- * Breadcrumb tail on an exam page: shows the current exam and opens a searchable list of every exam,
- * so you can jump to another one without going back to the Exams list.
+ * Breadcrumb exam picker. On exam pages it navigates to `/exams/:id/...`.
+ * On Device Master pass `bioOnly` + `onSelect` to stay on the current path.
  */
-export const ExamSwitcher = ({ examId, label }) => {
+export const ExamSwitcher = ({
+  examId,
+  label,
+  bioOnly = false,
+  filterExam,
+  onSelect,
+  emptyLabel = 'No exams yet.',
+}) => {
   const navigate = useNavigate();
   const location = useLocation();
   const listId = useId();
@@ -59,26 +67,31 @@ export const ExamSwitcher = ({ examId, label }) => {
     ? examsQuery.error.response?.data?.message || 'Could not load the exams.'
     : '';
   // Name on top, service + code underneath; `label` stays the search haystack.
-  const exams = useMemo(
-    () =>
-      rows
-        .map((exam) => {
-          const values = exam?.values || {};
-          return {
-            id: String(exam.id),
-            name: pick(values, ['exam_name', 'name', 'title']) || 'Untitled exam',
-            service: pick(values, ['service']),
-            code: pick(values, ['project_code']),
-            label: buildExamLabel(exam),
-          };
-        })
-        .sort(
-          (a, b) =>
-            a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) ||
-            a.label.localeCompare(b.label),
-        ),
-    [rows],
-  );
+  const exams = useMemo(() => {
+    const mapped = rows
+      .map((exam) => {
+        const values = exam?.values || {};
+        return {
+          id: String(exam.id),
+          name: pick(values, ['exam_name', 'name', 'title']) || 'Untitled exam',
+          service: pick(values, ['service']),
+          code: pick(values, ['project_code']),
+          label: buildExamLabel(exam),
+          raw: exam,
+        };
+      })
+      .filter((e) => {
+        if (typeof filterExam === 'function') return filterExam(e.raw);
+        if (bioOnly) return isBioMetricService(e.service);
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) ||
+          a.label.localeCompare(b.label),
+      );
+    return mapped;
+  }, [rows, bioOnly, filterExam]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,11 +133,14 @@ export const ExamSwitcher = ({ examId, label }) => {
 
   const choose = (id) => {
     setOpen(false);
-    if (id !== currentId) {
-      // Stay on the sub page being viewed (Op/Guard List, Mock Day...) when switching exams.
-      const currentTab = location.pathname.replace(/\/$/, '').split('/')[3] || 'center-list';
-      navigate(examPath(id, currentTab));
+    if (id === currentId) return;
+    if (typeof onSelect === 'function') {
+      onSelect(id);
+      return;
     }
+    // Stay on the sub page being viewed (Op/Guard List, Mock Day...) when switching exams.
+    const currentTab = location.pathname.replace(/\/$/, '').split('/')[3] || 'center-list';
+    navigate(examPath(id, currentTab));
   };
 
   const onKeyDown = (e) => {
@@ -212,7 +228,7 @@ export const ExamSwitcher = ({ examId, label }) => {
               <div className="exam-switcher-empty exam-switcher-error">{error}</div>
             ) : visible.length === 0 ? (
               <div className="exam-switcher-empty">
-                {query ? 'No exams match your search.' : 'No exams yet.'}
+                {query ? 'No exams match your search.' : emptyLabel}
               </div>
             ) : (
               visible.map((exam, i) => {

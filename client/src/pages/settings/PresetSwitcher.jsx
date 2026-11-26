@@ -7,8 +7,18 @@ import { serviceHue } from '../../utils/serviceTone';
 /**
  * Preset editor title: shows the full preset name and opens a searchable list of every preset
  * (same look as the exam switcher). `value` is the current preset id, or 'new' while creating.
+ * Pass `labelView` for Device Master (or other) page labels instead of exam pages.
  */
-export const PresetSwitcher = ({ value, title, presets = [], onSelect, disabled = false }) => {
+export const PresetSwitcher = ({
+  value,
+  title,
+  presets = [],
+  onSelect,
+  disabled = false,
+  labelView = examViewLabel,
+  defaultView = DEFAULT_EXAM_VIEW,
+  showService = true,
+}) => {
   const listId = useId();
   const rootRef = useRef(null);
   const searchRef = useRef(null);
@@ -22,16 +32,17 @@ export const PresetSwitcher = ({ value, title, presets = [], onSelect, disabled 
         .map((p) => ({
           id: String(p.id),
           name: String(p.name || 'Untitled preset'),
-          service: String(p.serviceValue || ''),
-          page: examViewLabel(p.view || DEFAULT_EXAM_VIEW),
+          service: showService ? String(p.serviceValue || '') : '',
+          page: labelView(p.view || defaultView),
           fields: Array.isArray(p.fields) ? p.fields.length : p.fieldCount ?? 0,
         }))
         .sort(
           (a, b) =>
             a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) ||
-            a.service.localeCompare(b.service),
+            a.service.localeCompare(b.service) ||
+            a.page.localeCompare(b.page),
         ),
-    [presets],
+    [presets, labelView, defaultView, showService],
   );
 
   const visible = useMemo(() => {
@@ -133,7 +144,7 @@ export const PresetSwitcher = ({ value, title, presets = [], onSelect, disabled 
             ) : null}
           </div>
 
-          <div className="exam-switcher-list" role="listbox" id={listId} aria-label="Field presets">
+          <div className="exam-switcher-list" role="listbox" id={listId} aria-label="Service presets">
             {value === 'new' && !query && (
               <div className="fpe-switch-new" aria-hidden="true">
                 <span className="fpe-switch-new-dot" />

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { applyCombinedDisplayValues, restoreCombinedValues } from './examCombinedFields';
+import { restoreSummaryValues } from './examSummaryFields';
 import { isFromExamField } from './tableLookupApi';
 
 const formatDateish = (raw, dataType) => {
@@ -62,5 +63,5 @@ export const restoreFromExamValues = (updatedValues, originalValues, fields) => 
     if (originalValues && f.key in originalValues) next[f.key] = originalValues[f.key];
     else delete next[f.key];
   });
-  return restoreCombinedValues(next, originalValues, fields);
+  return restoreSummaryValues(restoreCombinedValues(next, originalValues, fields), originalValues, fields);
 };

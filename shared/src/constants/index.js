@@ -5,3 +5,4 @@ export * from './status.js';
 export * from './errorCodes.js';
 export * from './socketEvents.js';
 export * from './examViews.js';
+export * from './deviceMasterViews.js';

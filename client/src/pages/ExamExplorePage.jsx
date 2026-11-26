@@ -31,12 +31,15 @@ import {
   isExamDayView,
   isExamViewKey,
   isOperatorGuardCallingView,
+  isOwnRowSetView,
   isSharedImportedField,
   normalizeCallingExpand,
   normalizeCallingLabel,
   resolveCallingExpandForLabel,
 } from '@exam-view/shared';
 import { isCombinedField } from './exams/examCombinedFields';
+import { isSummaryField } from './exams/examSummaryFields';
+import { useSummaryDisplayRows } from './exams/useSummaryDisplayRows';
 import { DynamicTable, TableSkeleton } from '../components/DynamicTable';
 import { applyFilters, applySearch } from '../components/DynamicData/dataProcessing';
 import { useExamRows, useExamTableConfig, useInvalidateExams } from '../hooks/useExamsQuery';
@@ -724,7 +727,7 @@ export const ExamExplorePage = () => {
     return { ...base, delete: false };
   }, [access, examDayLive]);
   const createFields = useMemo(
-    () => creatableFields(fields, 'exam_rows', access).filter((f) => !isCombinedField(f)),
+    () => creatableFields(fields, 'exam_rows', access).filter((f) => !isCombinedField(f) && !isSummaryField(f)),
     [fields, access],
   );
   const examConfigQuery = useExamTableConfig();
@@ -772,10 +775,25 @@ export const ExamExplorePage = () => {
     });
     return expanded;
   }, [examDayLive, tableRows, centerListDateShifts, fields]);
+  const summaryLiveRows = useMemo(() => {
+    const map = {};
+    if (examDayLive) {
+      map[EXAM_DAY_VIEW] = examDayAllRows;
+      map[DEFAULT_EXAM_VIEW] = tableRows;
+    } else if (uniqueImportActive) {
+      map[view] = uniqueAllRows;
+    }
+    return map;
+  }, [examDayLive, examDayAllRows, tableRows, uniqueImportActive, uniqueAllRows, view]);
+  const summaryInputRows = examDayLive ? examDayAllRows : uniqueImportActive ? uniqueAllRows : tableRows;
+  const rowsWithSummary = useSummaryDisplayRows(summaryInputRows, fields, {
+    examId,
+    liveRowsByView: summaryLiveRows,
+  });
   // Unique / Exam Day: search/filter the full derived set, then page — not only the visible slice.
   const derivedFilteredRows = useMemo(() => {
-    if (!uniqueImportActive && !examDayLive) return uniqueAllRows;
-    let next = examDayLive ? examDayAllRows : uniqueAllRows;
+    if (!uniqueImportActive && !examDayLive) return rowsWithSummary;
+    let next = rowsWithSummary;
     if (examDayLive && examDayDateFilterId) {
       next = next.filter(
         (r) => String(r.__examDayDateId || '') === String(examDayDateFilterId),
@@ -790,20 +808,19 @@ export const ExamExplorePage = () => {
     uniqueImportActive,
     examDayLive,
     examDayDateFilterId,
-    uniqueAllRows,
-    examDayAllRows,
+    rowsWithSummary,
     rowsSearch,
     rowsFilters,
     tableColumns,
   ]);
   const displayTableRows = useMemo(() => {
-    if (!uniqueImportActive && !examDayLive) return tableRows;
+    if (!uniqueImportActive && !examDayLive) return rowsWithSummary;
     const start = (rowsPage - 1) * rowsPageSize;
     return derivedFilteredRows.slice(start, start + rowsPageSize);
   }, [
     uniqueImportActive,
     examDayLive,
-    tableRows,
+    rowsWithSummary,
     derivedFilteredRows,
     rowsPage,
     rowsPageSize,
@@ -1152,7 +1169,7 @@ export const ExamExplorePage = () => {
       const rawPatch = {};
       Object.entries(restored).forEach(([key, val]) => {
         const f = fieldByKey.get(key);
-        if (!f || isCombinedField(f) || isFromExamField(f)) return;
+        if (!f || isCombinedField(f) || isSummaryField(f) || isFromExamField(f)) return;
         rawPatch[key] = val;
       });
       const { rootPatch, nextMeta } = splitExamDayPersistPatch({
@@ -1225,12 +1242,18 @@ export const ExamExplorePage = () => {
     const localPatch = {};
     const sharedByView = new Map();
     const fieldByKey = new Map((fields || []).map((f) => [f.key, f]));
+    // Calling rows live in a separate collection — never PATCH exam_rows with a Calling id.
+    const ownRowSet = isOwnRowSetView(view);
     Object.entries(restored).forEach(([key, val]) => {
       const f = fieldByKey.get(key);
-      if (!f || isCombinedField(f) || isFromExamField(f)) return;
+      if (!f || isCombinedField(f) || isSummaryField(f) || isFromExamField(f)) return;
       if (isSharedImportedField(f)) {
         const home = String(f.sharedFromView || '').trim();
-        if (!home) return;
+        // Same tab, or Calling/own-row: keep the value on this row (phone sync, linked fills, …).
+        if (!home || home === view || ownRowSet) {
+          localPatch[key] = val;
+          return;
+        }
         if (!sharedByView.has(home)) sharedByView.set(home, {});
         sharedByView.get(home)[key] = val;
         return;
@@ -1244,10 +1267,12 @@ export const ExamExplorePage = () => {
       ? siblingIdsForUniqueRow(rows, rowId, uniqueRowKeys)
       : [String(rowId)];
     const idSet = new Set(targetIds.map(String));
+    const mergedPatch = { ...localPatch };
+    for (const patch of sharedByView.values()) Object.assign(mergedPatch, patch);
 
     // Optimistic paint on every sibling (and every cached page size) before API returns.
     const touchedAt = new Date().toISOString();
-    const optimisticValues = { ...restored, ...localPatch };
+    const optimisticValues = { ...restored, ...mergedPatch };
     setRowsCache(
       examId,
       (prev) =>
@@ -1278,16 +1303,21 @@ export const ExamExplorePage = () => {
       }
     }
     for (const [homeView, patch] of sharedByView) {
+      // Home-tab write uses this page's row ids (same spreadsheet). Never replace `next` with
+      // another view's row document — that wiped Calling cells after a secondary PATCH.
       if (targetIds.length > 1) {
         await bulkUpdateExamRows(examId, { ids: targetIds, values: patch, view: homeView });
-        next = { ...(next || original), values: { ...((next || original)?.values || {}), ...patch } };
       } else {
-        next = await updateExamRow(examId, rowId, patch, homeView);
+        await updateExamRow(examId, rowId, patch, homeView);
       }
+      next = {
+        ...(next || original),
+        values: { ...((next || original)?.values || {}), ...patch },
+      };
     }
     clearLookupPicksForRow(String(rowId));
     clearLookupDisplayOverrides(String(rowId));
-    if (Object.keys(localPatch).length || sharedByView.size) {
+    if (Object.keys(mergedPatch).length) {
       // Merge the patch onto every sibling in cache (not only the edited id).
       setRowsCache(
         examId,
@@ -1295,9 +1325,9 @@ export const ExamExplorePage = () => {
           prev.map((r) => {
             if (!idSet.has(String(r.id))) return r;
             if (String(r.id) === String(rowId) && next) {
-              return { ...next, values: { ...(next.values || {}), ...localPatch } };
+              return { ...next, values: { ...(next.values || {}), ...mergedPatch } };
             }
-            return { ...r, values: { ...(r.values || {}), ...localPatch } };
+            return { ...r, values: { ...(r.values || {}), ...mergedPatch } };
           }),
         rowsPageKey,
       );
@@ -1398,7 +1428,7 @@ export const ExamExplorePage = () => {
         const localPatch = {};
         Object.entries(values).forEach(([key, val]) => {
           const f = fieldByKey.get(key);
-          if (!f || isCombinedField(f) || isFromExamField(f) || isLinkedField(f)) return;
+          if (!f || isCombinedField(f) || isSummaryField(f) || isFromExamField(f) || isLinkedField(f)) return;
           if (isSharedImportedField(f)) return; // home-tab only — skip in bulk for now
           // Exam Day live counts + auto status/timestamps — never mass-write them.
           if (

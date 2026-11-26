@@ -7,9 +7,20 @@ export const queryKeys = {
   },
   devices: {
     all: ['devices'],
-    list: () => [...queryKeys.devices.all, 'list'],
+    list: (examId = '') => [...queryKeys.devices.all, 'list', String(examId || '')],
     config: () => [...queryKeys.devices.all, 'config'],
   },
+  centerCsrMatching: {
+    all: ['center-csr-matching'],
+    list: (examId = '') => [...queryKeys.centerCsrMatching.all, 'list', String(examId || '')],
+    config: () => [...queryKeys.centerCsrMatching.all, 'config'],
+  },
+  devicePresets: {
+    all: ['device-presets'],
+    list: () => [...queryKeys.devicePresets.all, 'list'],
+  },
+
+
   vendors: {
     all: ['vendors'],
     list: () => [...queryKeys.vendors.all, 'list'],

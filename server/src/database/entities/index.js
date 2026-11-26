@@ -9,11 +9,15 @@ import { VendorSchema } from './Vendor.js';
 import { VendorMetaSchema } from './VendorMeta.js';
 import { DeviceSchema } from './Device.js';
 import { DeviceMetaSchema } from './DeviceMeta.js';
+import { CenterCsrMatchingSchema } from './CenterCsrMatching.js';
+import { CenterCsrMatchingMetaSchema } from './CenterCsrMatchingMeta.js';
+import { deviceTabEntitySchemas } from './deviceTabSchemas.js';
 import { SeqViewSchema } from './SeqView.js';
 import { SeqViewMetaSchema } from './SeqViewMeta.js';
 import { UserTableMetaSchema } from './UserTableMeta.js';
 import { UserTagSchema } from './UserTag.js';
 import { ExamFieldPresetSchema } from './ExamFieldPreset.js';
+import { DeviceFieldPresetSchema } from './DeviceFieldPreset.js';
 import { SystemSettingSchema } from './SystemSetting.js';
 import { UserPreferenceSchema } from './UserPreference.js';
 import { NotificationSchema } from './Notification.js';
@@ -35,11 +39,15 @@ export const entities = [
   VendorMetaSchema,
   DeviceSchema,
   DeviceMetaSchema,
+  CenterCsrMatchingSchema,
+  CenterCsrMatchingMetaSchema,
+  ...deviceTabEntitySchemas,
   SeqViewSchema,
   SeqViewMetaSchema,
   UserTableMetaSchema,
   UserTagSchema,
   ExamFieldPresetSchema,
+  DeviceFieldPresetSchema,
   SystemSettingSchema,
   UserPreferenceSchema,
   NotificationSchema,
@@ -61,11 +69,14 @@ export { Vendor } from './Vendor.js';
 export { VendorMeta } from './VendorMeta.js';
 export { Device } from './Device.js';
 export { DeviceMeta } from './DeviceMeta.js';
+export { CenterCsrMatching } from './CenterCsrMatching.js';
+export { CenterCsrMatchingMeta } from './CenterCsrMatchingMeta.js';
 export { SeqView } from './SeqView.js';
 export { SeqViewMeta } from './SeqViewMeta.js';
 export { UserTableMeta } from './UserTableMeta.js';
 export { UserTag } from './UserTag.js';
 export { ExamFieldPreset } from './ExamFieldPreset.js';
+export { DeviceFieldPreset } from './DeviceFieldPreset.js';
 export { SystemSetting } from './SystemSetting.js';
 export { UserPreference } from './UserPreference.js';
 export { Notification } from './Notification.js';
