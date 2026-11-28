@@ -1,5 +1,5 @@
 import {
-  defaultValueForType,
+  resolveFieldDefault,
   buildSameAsFlags,
   DATE_LINK_TYPES,
   validatePhoneFieldValue,
@@ -88,7 +88,7 @@ export const applySameAsDefaults = (fields, values, flags) => {
 export const buildEmptyForm = (fields = []) => {
   const values = {};
   fields.forEach((f) => {
-    values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
+    values[f.key] = resolveFieldDefault(f);
   });
   return applySameAsDefaults(fields, values, buildSameAsFlags(fields));
 };
@@ -111,14 +111,14 @@ export const mergeDraftIntoForm = (fields, draft) => {
   fields.forEach((f) => {
     const isAuto = f.autoFill && f.autoFill !== 'none';
     if (isAuto) {
-      values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
+      values[f.key] = resolveFieldDefault(f);
       return;
     }
     if (draft?.values && Object.prototype.hasOwnProperty.call(draft.values, f.key)) {
       values[f.key] = draft.values[f.key];
       return;
     }
-    values[f.key] = defaultValueForType(f.dataType, f.autoFill, f.allowMultiple);
+    values[f.key] = resolveFieldDefault(f);
   });
 
   return {

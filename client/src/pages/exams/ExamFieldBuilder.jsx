@@ -340,6 +340,16 @@ export const ExamFieldBuilder = ({
     form.optionsSource === 'config' && form.configListId
       ? getConfigListOptions(form.configListId)
       : [];
+  const manualDefaultOptions = String(form.optionsText || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const defaultValueChoices =
+    (form.optionsSource || 'manual') === 'manual'
+      ? manualDefaultOptions
+      : form.optionsSource === 'config'
+        ? previewConfigOptions
+        : [];
   const dateLinkOptions = [
     { value: '', label: 'None' },
     ...getDateLinkCandidates(fields, form.id).map((f) => ({
@@ -751,6 +761,9 @@ export const ExamFieldBuilder = ({
           : Boolean(field.allowMultiple) || field.dataType === 'multiselect',
       sameAsFieldKey: field.sameAsFieldKey || '',
       sameAsDefaultOn: field.sameAsDefaultOn !== false,
+      defaultValue: Array.isArray(field.defaultValue)
+        ? String(field.defaultValue[0] || '')
+        : String(field.defaultValue || ''),
       phoneValidation: {
         mode: phoneVal.mode || 'none',
         pattern: phoneVal.pattern || '',
@@ -1025,6 +1038,17 @@ export const ExamFieldBuilder = ({
         }
         : undefined;
 
+    const supportsDefault =
+      needsOptions &&
+      (optionsSource === 'manual' || optionsSource === 'config') &&
+      !(form.autoFill && form.autoFill !== 'none');
+    let defaultValue = supportsDefault ? String(form.defaultValue || '').trim() : '';
+    if (defaultValue) {
+      const optionList =
+        optionsSource === 'config' ? getConfigListOptions(form.configListId) : options;
+      if (!optionList.includes(defaultValue)) defaultValue = '';
+    }
+
     const payload = {
       label,
       key,
@@ -1063,6 +1087,9 @@ export const ExamFieldBuilder = ({
       layout: form.layout || 'full',
       sameAsFieldKey: canLinkDate ? form.sameAsFieldKey || '' : '',
       sameAsDefaultOn: canLinkDate ? form.sameAsDefaultOn !== false : true,
+      ...(defaultValue
+        ? { defaultValue: allowMultiple ? [defaultValue] : defaultValue }
+        : { defaultValue: undefined }),
       ...(phoneValidation ? { phoneValidation } : { phoneValidation: undefined }),
     };
 
@@ -1702,6 +1729,34 @@ export const ExamFieldBuilder = ({
                 )}
               </>
             )}
+
+            {(form.optionsSource || 'manual') !== 'table' &&
+              form.optionsSource !== 'userTags' &&
+              !(form.autoFill && form.autoFill !== 'none') && (
+                <SearchableSelect
+                  id={`${formId}-default-value`}
+                  label="Default value"
+                  value={
+                    defaultValueChoices.includes(String(form.defaultValue || '').trim())
+                      ? String(form.defaultValue || '').trim()
+                      : ''
+                  }
+                  options={[
+                    { value: '', label: 'None' },
+                    ...defaultValueChoices.map((opt) => ({ value: opt, label: opt })),
+                  ]}
+                  placeholder="None"
+                  searchThreshold={8}
+                  onChange={(next) => setForm((p) => ({ ...p, defaultValue: next }))}
+                />
+              )}
+            {(form.optionsSource || 'manual') !== 'table' &&
+              form.optionsSource !== 'userTags' &&
+              !(form.autoFill && form.autoFill !== 'none') && (
+                <p className="exams-config-empty-hint">
+                  Prefills the create form. Leave None to start empty.
+                </p>
+              )}
           </div>
         )}
 

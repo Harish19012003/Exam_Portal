@@ -15,6 +15,17 @@ export const queryKeys = {
     list: (examId = '') => [...queryKeys.centerCsrMatching.all, 'list', String(examId || '')],
     config: () => [...queryKeys.centerCsrMatching.all, 'config'],
   },
+  /** Device Master report tabs (Stats Center, Training, …) — rows in device_* collections. */
+  deviceTabs: {
+    all: ['device-tabs'],
+    fields: (view = '') => [...queryKeys.deviceTabs.all, 'fields', String(view || '')],
+    list: (view = '', examId = '') => [
+      ...queryKeys.deviceTabs.all,
+      'list',
+      String(view || ''),
+      String(examId || ''),
+    ],
+  },
   devicePresets: {
     all: ['device-presets'],
     list: () => [...queryKeys.devicePresets.all, 'list'],

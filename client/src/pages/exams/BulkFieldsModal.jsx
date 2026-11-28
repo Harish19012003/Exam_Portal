@@ -177,6 +177,7 @@ const newRow = (dataType = 'text') => ({
   rid: `r${(rowSeq += 1)}`,
   label: '',
   key: '',
+  apiHeader: '',
   keyTouched: false,
   dataType,
   autoFill: 'none',
@@ -225,6 +226,7 @@ const rowFromField = (f) => {
     ...newRow(f.dataType),
     label: f.label || '',
     key: f.key || '',
+    apiHeader: String(f.apiHeader || '').trim() || String(f.label || '').trim(),
     keyTouched: true,
     autoFill: f.autoFill || 'none',
     layout: f.layout || 'full',
@@ -312,48 +314,53 @@ const phoneLookupPart = (r) => {
   return { optionsSource: 'manual', tableSource: undefined };
 };
 
-const rowToItem = (r, allowUnique = false) => ({
-  label: r.label.trim(),
-  key: r.key.trim(),
-  dataType: r.dataType,
-  required: r.dataType !== 'linked' && r.dataType !== 'fromExam' && r.dataType !== 'summary' && r.autoFill === 'none' && r.required,
-  unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
-  ...optionsPart(r),
-  ...phoneLookupPart(r),
-  ...(r.dataType === 'linked' ? { linkedFrom: { fieldKey: r.linkedFieldKey || '', column: r.linkedColumn } } : {}),
-  ...(r.dataType === 'fromExam' ? { examFieldKey: r.examFieldKey || '' } : {}),
-  ...((r.dataType === 'date' || r.dataType === 'datetime') &&
-  (r.scheduleRole === 'start' || r.scheduleRole === 'end')
-    ? { scheduleRole: r.scheduleRole }
-    : {}),
-  autoFill: r.autoFill,
-  layout: r.layout,
-  phoneValidation: buildPhoneValidation(r),
-  ...(r.sharedFromView ? { sharedFromView: r.sharedFromView } : {}),
-  ...(r.sharedFromLabel ? { sharedFromLabel: r.sharedFromLabel } : {}),
-  ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
-    ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
-    : {}),
-  ...(r.dataType === 'summary' && r.summary ? { summary: r.summary } : {}),
-  ...(r.focusDateColumn === 'totalCenter' || r.focusDateColumn === 'maxAllDay'
-    ? { focusDateColumn: r.focusDateColumn }
-    : {}),
-  ...(r.dataType === 'formula' ? { formula: String(r.formula || '').trim() } : {}),
-  ...(String(r.examDayShiftId || '').trim()
-    ? { examDayShiftId: String(r.examDayShiftId).trim() }
-    : {}),
-  ...(String(r.examDayImportRole || '').trim()
-    ? { examDayImportRole: String(r.examDayImportRole).trim() }
-    : {}),
-});
+const rowToItem = (r, allowUnique = false, { seedApiHeader = false } = {}) => {
+  const apiHeader = String(r.apiHeader || '').trim() || (seedApiHeader ? String(r.label || '').trim() : '');
+  return {
+    label: r.label.trim(),
+    key: r.key.trim(),
+    ...(apiHeader ? { apiHeader: apiHeader.slice(0, 200) } : {}),
+    dataType: r.dataType,
+    required: r.dataType !== 'linked' && r.dataType !== 'fromExam' && r.dataType !== 'summary' && r.autoFill === 'none' && r.required,
+    unique: allowUnique && r.unique && UNIQUE_FIELD_TYPES.has(r.dataType),
+    ...optionsPart(r),
+    ...phoneLookupPart(r),
+    ...(r.dataType === 'linked' ? { linkedFrom: { fieldKey: r.linkedFieldKey || '', column: r.linkedColumn } } : {}),
+    ...(r.dataType === 'fromExam' ? { examFieldKey: r.examFieldKey || '' } : {}),
+    ...((r.dataType === 'date' || r.dataType === 'datetime') &&
+    (r.scheduleRole === 'start' || r.scheduleRole === 'end')
+      ? { scheduleRole: r.scheduleRole }
+      : {}),
+    autoFill: r.autoFill,
+    layout: r.layout,
+    phoneValidation: buildPhoneValidation(r),
+    ...(r.sharedFromView ? { sharedFromView: r.sharedFromView } : {}),
+    ...(r.sharedFromLabel ? { sharedFromLabel: r.sharedFromLabel } : {}),
+    ...(r.dataType === 'combined' && Array.isArray(r.combineKeys) && r.combineKeys.length >= 2
+      ? { combine: { keys: r.combineKeys.map(String), separator: r.combineSeparator ?? ', ' } }
+      : {}),
+    ...(r.dataType === 'summary' && r.summary ? { summary: r.summary } : {}),
+    ...(r.focusDateColumn === 'totalCenter' || r.focusDateColumn === 'maxAllDay'
+      ? { focusDateColumn: r.focusDateColumn }
+      : {}),
+    ...(r.dataType === 'formula' ? { formula: String(r.formula || '').trim() } : {}),
+    ...(String(r.examDayShiftId || '').trim()
+      ? { examDayShiftId: String(r.examDayShiftId).trim() }
+      : {}),
+    ...(String(r.examDayImportRole || '').trim()
+      ? { examDayImportRole: String(r.examDayImportRole).trim() }
+      : {}),
+  };
+};
 
 /** The saved field with this row's edits applied, or null when nothing changed. */
-const changedField = (r, allowUnique = false) => {
-  const item = rowToItem(r, allowUnique);
+const changedField = (r, allowUnique = false, opts = {}) => {
+  const item = rowToItem(r, allowUnique, opts);
   const o = r.orig;
   const next = {
     ...o,
     label: item.label,
+    ...(item.apiHeader ? { apiHeader: item.apiHeader } : { apiHeader: undefined }),
     dataType: item.dataType,
     required: item.required,
     ...(allowUnique ? { unique: item.unique } : {}),
@@ -410,6 +417,7 @@ const changedField = (r, allowUnique = false) => {
   const sig = (f) =>
     JSON.stringify([
       f.label,
+      f.apiHeader || '',
       f.dataType,
       Boolean(f.required),
       Boolean(f.unique),
@@ -715,6 +723,11 @@ export const BulkFieldsModal = ({
   enableDateShifts = null,
   /** Center-list–hidden shift ids — skip those families in Exam Day import checklist. */
   hiddenExamDayShiftIds = null,
+  /**
+   * Device Master presets: show API header column (TrustView response key).
+   * Stable when Label changes later; seeds from Label when empty on save.
+   */
+  enableApiHeader = false,
 }) => {
   const examFieldOptions = (examSourceFields || [])
     .filter((f) => f?.key)
@@ -1465,10 +1478,12 @@ export const BulkFieldsModal = ({
     return list.filter(({ row }) => {
       const label = String(row.label || '').toLowerCase();
       const key = String(row.key || '').toLowerCase();
+      const apiHeader = String(row.apiHeader || '').toLowerCase();
       const type = String(row.dataType || '').toLowerCase();
       return (
         label.includes(fieldSearchQ) ||
         key.includes(fieldSearchQ) ||
+        apiHeader.includes(fieldSearchQ) ||
         type.includes(fieldSearchQ)
       );
     });
@@ -1914,14 +1929,15 @@ export const BulkFieldsModal = ({
     const orderOnly = orderDirty && fieldPending === 0 && removedIds.length === 0;
     if (errorCount && !metaOnly && !orderOnly) return;
     const skipFieldPayload = metaOnly || orderOnly;
+    const apiHeaderOpts = { seedApiHeader: Boolean(enableApiHeader) };
     const items = skipFieldPayload
       ? []
       : resolvedRows
           .filter((r, i) => !r.existingId && !validation[i].blank)
-          .map((r) => rowToItem(r, allowUnique));
+          .map((r) => rowToItem(r, allowUnique, apiHeaderOpts));
     const updated = skipFieldPayload
       ? []
-      : resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique)).filter(Boolean);
+      : resolvedRows.filter((r) => r.existingId).map((r) => changedField(r, allowUnique, apiHeaderOpts)).filter(Boolean);
     const newDefs = items.map((item, i) => toFieldDefinition(item, fields.length + i + 1));
     // Row order = field order: existing fields by id, new ones by key.
     const order =
@@ -2148,7 +2164,7 @@ export const BulkFieldsModal = ({
     return () => observer.disconnect();
   }, [pinCount]);
 
-  // colIdx: 0 = #, 1 = Label, 2 = Key, 3 = Type
+  // colIdx: 0 = #, 1 = Label, 2 = Key, (3 = API header when enabled), then Type…
   const pinned = (colIdx, base = '') => {
     if (pinCount == null || colIdx > pinCount) return { className: base || undefined };
     return {
@@ -3179,12 +3195,15 @@ export const BulkFieldsModal = ({
           <table
             ref={tableRef}
             className="exams-bulk-table"
-            style={{ width: `max(100%, ${2070 + (allowUnique ? 90 : 0)}px)` }}
+            style={{
+              width: `max(100%, ${2070 + (allowUnique ? 90 : 0) + (enableApiHeader ? 180 : 0)}px)`,
+            }}
           >
             <colgroup>
               <col style={{ width: 124 }} />
               <col style={{ width: 240 }} />
               <col style={{ width: 180 }} />
+              {enableApiHeader ? <col style={{ width: 180 }} /> : null}
               <col style={{ width: 160 }} />
               <col style={{ width: 220 }} />
               <col style={{ width: 140 }} />
@@ -3216,7 +3235,15 @@ export const BulkFieldsModal = ({
                     {pinButton(2, 'Key')}
                   </span>
                 </th>
-                <th {...pinned(3)}>
+                {enableApiHeader ? (
+                  <th {...pinned(3)}>
+                    <span className="exams-bulk-th-info">
+                      API header
+                      {pinButton(3, 'API header')}
+                    </span>
+                  </th>
+                ) : null}
+                <th {...pinned(enableApiHeader ? 4 : 3)}>
                   <span className="exams-bulk-th-info">
                     Type
                     <button
@@ -3232,7 +3259,7 @@ export const BulkFieldsModal = ({
                     >
                       <Info size={14} />
                     </button>
-                    {pinButton(3, 'Type')}
+                    {pinButton(enableApiHeader ? 4 : 3, 'Type')}
                   </span>
                 </th>
                 <th>Validation</th>
@@ -3408,7 +3435,22 @@ export const BulkFieldsModal = ({
                       />
                       {cellError(i, 'key') && <span className="exams-bulk-err">{cellError(i, 'key')}</span>}
                     </td>
-                    <td {...pinned(3)} data-label="Type">
+                    {enableApiHeader ? (
+                      <td {...pinned(3)} data-label="API header">
+                        <input
+                          type="text"
+                          data-col="apiHeader"
+                          value={row.apiHeader || ''}
+                          placeholder={row.label?.trim() || 'e.g. Centre Code'}
+                          title="TrustView / API response column name. Keep this when you rename Label."
+                          spellCheck={false}
+                          onChange={(e) => update(row.rid, { apiHeader: e.target.value })}
+                          onKeyDown={(e) => handleKeyDown(e, row, isLast)}
+                          aria-label={`Row ${i + 1} API header`}
+                        />
+                      </td>
+                    ) : null}
+                    <td {...pinned(enableApiHeader ? 4 : 3)} data-label="Type">
                       {row.dataType === 'linked' ? (
                         <span className="exams-bulk-static-chip">Linked value</span>
                       ) : row.dataType === 'combined' ? (
