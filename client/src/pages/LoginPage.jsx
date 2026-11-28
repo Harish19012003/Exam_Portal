@@ -1,11 +1,67 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  ArrowRight,
+  AlertCircle,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Key,
+  KeyRound,
+  Lock,
+  Mail,
+  MailCheck,
+  Monitor,
+  Moon,
+  RotateCcw,
+  Shield,
+  ShieldCheck,
+  Smartphone,
+  Sun,
+  UserCheck,
+  X,
+} from 'lucide-react';
 import { apiClient } from '../api/client';
-import { ArrowLeft, CalendarCheck, Building2, ClipboardList, CheckCircle2, Mail, AlertCircle, Eye, EyeOff, RotateCcw, Shield, Smartphone, Key, XCircle } from 'lucide-react';
-import { RocketIllustration } from '../components/RocketIllustration';
+import { queryKeys } from '../api/queryKeys';
+import { fetchPublicBranding, PLATFORM_DEFAULTS } from '../api/platformSettingsApi';
+import { OtpInput } from '../components/ui/OtpInput';
 import './LoginPage.css';
 
 const RECENT_KEY = 'recentLogins';
+const OTP_LOCK_KEY = 'otpResendLocks';
+const OTP_RESEND_LOCK_SEC = 30;
+
+const readOtpLockUntil = (addr) => {
+  const key = String(addr || '').trim().toLowerCase();
+  if (!key) return 0;
+  try {
+    const map = JSON.parse(sessionStorage.getItem(OTP_LOCK_KEY) || '{}');
+    const until = Number(map?.[key] || 0);
+    return until > Date.now() ? until : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const writeOtpLockUntil = (addr, seconds = OTP_RESEND_LOCK_SEC) => {
+  const key = String(addr || '').trim().toLowerCase();
+  if (!key) return 0;
+  const until = Date.now() + seconds * 1000;
+  try {
+    const map = JSON.parse(sessionStorage.getItem(OTP_LOCK_KEY) || '{}');
+    const now = Date.now();
+    const cleaned = Object.fromEntries(
+      Object.entries(map || {}).filter(([, ts]) => Number(ts) > now)
+    );
+    cleaned[key] = until;
+    sessionStorage.setItem(OTP_LOCK_KEY, JSON.stringify(cleaned));
+  } catch {
+    /* cache only */
+  }
+  return until;
+};
 
 const readRecent = () => {
   try {
@@ -30,18 +86,37 @@ const activeLabel = (at) => {
   return `Active ${days} day${days === 1 ? '' : 's'} ago`;
 };
 
-const GoogleIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-    <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z" />
-    <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z" />
-    <path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.9-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.9-6.1z" />
-    <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z" />
-  </svg>
-);
+const HIGHLIGHTS = [
+  {
+    icon: Monitor,
+    title: 'Real-time center monitoring',
+    text: 'Live shifts, check-ins and device sync status in one view.',
+  },
+  {
+    icon: UserCheck,
+    title: 'Biometric & shift control',
+    text: 'Coordinate exam rosters, presets and calling lists without spreadsheets.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Role & audit protection',
+    text: 'Group-based access rules with every change recorded.',
+  },
+];
 
 export const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const passwordInputRef = useRef(null);
+
+  const { data: branding } = useQuery({
+    queryKey: queryKeys.platformBranding,
+    queryFn: fetchPublicBranding,
+  });
+  const portalName = branding?.portal_name || PLATFORM_DEFAULTS.portal_name;
+  const logoUrl = branding?.logo_url || '';
+
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
 
   // Mode: 'password' | 'otp'
   const [mode, setMode] = useState('password');
@@ -60,6 +135,7 @@ export const LoginPage = () => {
   const [otpStep, setOtpStep] = useState('input_email'); // 'input_email' | 'input_code'
   const [otpCode, setOtpCode] = useState('');
   const [challengeToken, setChallengeToken] = useState('');
+  const [sentEmail, setSentEmail] = useState('');
   const [countdown, setCountdown] = useState(0);
 
   // 2FA Authenticator Challenge State
@@ -71,14 +147,24 @@ export const LoginPage = () => {
 
   const [recent, setRecent] = useState(readRecent);
 
-  // Resend countdown timer
   useEffect(() => {
-    let timer;
-    if (countdown > 0) {
-      timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [countdown]);
+    const theme = isDarkMode ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [isDarkMode]);
+
+  // Keep 30s resend lock synced with the currently entered email
+  useEffect(() => {
+    const updateCountdown = () => {
+      const until = readOtpLockUntil(email);
+      const remaining = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 0;
+      setCountdown(remaining);
+    };
+
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 500);
+    return () => clearInterval(timer);
+  }, [email]);
 
   const handleLoginSuccess = (token, user, refreshToken) => {
     if (token) {
@@ -92,7 +178,11 @@ export const LoginPage = () => {
       localStorage.setItem('user', JSON.stringify(user));
       const addr = user.email || email;
       if (addr) {
-        const entry = { email: addr, name: user.name || user.fullName || addr.split('@')[0], at: Date.now() };
+        const entry = {
+          email: addr,
+          name: user.name || user.fullName || addr.split('@')[0],
+          at: Date.now(),
+        };
         writeRecent([entry, ...readRecent().filter((r) => r.email !== addr)].slice(0, 4));
       }
     }
@@ -130,20 +220,40 @@ export const LoginPage = () => {
   // Send OTP
   const handleSendOtp = async (e) => {
     e?.preventDefault();
-    if (!email) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
       setError('Please enter your email address');
       return;
     }
+
+    const lockedUntil = readOtpLockUntil(cleanEmail);
+    if (lockedUntil > Date.now()) {
+      const waitSec = Math.ceil((lockedUntil - Date.now()) / 1000);
+      setCountdown(waitSec);
+      setError(`Code already sent. Please wait ${waitSec}s before resending.`);
+      return;
+    }
+
     setError('');
     setLoading(true);
 
     try {
-      const response = await apiClient.post('/auth/otp/send', { email });
-      setChallengeToken(response.data?.data?.challengeToken || '');
+      const response = await apiClient.post('/auth/otp/send', { email: cleanEmail });
+      const data = response.data?.data || {};
+      const lockSec = Number(data.retryAfter) || OTP_RESEND_LOCK_SEC;
+      writeOtpLockUntil(cleanEmail, lockSec);
+      setChallengeToken(data.challengeToken || '');
+      setSentEmail(cleanEmail);
       setOtpStep('input_code');
-      setCountdown(60);
+      setCountdown(lockSec);
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to send login code. Please try again.';
+      if (err.response?.status === 429) {
+        const match = String(msg).match(/(\d+)\s*s/i);
+        const lockSec = match ? Number(match[1]) : OTP_RESEND_LOCK_SEC;
+        writeOtpLockUntil(cleanEmail, lockSec);
+        setCountdown(lockSec);
+      }
       setError(msg);
     } finally {
       setLoading(false);
@@ -190,8 +300,12 @@ export const LoginPage = () => {
   const handleVerify2FA = async (e) => {
     e.preventDefault();
     const cleanCode = twoFactorCode.trim();
-    if (!cleanCode) {
-      setError(useBackupCode ? 'Please enter your recovery backup code' : 'Please enter the 6-digit authenticator code');
+    if (useBackupCode ? !cleanCode : cleanCode.length !== 6) {
+      setError(
+        useBackupCode
+          ? 'Please enter your recovery backup code'
+          : 'Please enter the 6-digit authenticator code'
+      );
       return;
     }
     setError('');
@@ -205,7 +319,9 @@ export const LoginPage = () => {
       const { accessToken, refreshToken, user } = response.data?.data || {};
       handleLoginSuccess(accessToken, user, refreshToken);
     } catch (err) {
-      const msg = err.response?.data?.message || 'Invalid verification code. Please check your authenticator app and try again.';
+      const msg =
+        err.response?.data?.message ||
+        'Invalid verification code. Please check your authenticator app and try again.';
       setError(msg);
     } finally {
       setLoading(false);
@@ -232,7 +348,9 @@ export const LoginPage = () => {
   const pickRecent = (account) => {
     setEmail(account.email);
     setPassword('');
+    setIsTwoFactorStep(false);
     switchMode('password');
+    setTimeout(() => passwordInputRef.current?.focus(), 0);
   };
 
   const removeRecent = (addr) => {
@@ -241,368 +359,492 @@ export const LoginPage = () => {
     writeRecent(next);
   };
 
-  const handleSocial = (provider) => {
-    setError(`${provider} sign-in is not configured yet. Please use your email and password.`);
-  };
+  const portalInitial = portalName.charAt(0).toUpperCase() || 'E';
 
   return (
-    <div className="login-page">
-      <button type="button" className="login-top-back-btn" onClick={() => navigate('/')} title="Back">
-        <ArrowLeft size={16} />
-        <span>Back</span>
-      </button>
-      <div className="login-frame">
-        <div className="login-blue">
-          <div className="login-topbar">
-            <span className="login-brand-name">Exam View</span>
+    <div className="lg-page">
+      <div className="lg-bg" aria-hidden="true">
+        <div className="lg-glow lg-glow--a" />
+        <div className="lg-glow lg-glow--b" />
+        <div className="lg-grid" />
+      </div>
+
+      {/* Floating pill header matching Landing Page */}
+      <header className="lg-header">
+        <Link to="/" className="lg-back-pill" aria-label="Back to home" title="Back to home">
+          <ArrowLeft size={18} aria-hidden="true" />
+        </Link>
+
+        <div className="lg-nav">
+          <div className="lg-nav-left">
+            <Link to="/" className="lg-back-inline" aria-label="Back to home" title="Back to home">
+              <ArrowLeft size={18} aria-hidden="true" />
+            </Link>
+            <Link to="/" className="lg-brand" aria-label={`${portalName} home`}>
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="lg-brand-img" />
+              ) : (
+                <span className="lg-brand-mark">{portalInitial}</span>
+              )}
+              <span className="lg-brand-name">{portalName}</span>
+            </Link>
           </div>
-          <div className="login-hero">
-            <div className="login-hero-text">
-              <h2 className="login-hero-title">Sign in to</h2>
-              <p className="login-hero-sub">Exam View is simply smarter</p>
-              <p className="login-hero-copy">
-                Manage exams, vendors and schedules in one place. Sign in to pick up right where you left off.
-              </p>
-            </div>
-            <RocketIllustration />
+
+          <div className="lg-nav-actions">
+            <button
+              type="button"
+              className="lg-icon-btn"
+              onClick={() => setIsDarkMode((p) => !p)}
+              aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={isDarkMode ? 'Light mode' : 'Dark mode'}
+            >
+              {isDarkMode ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
           </div>
         </div>
+      </header>
 
-        <div className="login-white">
-          {recent.length === 0 ? (
-            <div className="login-features">
-              <div className="login-feature">
-                <span className="login-feature-icon"><ClipboardList size={20} /></span>
-                <h3>Exams</h3>
-                <p>Create, organise and track every exam with custom fields and tables.</p>
+      <main className="lg-main">
+        <div className="lg-shell">
+          {/* Left column: context + quick sign-in */}
+          <section className="lg-context" aria-label="Portal overview">
+            <span className="lg-badge">
+              <span className="lg-badge-dot" aria-hidden="true" />
+              Operations console
+            </span>
+
+            <h1 className="lg-hero-title">
+              Sign in to <span className="lg-grad">{portalName}</span>
+            </h1>
+            <p className="lg-hero-lead">
+              Manage exams, center operations, devices and live shifts in one place. Sign in to pick
+              up right where you left off.
+            </p>
+
+            {recent.length > 0 ? (
+              <div className="lg-recent">
+                <div className="lg-recent-head">
+                  <span className="lg-section-label">Quick sign-in</span>
+                  <span className="lg-recent-hint">Select an account to prefill</span>
+                </div>
+                <div className="lg-recent-list">
+                  {recent.map((r) => {
+                    const selected = email.trim().toLowerCase() === r.email.toLowerCase();
+                    return (
+                      <div
+                        key={r.email}
+                        className={`lg-recent-card${selected ? ' is-selected' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => pickRecent(r)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            pickRecent(r);
+                          }
+                        }}
+                      >
+                        <span className="lg-recent-avatar" aria-hidden="true">
+                          {(r.name || r.email).charAt(0).toUpperCase()}
+                        </span>
+                        <span className="lg-recent-meta">
+                          <span className="lg-recent-name">{r.name}</span>
+                          <span className="lg-recent-email">{r.email}</span>
+                          <span className="lg-recent-active">{activeLabel(r.at)}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="lg-recent-remove"
+                          aria-label={`Remove ${r.name} from recent accounts`}
+                          title="Remove account"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeRecent(r.email);
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="login-feature">
-                <span className="login-feature-icon"><Building2 size={20} /></span>
-                <h3>Vendors</h3>
-                <p>Keep all your exam vendors and their details in one searchable place.</p>
-              </div>
-              <div className="login-feature">
-                <span className="login-feature-icon"><CalendarCheck size={20} /></span>
-                <h3>Schedules</h3>
-                <p>Stay on top of upcoming dates, announcements and notifications.</p>
-              </div>
-            </div>
-          ) : (
-          <div className="login-recent">
-            <p className="login-recent-title">Login as</p>
-            {(
-              <div className="login-recent-list">
-                {recent.map((r) => (
-                  <div
-                    key={r.email}
-                    className="login-recent-card"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => pickRecent(r)}
-                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && pickRecent(r)}
-                  >
-                    <button
-                      type="button"
-                      className="login-recent-remove"
-                      aria-label={`Remove ${r.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeRecent(r.email);
-                      }}
-                    >
-                      <XCircle size={14} />
-                    </button>
-                    <span className="login-recent-avatar">{(r.name || r.email).charAt(0).toUpperCase()}</span>
-                    <span className="login-recent-name">{r.name}</span>
-                    <span className="login-recent-active">{activeLabel(r.at)}</span>
+            ) : (
+              <div className="lg-highlights">
+                {HIGHLIGHTS.map(({ icon: Icon, title, text }) => (
+                  <div key={title} className="lg-highlight-card">
+                    <span className="lg-highlight-icon" aria-hidden="true">
+                      <Icon size={18} strokeWidth={1.9} />
+                    </span>
+                    <div className="lg-highlight-body">
+                      <strong>{title}</strong>
+                      <span>{text}</span>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-          )}
-        </div>
 
-      <div className="login-card">
-        {isTwoFactorStep ? (
-          <div className="login-2fa-container">
-            <div className="login-header">
-              <div className="login-2fa-shield-badge">
-                <Shield size={32} className="login-2fa-shield-icon" />
-              </div>
-              <h1 className="login-title">Two-Factor Authentication</h1>
-              <p className="login-subtitle">
-                {useBackupCode
-                  ? 'Enter one of your 8-character recovery backup codes to access your account'
-                  : `Enter the 6-digit verification code from your authenticator app for ${twoFactorEmail}`}
-              </p>
-            </div>
+            <ul className="lg-trust">
+              <li>
+                <CheckCircle2 size={15} aria-hidden="true" />
+                <span>Real-time sync</span>
+              </li>
+              <li>
+                <CheckCircle2 size={15} aria-hidden="true" />
+                <span>2FA ready</span>
+              </li>
+              <li>
+                <CheckCircle2 size={15} aria-hidden="true" />
+                <span>Full audit trail</span>
+              </li>
+            </ul>
+          </section>
 
-            {error && (
-              <div className="login-error">
-                <AlertCircle size={18} />
-                <span>{error}</span>
-              </div>
-            )}
+          {/* Right column: Sign-in card */}
+          <section className="lg-card-wrap" aria-label="Sign in form">
+            <div className="lg-card">
+              {isTwoFactorStep ? (
+                <div className="lg-2fa">
+                  <div className="lg-2fa-head">
+                    <div className="lg-2fa-badge" aria-hidden="true">
+                      <Shield size={26} />
+                    </div>
+                    <h2 className="lg-card-title">Two-factor verification</h2>
+                    <p className="lg-card-sub">
+                      {useBackupCode
+                        ? 'Enter one of your recovery backup codes to continue.'
+                        : `Enter the 6-digit code from your authenticator app for ${twoFactorEmail}.`}
+                    </p>
+                  </div>
 
-            <form className="login-form" onSubmit={handleVerify2FA}>
-              <div className="login-form-group">
-                <label className="login-label">
-                  {useBackupCode ? 'Recovery Backup Code' : '6-Digit Code'}
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  className="login-input login-otp-code-input"
-                  placeholder={useBackupCode ? 'a8f1-3b9c' : '••••••'}
-                  maxLength={useBackupCode ? 12 : 6}
-                  value={twoFactorCode}
-                  onChange={(e) => {
-                    if (useBackupCode) {
-                      setTwoFactorCode(e.target.value);
-                    } else {
-                      setTwoFactorCode(e.target.value.replace(/\D/g, ''));
-                    }
-                  }}
-                  required
-                />
-                <span className="login-helper-text">
-                  {useBackupCode
-                    ? 'Each backup code is single-use only.'
-                    : 'Works with Google Authenticator, Microsoft Authenticator, Authy, Apple Passwords.'}
-                </span>
-              </div>
-
-              <div className="login-2fa-toggle-row">
-                <button
-                  type="button"
-                  className="login-2fa-toggle-btn"
-                  onClick={() => {
-                    setUseBackupCode(!useBackupCode);
-                    setTwoFactorCode('');
-                    setError('');
-                  }}
-                >
-                  {useBackupCode ? (
-                    <>
-                      <Smartphone size={14} />
-                      <span>Use Authenticator App instead</span>
-                    </>
-                  ) : (
-                    <>
-                      <Key size={14} />
-                      <span>Lost your phone? Use a backup code</span>
-                    </>
+                  {error && (
+                    <div className="lg-alert lg-alert--error" role="alert">
+                      <AlertCircle size={17} aria-hidden="true" />
+                      <span>{error}</span>
+                    </div>
                   )}
-                </button>
-              </div>
 
-              <button
-                type="submit"
-                className="login-btn"
-                disabled={loading || !twoFactorCode.trim()}
-              >
-                {loading ? 'Verifying code...' : 'Verify & Sign in'}
-              </button>
+                  <form key="2fa-form" className="lg-form" onSubmit={handleVerify2FA} noValidate>
+                    <div className="lg-field">
+                      <label className="lg-label" htmlFor="login-2fa-code">
+                        {useBackupCode ? 'Recovery backup code' : '6-digit authenticator code'}
+                      </label>
+                      {useBackupCode ? (
+                        <input
+                          id="login-2fa-code"
+                          type="text"
+                          autoComplete="one-time-code"
+                          autoFocus
+                          className="lg-input lg-code-input"
+                          placeholder="a8f1-3b9c"
+                          maxLength={12}
+                          value={twoFactorCode}
+                          onChange={(e) => setTwoFactorCode(e.target.value)}
+                        />
+                      ) : (
+                        <OtpInput
+                          id="login-2fa-code"
+                          value={twoFactorCode}
+                          onChange={setTwoFactorCode}
+                          autoFocus
+                          disabled={loading}
+                          hasError={Boolean(error)}
+                          ariaLabel="6-digit authenticator code"
+                        />
+                      )}
+                      <span className="lg-helper">
+                        {useBackupCode
+                          ? 'Each backup code can only be used once.'
+                          : 'Paste or type the 6-digit code from your authenticator app.'}
+                      </span>
+                    </div>
 
-              <button
-                type="button"
-                className="login-2fa-cancel-btn"
-                onClick={handleCancel2FA}
-              >
-                <ArrowLeft size={14} />
-                <span>Back to sign in</span>
-              </button>
-            </form>
-          </div>
-        ) : (
-          <>
-            <div className="login-card-head">
-              <div>
-                <p className="login-welcome">
-                  Welcome to <span>Exam View</span>
-                </p>
-                <h1 className="login-title login-title-xl">Sign in</h1>
-              </div>
-              <p className="login-noaccount">
-                No account?<br />
-                <span>Contact admin</span>
-              </p>
-            </div>
-
-            <div className="login-social-row">
-              <button type="button" className="login-google-btn" onClick={() => handleSocial('Google')}>
-                <GoogleIcon />
-                <span>Google</span>
-              </button>
-              <button type="button" className="login-social-btn" aria-label="Sign in with Facebook" onClick={() => handleSocial('Facebook')}>
-                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877f2" /><path fill="#fff" d="M13.3 19v-6.2h2.1l.3-2.5h-2.4V8.7c0-.7.2-1.2 1.2-1.2h1.3V5.3c-.2 0-1-.1-1.9-.1-1.9 0-3.2 1.2-3.2 3.3v1.8H8.6v2.5h2.1V19h2.6z" /></svg>
-              </button>
-              <button type="button" className="login-social-btn" aria-label="Sign in with Apple" onClick={() => handleSocial('Apple')}>
-                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.7c0-2.4 2-3.5 2.1-3.6-1.2-1.7-3-1.9-3.6-1.9-1.5-.2-3 .9-3.800.9s-2-.9-3.300-.9c-1.700 0-3.300 1-4.200 2.500-1.800 3.100-.5 7.700 1.300 10.200.9 1.200 1.900 2.600 3.200 2.500 1.300-.1 1.800-.8 3.300-.8s2 .8 3.400.8 2.300-1.200 3.100-2.500c1-1.400 1.400-2.800 1.400-2.900-.1 0-2.900-1.100-2.900-4.300zM13.900 5.500c.7-.9 1.200-2.100 1-3.300-1 0-2.300.7-3 1.600-.7.800-1.200 2-1.100 3.200 1.200.1 2.400-.6 3.100-1.500z" /></svg>
-              </button>
-            </div>
-
-            {successMessage && (
-              <div className="login-success-banner">
-                <CheckCircle2 size={18} />
-                <span>{successMessage}</span>
-              </div>
-            )}
-
-            {error && (
-              <div className="login-error">
-                <AlertCircle size={18} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Tab 1: Password Login */}
-            {mode === 'password' && (
-              <form className="login-form" onSubmit={handlePasswordSubmit}>
-                <div className="login-form-group">
-                  <label className="login-label">Email or username</label>
-                  <input
-                    type="email"
-                    className="login-input"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="login-form-group">
-                  <label className="login-label">Password</label>
-                  <div className="login-password-input-wrap">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      className="login-input password-input"
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
                     <button
                       type="button"
-                      className="login-eye-btn"
-                      onClick={() => setShowPassword(!showPassword)}
-                      tabIndex={-1}
+                      className="lg-link-btn lg-link-btn--center"
+                      onClick={() => {
+                        setUseBackupCode(!useBackupCode);
+                        setTwoFactorCode('');
+                        setError('');
+                      }}
                     >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      {useBackupCode ? (
+                        <>
+                          <Smartphone size={14} aria-hidden="true" />
+                          <span>Use authenticator app instead</span>
+                        </>
+                      ) : (
+                        <>
+                          <Key size={14} aria-hidden="true" />
+                          <span>Lost your device? Use a backup code</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="submit"
+                      className="lg-submit"
+                      disabled={loading || (useBackupCode ? !twoFactorCode.trim() : twoFactorCode.length !== 6)}
+                    >
+                      <span>{loading ? 'Verifying...' : 'Verify & sign in'}</span>
+                      {!loading && <ArrowRight size={16} aria-hidden="true" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="lg-secondary-btn"
+                      onClick={handleCancel2FA}
+                    >
+                      <ArrowLeft size={15} aria-hidden="true" />
+                      <span>Back to sign in</span>
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <>
+                  <div className="lg-card-head">
+                    <div>
+                      <p className="lg-card-eyebrow">Welcome back</p>
+                      <h2 className="lg-card-title">Sign in to your account</h2>
+                    </div>
+                  </div>
+
+                  {/* Mode Switcher */}
+                  <div className="lg-tabs" role="tablist" aria-label="Sign in method">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={mode === 'password'}
+                      className={`lg-tab${mode === 'password' ? ' is-active' : ''}`}
+                      onClick={() => switchMode('password')}
+                    >
+                      <Lock size={14} aria-hidden="true" />
+                      <span>Password</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={mode === 'otp'}
+                      className={`lg-tab${mode === 'otp' ? ' is-active' : ''}`}
+                      onClick={() => switchMode('otp')}
+                    >
+                      <KeyRound size={14} aria-hidden="true" />
+                      <span>Email code</span>
                     </button>
                   </div>
-                  <Link to="/forgot-password" className="login-forgot-link">
-                    Forgot?
-                  </Link>
-                </div>
 
-                <button type="submit" className="login-btn" disabled={loading}>
-                  {loading ? 'Signing in...' : 'Sign in'}
-                </button>
-                <button type="button" className="login-alt-link" onClick={() => switchMode('otp')}>
-                  <Mail size={14} />
-                  <span>Use email code</span>
-                </button>
-              </form>
-            )}
-
-            {/* Tab 2: Email OTP Login */}
-            {mode === 'otp' && otpStep === 'input_email' && (
-              <form className="login-form" onSubmit={handleSendOtp}>
-                <div className="login-form-group">
-                  <label className="login-label">Email address</label>
-                  <input
-                    type="email"
-                    className="login-input"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                  <span className="login-helper-text">
-                    We will email a 6-digit one-time code to this address.
-                  </span>
-                </div>
-
-                <button type="submit" className="login-btn" disabled={loading}>
-                  {loading ? 'Sending code...' : 'Send Login Code'}
-                </button>
-                <button type="button" className="login-alt-link" onClick={() => switchMode('password')}>
-                  <ArrowLeft size={14} />
-                  <span>Use password instead</span>
-                </button>
-              </form>
-            )}
-
-            {/* Tab 2: Email OTP Verification */}
-            {mode === 'otp' && otpStep === 'input_code' && (
-              <form className="login-form" onSubmit={handleVerifyOtp}>
-                <div className="login-otp-info-box">
-                  <span className="login-otp-sent-text">
-                    Code sent to <strong>{email}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    className="login-otp-change-email-btn"
-                    onClick={() => {
-                      setOtpStep('input_email');
-                      setOtpCode('');
-                      setError('');
-                    }}
-                  >
-                    Change
-                  </button>
-                </div>
-
-                <div className="login-form-group">
-                  <label className="login-label">6-Digit Code</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    pattern="[0-9]*"
-                    className="login-input login-otp-code-input"
-                    placeholder="••••••"
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                    autoFocus
-                    required
-                  />
-                </div>
-
-                <div className="login-otp-resend-row">
-                  {countdown > 0 ? (
-                    <span className="login-otp-countdown">
-                      Resend code in {countdown}s
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="login-otp-resend-btn"
-                      onClick={handleSendOtp}
-                      disabled={loading}
-                    >
-                      <RotateCcw size={14} />
-                      <span>Resend code</span>
-                    </button>
+                  {successMessage && (
+                    <div className="lg-alert lg-alert--success" role="status">
+                      <CheckCircle2 size={17} aria-hidden="true" />
+                      <span>{successMessage}</span>
+                    </div>
                   )}
-                </div>
 
-                <button
-                  type="submit"
-                  className="login-btn"
-                  disabled={loading || otpCode.length !== 6}
-                >
-                  {loading ? 'Verifying...' : 'Verify & Sign in'}
-                </button>
-              </form>
-            )}
-          </>
-        )}
-      </div>
-      </div>
+                  {error && (
+                    <div className="lg-alert lg-alert--error" role="alert">
+                      <AlertCircle size={17} aria-hidden="true" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  {/* Password Login */}
+                  {mode === 'password' && (
+                    <form className="lg-form" onSubmit={handlePasswordSubmit}>
+                      <div className="lg-field">
+                        <label className="lg-label" htmlFor="login-email">
+                          Email address
+                        </label>
+                        <div className="lg-input-wrap">
+                          <Mail size={16} className="lg-input-icon" aria-hidden="true" />
+                          <input
+                            id="login-email"
+                            type="email"
+                            autoComplete="email"
+                            className="lg-input lg-input--with-icon"
+                            placeholder="you@example.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="lg-field">
+                        <div className="lg-label-row">
+                          <label className="lg-label" htmlFor="login-password">
+                            Password
+                          </label>
+                          <Link to="/forgot-password" className="lg-forgot">
+                            Forgot password?
+                          </Link>
+                        </div>
+                        <div className="lg-input-wrap">
+                          <Lock size={16} className="lg-input-icon" aria-hidden="true" />
+                          <input
+                            ref={passwordInputRef}
+                            id="login-password"
+                            type={showPassword ? 'text' : 'password'}
+                            autoComplete="current-password"
+                            className="lg-input lg-input--with-icon lg-input--with-action"
+                            placeholder="Enter your password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                          />
+                          <button
+                            type="button"
+                            className="lg-eye-btn"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            title={showPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button type="submit" className="lg-submit" disabled={loading}>
+                        <span>{loading ? 'Signing in...' : 'Sign in'}</span>
+                        {!loading && <ArrowRight size={16} aria-hidden="true" />}
+                      </button>
+                    </form>
+                  )}
+
+                  {/* Email OTP: Step 1 */}
+                  {mode === 'otp' && otpStep === 'input_email' && (
+                    <form key="otp-email-form" className="lg-form" onSubmit={handleSendOtp}>
+                      <div className="lg-field">
+                        <label className="lg-label" htmlFor="login-otp-email">
+                          Email address
+                        </label>
+                        <div className="lg-input-wrap">
+                          <Mail size={16} className="lg-input-icon" aria-hidden="true" />
+                          <input
+                            id="login-otp-email"
+                            type="email"
+                            autoComplete="email"
+                            className="lg-input lg-input--with-icon"
+                            placeholder="you@example.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                            autoFocus
+                          />
+                        </div>
+                        <span className="lg-helper">
+                          We&apos;ll send a 6-digit one-time login code to your inbox.
+                        </span>
+                      </div>
+
+                      <button type="submit" className="lg-submit" disabled={loading || countdown > 0}>
+                        <span>
+                          {loading
+                            ? 'Sending code...'
+                            : countdown > 0
+                              ? `Resend locked (${countdown}s)`
+                              : 'Send login code'}
+                        </span>
+                        {!loading && countdown === 0 && <ArrowRight size={16} aria-hidden="true" />}
+                      </button>
+
+                      {countdown > 0 &&
+                        challengeToken &&
+                        sentEmail === email.trim().toLowerCase() && (
+                          <button
+                            type="button"
+                            className="lg-link-btn lg-link-btn--center"
+                            onClick={() => {
+                              setError('');
+                              setOtpStep('input_code');
+                            }}
+                          >
+                            <span>Already have a code? Enter code</span>
+                          </button>
+                        )}
+                    </form>
+                  )}
+
+                  {/* Email OTP: Step 2 */}
+                  {mode === 'otp' && otpStep === 'input_code' && (
+                    <form key="otp-code-form" className="lg-form" onSubmit={handleVerifyOtp} noValidate>
+                      <div className="lg-otp-banner">
+                        <span className="lg-otp-sent-wrap">
+                          <MailCheck size={16} className="lg-otp-sent-icon" aria-hidden="true" />
+                          <span className="lg-otp-sent">
+                            Code sent to <strong>{email}</strong>
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className="lg-otp-change"
+                          onClick={() => {
+                            setOtpStep('input_email');
+                            setOtpCode('');
+                            setError('');
+                          }}
+                        >
+                          Change
+                        </button>
+                      </div>
+
+                      <div className="lg-field">
+                        <div className="lg-label-row">
+                          <label className="lg-label" htmlFor="login-otp-code">
+                            Verification code
+                          </label>
+                          <span className="lg-label-hint">Paste supported</span>
+                        </div>
+                        <OtpInput
+                          id="login-otp-code"
+                          value={otpCode}
+                          onChange={setOtpCode}
+                          autoFocus
+                          disabled={loading}
+                          hasError={Boolean(error)}
+                          ariaLabel="6-digit verification code"
+                        />
+                      </div>
+
+                      <div className="lg-otp-resend-row">
+                        {countdown > 0 ? (
+                          <span className="lg-otp-countdown" role="status" aria-live="polite">
+                            <Lock size={13} aria-hidden="true" />
+                            <span>Resend available in {countdown}s</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="lg-link-btn"
+                            onClick={handleSendOtp}
+                            disabled={loading}
+                          >
+                            <RotateCcw size={14} aria-hidden="true" />
+                            <span>Resend code</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="lg-submit"
+                        disabled={loading || otpCode.length !== 6}
+                      >
+                        <span>{loading ? 'Verifying...' : 'Verify & sign in'}</span>
+                        {!loading && <ArrowRight size={16} aria-hidden="true" />}
+                      </button>
+                    </form>
+                  )}
+
+                  <p className="lg-card-foot">
+                    Need access? <span>Contact your portal administrator.</span>
+                  </p>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      </main>
     </div>
   );
 };

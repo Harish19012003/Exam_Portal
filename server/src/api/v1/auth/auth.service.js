@@ -205,6 +205,9 @@ export const resetPassword = async ({ token, password, confirmPassword }) => {
   return { message: 'Your password has been successfully reset. You can now sign in with your new password.' };
 };
 
+const OTP_RESEND_LOCK_MS = 30 * 1000;
+const otpLastSentAt = new Map();
+
 /**
  * Sends a 6-digit login OTP code to user's email
  */
@@ -214,6 +217,17 @@ export const sendLoginOtp = async (email) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
+  const now = Date.now();
+  const lastSent = otpLastSentAt.get(cleanEmail);
+  if (lastSent && now - lastSent < OTP_RESEND_LOCK_MS) {
+    const waitSec = Math.max(1, Math.ceil((OTP_RESEND_LOCK_MS - (now - lastSent)) / 1000));
+    throw new AppError(
+      `Code already sent. Please wait ${waitSec}s before resending.`,
+      429,
+      ERROR_CODES.RATE_LIMITED
+    );
+  }
+
   const user = await userRepository.findByEmail(cleanEmail);
 
   if (!user) {
@@ -240,6 +254,15 @@ export const sendLoginOtp = async (email) => {
     { expiresIn: '5m' }
   );
 
+  otpLastSentAt.set(cleanEmail, now);
+  if (otpLastSentAt.size > 500) {
+    for (const [k, ts] of otpLastSentAt) {
+      if (now - ts >= OTP_RESEND_LOCK_MS) {
+        otpLastSentAt.delete(k);
+      }
+    }
+  }
+
   logger.info(`🔢 [LOGIN OTP] Verification code generated for ${user.email}: ${otpCode}`);
 
   try {
@@ -255,6 +278,7 @@ export const sendLoginOtp = async (email) => {
   return {
     message: 'Verification code sent to your email',
     challengeToken,
+    retryAfter: Math.ceil(OTP_RESEND_LOCK_MS / 1000),
   };
 };
 

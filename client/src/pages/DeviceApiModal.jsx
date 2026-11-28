@@ -562,18 +562,31 @@ export const DeviceApiModal = ({
       onNotify?.('API request saved.');
     });
 
-  const test = () =>
-    run('test', async () => {
-      setResult(
-        unwrap(
-          await apiClient.post(
-            '/devices/api-config/test',
-            { ...form, view: viewKey, examId: String(examId || '') },
-            { params: { view: viewKey, examId: String(examId || '') } },
-          ),
+  const test = (overrideMode = null) => {
+    const modeKey = typeof overrideMode === 'string' ? overrideMode : null;
+    const busyName = modeKey ? `test:${modeKey}` : 'test';
+    const effectiveMode = modeKey || (showTrainingTypeVars ? examAadhaarKey : null);
+    const payload = effectiveMode
+      ? {
+          ...form,
+          properties: withTrainingTypeFromExam(form.properties, effectiveMode, form.aadhaarTypes),
+        }
+      : form;
+    const testedLabel = effectiveMode
+      ? `${AADHAAR_LABEL_BY_KEY[effectiveMode]} · type=${resolveAadhaarTypes(form.aadhaarTypes)[effectiveMode]}`
+      : '';
+
+    return run(busyName, async () => {
+      const data = unwrap(
+        await apiClient.post(
+          '/devices/api-config/test',
+          { ...payload, view: viewKey, examId: String(examId || '') },
+          { params: { view: viewKey, examId: String(examId || '') } },
         ),
       );
+      setResult({ ...data, testedLabel });
     });
+  };
 
   const fetchNow = () =>
     run('fetch', async () => {
@@ -927,24 +940,37 @@ export const DeviceApiModal = ({
                         <span className="sv-api-muted">
                           Param exam is {AADHAAR_LABEL_BY_KEY[examAadhaarKey]} → type={trainingTypeValue}
                         </span>
-                        <label className="sv-api-field">
-                          <span>Aadhaar type</span>
-                          <input
-                            spellCheck={false}
-                            placeholder={FALLBACK_AADHAAR_TYPES.aadhaar}
-                            value={form.aadhaarTypes?.aadhaar || ''}
-                            onChange={(e) => setAadhaarTypeField('aadhaar', e.target.value)}
-                          />
-                        </label>
-                        <label className="sv-api-field">
-                          <span>Non Aadhaar type</span>
-                          <input
-                            spellCheck={false}
-                            placeholder={FALLBACK_AADHAAR_TYPES.non_aadhaar}
-                            value={form.aadhaarTypes?.non_aadhaar || ''}
-                            onChange={(e) => setAadhaarTypeField('non_aadhaar', e.target.value)}
-                          />
-                        </label>
+                        {[
+                          { key: 'aadhaar', label: 'Aadhaar type', placeholder: FALLBACK_AADHAAR_TYPES.aadhaar },
+                          { key: 'non_aadhaar', label: 'Non Aadhaar type', placeholder: FALLBACK_AADHAAR_TYPES.non_aadhaar },
+                        ].map(({ key: modeKey, label, placeholder }) => {
+                          const isActiveMode = examAadhaarKey === modeKey;
+                          const isTestingThis = busy === `test:${modeKey}`;
+                          return (
+                            <div className="sv-api-field" key={modeKey}>
+                              <span className="dv-api-aadhaar-label">
+                                <span>{label}</span>
+                                {isActiveMode && <span className="dv-api-active-pill">Active</span>}
+                              </span>
+                              <div className="dv-api-aadhaar-row">
+                                <input
+                                  aria-label={label}
+                                  spellCheck={false}
+                                  placeholder={placeholder}
+                                  value={form.aadhaarTypes?.[modeKey] || ''}
+                                  onChange={(e) => setAadhaarTypeField(modeKey, e.target.value)}
+                                />
+                                <Button
+                                  icon={<FlaskConical size={14} />}
+                                  onClick={() => test(modeKey)}
+                                  disabled={loading || !!busy || !!blocker}
+                                >
+                                  {isTestingThis ? 'Testing…' : 'Test request'}
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {form.properties.length === 0 && !showTrainingTypeVars ? (
@@ -1193,6 +1219,7 @@ export const DeviceApiModal = ({
               {result && (
                 <div className="sv-api-result" role="status">
                   <strong>
+                    {result.testedLabel ? `${result.testedLabel} · ` : ''}
                     HTTP {result.status} · {result.itemCount} record{result.itemCount === 1 ? '' : 's'} · {result.importableRows} importable
                   </strong>
                   <div>Matched fields: {result.matchedKeys.length ? result.matchedKeys.join(', ') : 'none'}</div>
@@ -1223,7 +1250,7 @@ export const DeviceApiModal = ({
                 {footerHint}
               </span>
             ))}
-          <Button icon={<FlaskConical size={16} />} onClick={test} disabled={loading || !!busy || !!blocker}>
+          <Button icon={<FlaskConical size={16} />} onClick={() => test()} disabled={loading || !!busy || !!blocker}>
             {busy === 'test' ? 'Testing…' : 'Test request'}
           </Button>
           <Button onClick={save} disabled={loading || !!busy || !!blocker || !!intervalError || !dirty}>
