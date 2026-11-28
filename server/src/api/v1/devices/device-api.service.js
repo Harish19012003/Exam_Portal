@@ -6,12 +6,19 @@ import { AppError } from '../../../core/errors.js';
 import { ERROR_CODES, isDeviceMasterViewKey } from '@exam-view/shared';
 import { getCustomFields } from './device-fields.service.js';
 import * as repo from './device-fields.repository.js';
+import * as devicePresetRepo from '../device-presets/device-preset.repository.js';
+import { getCustomFields as getCenterCsrFields } from '../center-csr-matching/center-csr-matching-fields.service.js';
 import { logger } from '../../../core/logger.js';
 import { isValidTimeZone, nextRunAt } from '../seq-views/seq-view-schedule.js';
 import { dropUniqueConflicts } from '../shared/unique-fields.js';
 import { deviceRepository } from './device.repository.js';
 import { importDevices } from './device.service.js';
 import { importDeviceTabRows, listDeviceTabRows } from './device-tab-import.service.js';
+import {
+  isDeviceReportFixedView,
+  withHardcodedDeviceReportFields,
+  stripDeviceReportFixedFields,
+} from './deviceReportFixedFields.js';
 
 const REQUEST_TIMEOUT_MS = 15000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -300,9 +307,9 @@ const mergeSharedConnection = (shared, viewConfig, viewKey) => {
     const name = String(p?.name || '').trim();
     if (!name) continue;
     const lower = name.toLowerCase();
-    // Never let an empty/masked report-tab token wipe Param’s real token.
-    if ((lower === 'token' || lower === 'password') && !String(p.value || '').trim()) continue;
-    if (String(p.value || '') === '••••••••') continue;
+    // Connection secrets always come from Param — a stale report-tab token must never win.
+    if (lower === 'token' || lower === 'password') continue;
+    if (String(p.value || '') === SECRET_MASK) continue;
     byName.set(name, { ...p, name });
   }
 
@@ -338,6 +345,49 @@ export const getApiConfig = async (view = 'devices') => {
   return withState(stored || null);
 };
 
+/**
+ * Return one stored secret so an admin can view it in the UI.
+ * Config GETs stay masked; reveal is opt-in and scoped to a single field.
+ */
+export const revealApiSecret = async (view = 'devices', kind = 'property', name = '') => {
+  const config = await loadStoredConfig(normalizeView(view));
+  if (!config) throw new AppError('No API settings saved yet.', 404, ERROR_CODES.NOT_FOUND);
+
+  const k = String(kind || '').trim().toLowerCase();
+  const n = String(name || '').trim().toLowerCase();
+  const findNamed = (list) => (list || []).find((item) => String(item?.name || '').trim().toLowerCase() === n);
+
+  if (k === 'auth.password' || k === 'password') {
+    const value = String(config.auth?.password || '');
+    if (!value) throw validationError('No login password is saved.');
+    return { kind: 'auth.password', name: 'password', value };
+  }
+
+  if (k === 'property' || k === 'properties') {
+    if (!n) throw validationError('Variable name is required.');
+    const prop = findNamed(config.properties);
+    if (!prop?.value) throw validationError(`No saved value for "${name}".`);
+    if (!SECRET_NAME.test(prop.name)) throw validationError(`"${prop.name}" is not a secret variable.`);
+    return { kind: 'property', name: prop.name, value: String(prop.value) };
+  }
+
+  if (k === 'header' || k === 'headers') {
+    if (!n) throw validationError('Header name is required.');
+    const header = findNamed(config.headers);
+    if (!header?.value) throw validationError(`No saved value for header "${name}".`);
+    return { kind: 'header', name: header.name, value: String(header.value) };
+  }
+
+  if (k === 'auth.header' || k === 'auth.headers') {
+    if (!n) throw validationError('Header name is required.');
+    const header = findNamed(config.auth?.headers);
+    if (!header?.value) throw validationError(`No saved value for login header "${name}".`);
+    return { kind: 'auth.header', name: header.name, value: String(header.value) };
+  }
+
+  throw validationError('Unknown secret kind. Use property, header, auth.password, or auth.header.');
+};
+
 const nextRunFrom = (schedule, from = Date.now()) => nextRunAt(schedule, from);
 
 export const saveApiConfig = async (body = {}, userId, view = 'devices') => {
@@ -356,13 +406,18 @@ export const saveApiConfig = async (body = {}, userId, view = 'devices') => {
   const [shared, stored] = await Promise.all([repo.getApiConfig(), repo.getApiConfigForView(key)]);
   const restored = cleanConfig(withRestored(body, stored || shared));
   // Persist report-tab overrides only; connection + examAadhaar stay owned by Param.
+  // Drop token/password so old copies on this tab cannot override Param later.
+  const reportProperties = (restored.properties || []).filter((p) => {
+    const lower = String(p?.name || '').trim().toLowerCase();
+    return lower !== 'token' && lower !== 'password';
+  });
   const toSave = {
     url: shared?.url || restored.url,
     method: shared?.method || restored.method,
     headers: shared?.headers || restored.headers,
     body: shared?.body || restored.body,
     auth: shared?.auth || restored.auth,
-    properties: restored.properties,
+    properties: reportProperties,
     dataPath: restored.dataPath,
     mode: restored.mode,
     schedule: restored.schedule,
@@ -404,11 +459,12 @@ const applyProperties = (config, { appendQuery = false } = {}) => {
     for (const [name, value] of props) {
       if (value === undefined || value === null || String(value) === '') continue;
       // The sheet sends `headers: { token }`. A query-string token is what TrustView answers with 401.
+      // Always use the Variables token — overwrite a stale static header if one was saved.
       if (trustView && name.toLowerCase() === 'token') {
-        if (!headerNames.has('token')) {
-          headers.push({ name: 'token', value: String(value) });
-          headerNames.add('token');
-        }
+        const idx = headers.findIndex((h) => h.name.toLowerCase() === 'token');
+        if (idx >= 0) headers[idx] = { name: headers[idx].name || 'token', value: String(value) };
+        else headers.push({ name: 'token', value: String(value) });
+        headerNames.add('token');
         continue;
       }
       if (!parsed.searchParams.has(name)) parsed.searchParams.set(name, String(value));
@@ -684,37 +740,71 @@ const urlHasFilledShiftQuery = (urlString) => {
   return false;
 };
 
+const paramCell = (row, ...names) => {
+  for (const name of names) {
+    if (row && Object.prototype.hasOwnProperty.call(row, name) && row[name] != null && String(row[name]).trim() !== '') {
+      return String(row[name]).trim();
+    }
+  }
+  // Case-insensitive fallback for oddly cased keys.
+  const lower = new Map(
+    Object.entries(row || {}).map(([k, v]) => [String(k).toLowerCase(), v]),
+  );
+  for (const name of names) {
+    const v = lower.get(String(name).toLowerCase());
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
 /**
- * Param (`device_param`) shift ids for this exam — same as sheet ES / TS rows.
+ * Param (`device_param`) shifts for this exam — shift code + Date / Shift indicate for stamping.
  * When `rowKey` is set (e.g. "ES" for centre), only those Shift-type rows are used.
+ * @returns {Promise<Array<{ code: string, date: string, shift: string }>>}
  */
-const savedParamShiftCodes = async (examId = '', { rowKey = '' } = {}) => {
+const savedParamShifts = async (examId = '', { rowKey = '' } = {}) => {
   const scoped = String(examId || '').trim();
   let rows = scoped ? await deviceRepository.findByExamId(scoped) : await deviceRepository.findAll();
   // Legacy rows without exam_id still sit in the collection — fall back so blank currentshift works.
   if (scoped && !rows.length) rows = await deviceRepository.findAll();
   const wantKey = String(rowKey || '').trim().toUpperCase();
-  const codes = [];
+  const shifts = [];
   const seen = new Set();
-  const pushCode = (row) => {
-    const code = String(row.shift_code ?? row.Shift_code ?? row.SHIFT_CODE ?? '').trim();
+  const pushShift = (row) => {
+    const code = paramCell(row, 'shift_code', 'Shift_code', 'SHIFT_CODE');
     if (!code || seen.has(code)) return;
     seen.add(code);
-    codes.push(code);
+    shifts.push({
+      code,
+      date: paramCell(row, 'date', 'Date', 'DATE'),
+      shift: paramCell(row, 'shift', 'Shift', 'SHIFT'),
+    });
   };
   if (wantKey) {
     for (const row of rows) {
-      const type = String(row.currentshift ?? row.Currentshift ?? row.CURRENTSHIFT ?? '').trim().toUpperCase();
-      if (type === wantKey) pushCode(row);
+      const type = paramCell(row, 'currentshift', 'Currentshift', 'CURRENTSHIFT').toUpperCase();
+      if (type === wantKey) pushShift(row);
     }
     // Older Param imports may lack Shift type — fall back to every shift code.
-    if (!codes.length) {
-      for (const row of rows) pushCode(row);
+    if (!shifts.length) {
+      for (const row of rows) pushShift(row);
     }
   } else {
-    for (const row of rows) pushCode(row);
+    for (const row of rows) pushShift(row);
   }
-  return codes;
+  return shifts;
+};
+
+/** Stamp Param Date + Shift indicate onto TrustView rows (fixed report-tab columns). */
+const stampParamContext = (rows, meta) => {
+  if (!meta || !Array.isArray(rows)) return rows;
+  const date = String(meta.date ?? '');
+  const shift = String(meta.shift ?? '');
+  return rows.map((row) => ({
+    ...(row && typeof row === 'object' && !Array.isArray(row) ? row : {}),
+    date,
+    shift,
+  }));
 };
 
 /** Drop filter-only vars and any prior shift query; inject `shift=<id>` (sheet URL shape). */
@@ -765,21 +855,42 @@ const callApi = async (config, { examId = '' } = {}) => {
     const base = withoutCurrentShiftFilter(authed);
     const preview = applyProperties(base, { appendQuery: true });
 
+    const paramShifts = await savedParamShifts(examId, {
+      rowKey: usesEsRows ? ES_PARAM_ROW_KEY : '',
+    });
+    const metaByCode = new Map(paramShifts.map((s) => [s.code, s]));
+
     // Manual `shift=…` already on the URL or in variables → one call.
     if (explicitShift || urlHasFilledShiftQuery(preview.url)) {
       const one = explicitShift ? withShiftProperty(base, explicitShift) : base;
-      return callApiOnce(one);
+      const result = await callApiOnce(one);
+      const code =
+        explicitShift ||
+        (() => {
+          try {
+            const params = new URL(preview.url).searchParams;
+            for (const key of params.keys()) {
+              if (isShiftQueryParamName(key)) {
+                const v = String(params.get(key) || '').trim();
+                if (v) return v;
+              }
+            }
+          } catch {
+            // ignore
+          }
+          return '';
+        })();
+      const meta = metaByCode.get(code) || { code, date: '', shift: '' };
+      const json = Array.isArray(result.json) ? stampParamContext(result.json, meta) : result.json;
+      return { ...result, json };
     }
 
-    const codesAll = await savedParamShiftCodes(examId, {
-      rowKey: usesEsRows ? ES_PARAM_ROW_KEY : '',
-    });
-    let codes = codesAll;
+    let shifts = paramShifts;
     // Sheet Sync Pending ignores currentshift; Stats Center uses blank/bank = all.
     // Portal: blank/bank = all ES (or all shifts); a filled id still filters.
     if (!isCurrentShiftAll(currentShiftFilter)) {
-      codes = codesAll.filter((code) => code === currentShiftFilter);
-      if (!codes.length) {
+      shifts = paramShifts.filter((s) => s.code === currentShiftFilter);
+      if (!shifts.length) {
         throw new AppError(
           `currentshift is "${currentShiftFilter}" but no${usesEsRows ? ' ES' : ''} Param row has that shift id. Nothing to fetch.`,
           502,
@@ -787,7 +898,7 @@ const callApi = async (config, { examId = '' } = {}) => {
         );
       }
     }
-    if (!codes.length) {
+    if (!shifts.length) {
       throw new AppError(
         usesEsRows
           ? 'No ES rows with a Shift code in Param for this exam. Add Param rows (Shift type ES) first, or set currentshift / shift.'
@@ -797,14 +908,16 @@ const callApi = async (config, { examId = '' } = {}) => {
       );
     }
 
-    const settled = await mapPool(codes, 4, async (code) => {
+    const settled = await mapPool(shifts, 4, async (meta) => {
       try {
-        const part = await callApiOnce(withShiftProperty(base, code));
-        const rows = Array.isArray(part.json) ? part.json : [];
-        return { code, rows, empty: !rows.length };
+        const part = await callApiOnce(withShiftProperty(base, meta.code));
+        const rows = stampParamContext(Array.isArray(part.json) ? part.json : [], meta);
+        return { code: meta.code, rows, empty: !rows.length };
       } catch (error) {
         // TrustView answers HTTP 200 "Invalid Request" for a shift id that has no report.
-        if (/invalid request/i.test(String(error.message || ''))) return { code, rows: [], skipped: true };
+        if (/invalid request/i.test(String(error.message || ''))) {
+          return { code: meta.code, rows: [], skipped: true };
+        }
         throw error;
       }
     });
@@ -812,7 +925,7 @@ const callApi = async (config, { examId = '' } = {}) => {
     const emptyShifts = settled.filter((part) => part.empty).map((part) => part.code);
     const json = settled.flatMap((part) => part.rows);
     if (!json.length) {
-      const tried = codes.join(', ');
+      const tried = shifts.map((s) => s.code).join(', ');
       if (skippedShifts.length) {
         throw new AppError(
           `The API answered: Invalid Request for shift ${skippedShifts.join(', ')}.`,
@@ -851,12 +964,22 @@ const toCell = (v) => {
   return typeof v === 'object' ? JSON.stringify(v) : v;
 };
 
-/** Response objects → rows keyed by field key; headers match a field key or label, case-insensitively. */
+/**
+ * Response objects → rows keyed by field key.
+ * Match order (case-insensitive): apiHeader → key → label.
+ * apiHeader stays stable when the display label changes.
+ */
 const mapItems = (items, fields) => {
   const byHeader = new Map();
+  const register = (header, fieldKey) => {
+    const h = String(header || '').trim().toLowerCase();
+    if (h && !byHeader.has(h)) byHeader.set(h, fieldKey);
+  };
   fields.forEach((f) => {
-    byHeader.set(String(f.key).toLowerCase(), f.key);
-    byHeader.set(String(f.label).toLowerCase(), f.key);
+    const fieldKey = f.key;
+    register(f.apiHeader, fieldKey);
+    register(f.key, fieldKey);
+    register(f.label, fieldKey);
   });
   const matched = new Set();
   const unmatched = new Set();
@@ -864,7 +987,7 @@ const mapItems = (items, fields) => {
     .map((item) => {
       const row = {};
       Object.entries(item).forEach(([k, v]) => {
-        const key = byHeader.get(k.toLowerCase());
+        const key = byHeader.get(String(k).toLowerCase());
         if (key) {
           row[key] = toCell(v);
           matched.add(k);
@@ -876,6 +999,18 @@ const mapItems = (items, fields) => {
     })
     .filter((row) => Object.values(row).some((x) => String(x ?? '').trim() !== ''));
   return { rows, matched: [...matched], unmatched: [...unmatched].filter((k) => !matched.has(k)) };
+};
+
+/** Field defs used to map an API response for a Device Master tab (fast: one read). */
+export const getFieldsForView = async (view = 'devices') => {
+  const key = normalizeView(view);
+  if (key === 'devices') return getCustomFields();
+  if (key === 'center-csr-matching') return getCenterCsrFields();
+  const extras = await devicePresetRepo.findLatestFieldsByView(key);
+  if (isDeviceReportFixedView(key)) {
+    return withHardcodedDeviceReportFields(stripDeviceReportFixedFields(extras));
+  }
+  return extras;
 };
 
 const norm = (v) => (v === undefined || v === null ? '' : Array.isArray(v) ? v.join(', ') : String(v).trim());
@@ -904,10 +1039,13 @@ const resolveConfig = async (body, view = 'devices') => {
 
 /** Dry run with the form's current values (saved or not); nothing is written. */
 export const testApiConfig = async (body, view = 'devices', examId = '') => {
-  const config = await resolveConfig(body, view);
-  const { status, json, skippedShifts } = await callApi(config, { examId });
+  const viewKey = normalizeView(view);
+  const config = await resolveConfig(body, viewKey);
+  const [{ status, json, skippedShifts }, fields] = await Promise.all([
+    callApi(config, { examId }),
+    getFieldsForView(viewKey),
+  ]);
   const items = pickItems(json, config.dataPath);
-  const fields = await getCustomFields();
   const { rows, matched, unmatched } = mapItems(items, fields);
   return {
     status,
@@ -916,6 +1054,7 @@ export const testApiConfig = async (body, view = 'devices', examId = '') => {
     responseKeys: [...new Set(items.slice(0, 50).flatMap((i) => Object.keys(i)))],
     matchedKeys: matched,
     unmatchedKeys: unmatched,
+    fieldCount: fields.length,
     sample: items.slice(0, SAMPLE_ROWS),
     skippedShifts: skippedShifts || [],
   };
@@ -930,13 +1069,26 @@ const runSync = async (config, confirmReplace, examId, viewKey = 'devices') => {
   if (!scopedExamId) throw validationError('examId is required');
   const key = normalizeView(viewKey);
 
-  const fields = await getCustomFields();
-  if (!fields.length) throw validationError('Add at least one Param field before fetching data (column mapping is shared).');
+  const [apiResult, fields] = await Promise.all([
+    callApi(config, { examId: scopedExamId }),
+    getFieldsForView(key),
+  ]);
+  if (!fields.length) {
+    throw validationError(
+      key === 'devices'
+        ? 'Add at least one Param field before fetching data.'
+        : `Add fields on the ${key} device preset (set API header to the TrustView column name), then fetch again.`,
+    );
+  }
 
-  const { json } = await callApi(config, { examId: scopedExamId });
+  const { json } = apiResult;
   const items = pickItems(json, config.dataPath);
   const { rows } = mapItems(items, fields);
-  if (!rows.length) throw validationError('No rows matched your device fields. Response keys must match a field label or key.');
+  if (!rows.length) {
+    throw validationError(
+      'No rows matched this tab’s fields. Set each field’s API header to the TrustView column name (or match key/label).',
+    );
+  }
 
   const operatorDownload = items.some((item) => Object.keys(item).some((k) => /inv id|enrollment count/i.test(k)));
   const filled = new Set();

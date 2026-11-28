@@ -592,10 +592,16 @@
 .dv-api-secret {
   position: relative;
   display: block;
+  min-width: 0;
 }
 
-.sv-api-field .dv-api-secret input {
+.sv-api-field .dv-api-secret input,
+.dv-api-pair .dv-api-secret input {
   padding-right: 44px;
+}
+
+.dv-api-pair .dv-api-secret {
+  width: 100%;
 }
 
 .dv-api-secret-btn {

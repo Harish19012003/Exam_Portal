@@ -16,6 +16,7 @@ import {
   useCenterCsrMatchingConfig,
   useCenterCsrMatchingList,
 } from '../hooks/useCenterCsrMatchingQuery';
+import { useDevicesConfig } from '../hooks/useDevicesQuery';
 import { useDeviceMasterBioExam } from '../hooks/useDeviceMasterBioExam.jsx';
 import { TABLE_IDS } from '../constants/tableIds';
 import { ExamFieldBuilder } from './exams/ExamFieldBuilder';
@@ -110,6 +111,24 @@ export const CenterCsrMatchingPage = () => {
     queryFn: listDevicePresets,
     enabled: canConfigure,
   });
+  const paramConfigQuery = useDevicesConfig();
+  const fieldImportSources = useMemo(() => {
+    const sources = [];
+    const paramFields = Array.isArray(paramConfigQuery.data?.fields) ? paramConfigQuery.data.fields : [];
+    if (paramFields.length) {
+      sources.push({
+        id: 'live:param',
+        name: 'Param (live)',
+        view: 'devices',
+        fields: paramFields,
+        fieldCount: paramFields.length,
+      });
+    }
+    for (const p of presetsQuery.data || []) {
+      sources.push(p);
+    }
+    return sources;
+  }, [paramConfigQuery.data?.fields, presetsQuery.data]);
   const viewPresets = useMemo(
     () => presetsForDeviceView(presetsQuery.data || [], PRESET_VIEW),
     [presetsQuery.data],
@@ -723,6 +742,9 @@ export const CenterCsrMatchingPage = () => {
         title="Center-CSR-Matching fields"
         reservedKeys={CENTER_CSR_RESERVED_KEYS}
         allowUnique
+        currentView={PRESET_VIEW}
+        presetSources={fieldImportSources}
+        sourcesEmptyHint="No Param fields yet. Open Device Master → Param, add columns there, then import them here."
         deleteConfirm={(f) =>
           FIXED_KEY_SET.has(f.key)
             ? `"${f.label}" is hardcoded and cannot be deleted.`

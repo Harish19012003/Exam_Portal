@@ -293,6 +293,33 @@ export const defaultValueForType = (dataType, autoFill = 'none', allowMultiple =
   return '';
 };
 
+/**
+ * Create-form starting value for a field.
+ * Prefers auto-fill, then configured `defaultValue`, then type empty.
+ */
+export const resolveFieldDefault = (field) => {
+  if (!field) return '';
+  const auto = resolveAutoFillValue(field.autoFill);
+  if (auto !== null) return auto;
+
+  const multi =
+    Boolean(field.allowMultiple) ||
+    field.dataType === 'multiselect' ||
+    field.dataType === 'tags';
+  const raw = field.defaultValue;
+  if (raw !== undefined && raw !== null && !(Array.isArray(raw) && !raw.length)) {
+    if (multi) {
+      if (Array.isArray(raw)) return raw.map(String).filter((s) => s.trim() !== '');
+      const one = String(raw).trim();
+      return one ? [one] : [];
+    }
+    if (Array.isArray(raw)) return String(raw[0] ?? '').trim();
+    return String(raw).trim();
+  }
+
+  return defaultValueForType(field.dataType, field.autoFill, field.allowMultiple);
+};
+
 export const loadExamFields = () => {
   try {
     const raw = localStorage.getItem(FIELDS_STORAGE_KEY);
@@ -339,6 +366,8 @@ export const emptyFieldForm = () => ({
   allowMultiple: false,
   sameAsFieldKey: '',
   sameAsDefaultOn: true,
+  /** Prefill on create form (choice fields). Empty = no default. */
+  defaultValue: '',
   phoneValidation: emptyPhoneValidation(),
 });
 

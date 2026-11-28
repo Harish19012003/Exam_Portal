@@ -30,6 +30,7 @@ import {
   Users,
   Menu,
   ChevronLeft,
+  ChevronDown,
   Crown,
   LogOut,
   ChevronRight,
@@ -70,6 +71,14 @@ const EXAM_SUB_ITEMS = [
   { tab: 'operator-guard-calling', label: 'Op/Guard Calling', icon: PhoneCall },
   { tab: 'exam-day', label: 'Exam Day', icon: CalendarClock },
 ];
+
+/** Param + Center-CSR stay pinned; remaining tabs sit under collapsible Reports. */
+const DM_PINNED_TABS = ['devices', 'center-csr-matching'];
+const DM_PINNED_VIEWS = DM_PINNED_TABS
+  .map((tab) => DEVICE_MASTER_VIEWS.find((v) => v.tab === tab))
+  .filter(Boolean);
+const DM_REPORT_VIEWS = DEVICE_MASTER_VIEWS.filter((v) => !DM_PINNED_TABS.includes(v.tab));
+const DM_REPORTS_OPEN_KEY = 'xs:dmReportsOpen';
 
 // Top-level pages whose inner tab/section is restored when re-opened from the sidebar.
 const REMEMBERED_PATHS = ['/settings', '/vendors', '/device-master', '/seq-view', '/tables'];
@@ -174,6 +183,39 @@ const DashboardLayoutInner = () => {
     });
   }, [location.pathname, location.search]);
   const settingsLink = lastUrls['/settings'] || '/settings';
+
+  /** Device Master → Reports group: remember open/closed; force open when a report tab is active. */
+  const [dmReportsOpen, setDmReportsOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem(DM_REPORTS_OPEN_KEY);
+      if (stored === null) return true;
+      return stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const dmPathNorm = location.pathname.replace(/\/$/, '');
+  const dmOnReportTab = DM_REPORT_VIEWS.some((v) => dmPathNorm === deviceMasterPath(v.tab));
+  useEffect(() => {
+    if (!dmOnReportTab) return;
+    setDmReportsOpen(true);
+    try {
+      localStorage.setItem(DM_REPORTS_OPEN_KEY, 'true');
+    } catch {
+      /* ignore */
+    }
+  }, [dmOnReportTab]);
+  const toggleDmReports = useCallback(() => {
+    setDmReportsOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(DM_REPORTS_OPEN_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
   // Pages with a drill-down (e.g. /exams/:id) set the trailing breadcrumb label here.
   // The label is remembered together with the exam it belongs to, so switching sections of the same
   // exam (which remounts the page) keeps the name on screen instead of flashing "Exam".
@@ -413,10 +455,9 @@ const DashboardLayoutInner = () => {
                 )}
                 {item.page === 'device_master' && (
                   <div className="xs-subnav" role="group" aria-label="Device Master sections">
-                    {DEVICE_MASTER_VIEWS.map((sub) => {
+                    {DM_PINNED_VIEWS.map((sub) => {
                       const SubIcon = sub.icon;
-                      const path = location.pathname.replace(/\/$/, '');
-                      const isActive = path === deviceMasterPath(sub.tab);
+                      const isActive = dmPathNorm === deviceMasterPath(sub.tab);
                       return (
                         <NavLink
                           key={sub.tab}
@@ -430,6 +471,54 @@ const DashboardLayoutInner = () => {
                         </NavLink>
                       );
                     })}
+                    {DM_REPORT_VIEWS.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          className={`xs-nav-item xs-subnav-item xs-subnav-group${dmReportsOpen || dmOnReportTab ? ' is-open' : ''}${dmOnReportTab ? ' has-active' : ''}`}
+                          onClick={toggleDmReports}
+                          aria-expanded={dmReportsOpen || dmOnReportTab}
+                          aria-controls="xs-dm-reports"
+                          title={dmReportsOpen || dmOnReportTab ? 'Collapse Reports' : 'Expand Reports'}
+                        >
+                          <ClipboardList className="xs-nav-icon" size={16} strokeWidth={2} />
+                          <span className="xs-label">Reports</span>
+                          <ChevronDown
+                            className="xs-subnav-chevron"
+                            size={14}
+                            strokeWidth={2.5}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        {(dmReportsOpen || dmOnReportTab) && (
+                          <div
+                            id="xs-dm-reports"
+                            className="xs-subnav-nested"
+                            role="group"
+                            aria-label="Device Master reports"
+                          >
+                            {DM_REPORT_VIEWS.map((sub) => {
+                              const SubIcon = sub.icon;
+                              const isActive = dmPathNorm === deviceMasterPath(sub.tab);
+                              return (
+                                <NavLink
+                                  key={sub.tab}
+                                  to={deviceMasterPath(sub.tab)}
+                                  onClick={closeMobile}
+                                  className={() =>
+                                    `xs-nav-item xs-subnav-item xs-subnav-nested-item${isActive ? ' active' : ''}`
+                                  }
+                                  title={sub.label}
+                                >
+                                  <SubIcon className="xs-nav-icon" size={16} strokeWidth={2} />
+                                  <span className="xs-label">{sub.label}</span>
+                                </NavLink>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </React.Fragment>

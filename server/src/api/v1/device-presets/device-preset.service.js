@@ -8,6 +8,10 @@ import {
 import * as repo from './device-preset.repository.js';
 import { cleanFields } from '../exam-tables/exam-table.service.js';
 import { CENTER_CSR_FIXED_KEY_SET } from '../center-csr-matching/fixedFields.js';
+import {
+  DEVICE_REPORT_FIXED_KEY_SET,
+  isDeviceReportFixedView,
+} from '../devices/deviceReportFixedFields.js';
 
 const validationError = (message) => new AppError(message, 400, ERROR_CODES.VALIDATION_ERROR);
 const notFound = () => new AppError('Preset not found', 404, ERROR_CODES.NOT_FOUND);
@@ -18,11 +22,14 @@ const duplicatePair = (name, view) =>
     ERROR_CODES.CONFLICT,
   );
 
-/** Center-CSR-Matching presets store only extra fields — fixed columns stay hardcoded. */
+/** Presets store only extra fields — fixed columns stay hardcoded per tab type. */
 const sanitizeFieldsForView = (view, fields) => {
   const cleaned = cleanFields(fields ?? []);
   if (view === 'center-csr-matching') {
     return cleaned.filter((f) => f?.key && !CENTER_CSR_FIXED_KEY_SET.has(f.key));
+  }
+  if (isDeviceReportFixedView(view)) {
+    return cleaned.filter((f) => f?.key && !DEVICE_REPORT_FIXED_KEY_SET.has(f.key));
   }
   return cleaned;
 };

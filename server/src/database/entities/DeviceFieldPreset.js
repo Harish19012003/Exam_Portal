@@ -21,5 +21,6 @@ export const DeviceFieldPresetSchema = new EntitySchema({
   },
   indexes: [
     { properties: ['view', 'name'], options: { unique: true } },
+    { properties: ['view', 'updated_at'] },
   ],
 });

@@ -59,6 +59,19 @@ export const findByViewAndName = async (view, name) => {
   return row ? mapPreset(row) : null;
 };
 
+/** Latest device preset for a Device Master tab (fields only — used for API column mapping). */
+export const findLatestFieldsByView = async (view) => {
+  const em = getEm();
+  const viewKey = normalizeView(view);
+  const row = await em.findOne(
+    DeviceFieldPreset,
+    { view: viewKey },
+    { orderBy: { updated_at: 'DESC', created_at: 'DESC' } },
+  );
+  if (!row) return [];
+  return Array.isArray(row.fields) ? row.fields : [];
+};
+
 export const insertPreset = async ({ name, view, fields, features, layout, createdBy }) => {
   const em = getEm();
   const entity = em.create(DeviceFieldPreset, {

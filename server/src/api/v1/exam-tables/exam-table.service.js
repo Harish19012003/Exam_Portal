@@ -142,7 +142,10 @@ const cleanFieldDefinition = (raw) => {
   const dataType = String(raw.dataType || '');
   // Allow camelCase types (e.g. fromExam) as well as plain lowercase (text, datetime).
   if (!/^[a-z][a-zA-Z]{1,24}$/.test(dataType)) throw validationError(`Column "${key}" has an invalid type`);
+  const apiHeader = String(raw.apiHeader ?? '').trim().slice(0, 200);
   const def = JSON.parse(JSON.stringify({ ...raw, key, label, dataType }));
+  if (apiHeader) def.apiHeader = apiHeader;
+  else delete def.apiHeader;
   if (JSON.stringify(def).length > 20000) throw validationError(`Column "${key}" configuration is too large`);
   return def;
 };

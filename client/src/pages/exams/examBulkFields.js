@@ -133,6 +133,7 @@ export const toFieldDefinition = (item, order) => {
     id: `fld_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     label: item.label,
     key: item.key,
+    ...(item.apiHeader ? { apiHeader: String(item.apiHeader).trim().slice(0, 200) } : {}),
     dataType: item.dataType,
     required: item.required,
     options: item.options,

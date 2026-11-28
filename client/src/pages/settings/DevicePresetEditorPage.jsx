@@ -18,6 +18,7 @@ import { SearchableSelect } from '../exams/SearchableSelect';
 import { apiErrorMessage } from '../exams/examTableApi';
 import { createDevicePreset, updateDevicePreset } from '../devices/devicePresetApi';
 import { listExamPresets } from '../exams/examPresetApi';
+import { useDevicesConfig } from '../../hooks/useDevicesQuery';
 import {
   CENTER_CSR_FIXED_KEY_SET,
   CENTER_CSR_FIXED_KEYS,
@@ -25,9 +26,20 @@ import {
   stripCenterCsrFixedFields,
   withHardcodedCenterCsrFields,
 } from '../centerCsrMatchingColumns';
+import {
+  DEVICE_REPORT_FIXED_KEY_SET,
+  DEVICE_REPORT_FIXED_KEYS,
+  DEVICE_REPORT_RESERVED_KEYS,
+  isDeviceReportFixedView,
+  stripDeviceReportFixedFields,
+  withHardcodedDeviceReportFields,
+} from '../deviceReportFixedColumns';
 import { PresetSwitcher } from './PresetSwitcher';
 import { FIELD_GROUP_ALL, FIELD_GROUP_DETAILS } from '../exams/fieldGroups';
 import { useUrlState } from '../../hooks/useUrlState';
+
+/** Synthetic import source id for live Device Master → Param fields (`/devices/config`). */
+const LIVE_PARAM_SOURCE_ID = 'live:param';
 
 const SYSTEM_RESERVED = ['id', 'version', 'created_at', 'updated_at'];
 
@@ -42,8 +54,11 @@ const emptyForm = () => ({
 const plainFeatures = (features) =>
   features != null && typeof features === 'object' && !Array.isArray(features) ? features : {};
 
-const fieldsForView = (view, fields) =>
-  view === 'center-csr-matching' ? stripCenterCsrFixedFields(fields) : (Array.isArray(fields) ? fields : []);
+const fieldsForView = (view, fields) => {
+  if (view === 'center-csr-matching') return stripCenterCsrFixedFields(fields);
+  if (isDeviceReportFixedView(view)) return stripDeviceReportFixedFields(fields);
+  return Array.isArray(fields) ? fields : [];
+};
 
 const presetToForm = (preset) => {
   const view = preset.view || DEFAULT_DEVICE_MASTER_VIEW;
@@ -87,6 +102,7 @@ export const DevicePresetEditorPage = ({
     queryKey: queryKeys.exams.presets(),
     queryFn: listExamPresets,
   });
+  const paramConfigQuery = useDevicesConfig();
   const preset = isNew ? null : presets.find((p) => String(p.id) === String(presetId)) || null;
 
   const [form, setForm] = useState(null);
@@ -192,6 +208,17 @@ export const DevicePresetEditorPage = ({
         queueMicrotask(() => setFormError(''));
         return { ...prev, fields: stripCenterCsrFixedFields(next) };
       }
+      if (isDeviceReportFixedView(prev.view)) {
+        const nextKeys = new Set((next || []).map((f) => f.key));
+        if (DEVICE_REPORT_FIXED_KEYS.some((k) => !nextKeys.has(k))) {
+          queueMicrotask(() =>
+            setFormError('Hardcoded columns cannot be removed: Date, Shift indicate.'),
+          );
+          return prev;
+        }
+        queueMicrotask(() => setFormError(''));
+        return { ...prev, fields: stripDeviceReportFixedFields(next) };
+      }
       queueMicrotask(() => setFormError(''));
       return { ...prev, fields: Array.isArray(next) ? next : [] };
     });
@@ -231,19 +258,39 @@ export const DevicePresetEditorPage = ({
     }
   };
 
-  const reservedKeys = useMemo(
-    () => (form?.view === 'center-csr-matching' ? CENTER_CSR_RESERVED_KEYS : SYSTEM_RESERVED),
-    [form?.view],
-  );
+  const reservedKeys = useMemo(() => {
+    if (form?.view === 'center-csr-matching') return CENTER_CSR_RESERVED_KEYS;
+    if (isDeviceReportFixedView(form?.view)) return DEVICE_REPORT_RESERVED_KEYS;
+    return SYSTEM_RESERVED;
+  }, [form?.view]);
 
   const otherPresets = useMemo(
     () => presets.filter((p) => String(p.id) !== String(form?.id)),
     [presets, form?.id],
   );
 
-  /** Center-CSR-Matching can pull columns from Exam Day service presets (and other device presets). */
+  /** Live Param columns from Device Master (not a saved device preset). */
+  const liveParamSource = useMemo(() => {
+    const fields = Array.isArray(paramConfigQuery.data?.fields) ? paramConfigQuery.data.fields : [];
+    if (!fields.length) return null;
+    return {
+      id: LIVE_PARAM_SOURCE_ID,
+      name: 'Param (live)',
+      view: DEFAULT_DEVICE_MASTER_VIEW,
+      fields,
+      fieldCount: fields.length,
+    };
+  }, [paramConfigQuery.data?.fields]);
+
+  /**
+   * Import sources for other Device Master tabs:
+   * - always offer live Param fields when configured
+   * - Center-CSR-Matching also gets Exam Day service presets
+   * - plus every other device preset
+   */
   const importSources = useMemo(() => {
-    if (form?.view !== 'center-csr-matching') return otherPresets;
+    const param = liveParamSource ? [liveParamSource] : [];
+    if (form?.view !== 'center-csr-matching') return [...param, ...otherPresets];
     const examDay = (examPresetsQuery.data || [])
       .filter((p) => String(p.view || '') === EXAM_DAY_VIEW)
       .map((p) => ({
@@ -251,13 +298,14 @@ export const DevicePresetEditorPage = ({
         id: `exam-day:${p.id}`,
         fields: Array.isArray(p.fields) ? p.fields : [],
       }));
-    return [...examDay, ...otherPresets];
-  }, [form?.view, otherPresets, examPresetsQuery.data]);
+    return [...param, ...examDay, ...otherPresets];
+  }, [form?.view, otherPresets, examPresetsQuery.data, liveParamSource]);
 
-  /** Hardcoded CSR columns are always shown in the builder; form.fields stores extras only. */
+  /** Hardcoded columns are always shown in the builder; form.fields stores extras only. */
   const displayFields = useMemo(() => {
     if (!form) return [];
     if (form.view === 'center-csr-matching') return withHardcodedCenterCsrFields(form.fields);
+    if (isDeviceReportFixedView(form.view)) return withHardcodedDeviceReportFields(form.fields);
     return form.fields || [];
   }, [form]);
 
@@ -290,7 +338,11 @@ export const DevicePresetEditorPage = ({
   const subtitle = [
     deviceMasterViewLabel(form.view),
     `${fieldCount} field${fieldCount === 1 ? '' : 's'}`,
-    form.view === 'center-csr-matching' ? '4 hardcoded + extras' : null,
+    form.view === 'center-csr-matching'
+      ? '4 hardcoded + extras'
+      : isDeviceReportFixedView(form.view)
+        ? '2 hardcoded (Date, Shift indicate) + extras'
+        : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -381,16 +433,22 @@ export const DevicePresetEditorPage = ({
         presetSources={importSources}
         sourcesEmptyHint={
           form.view === 'center-csr-matching'
-            ? 'No Exam Day preset yet. In Service preset, create a preset for the Exam Day page and add its fields, then import them here.'
-            : undefined
+            ? 'No Param fields or Exam Day preset yet. Add columns on Device Master → Param, or create an Exam Day service preset, then import them here.'
+            : 'No Param fields yet. Open Device Master → Param, add columns there, then import them here into this tab’s preset.'
         }
         bulkWorkingContext={['Device Preset', form.name?.trim() || null, deviceMasterViewLabel(form.view)]
           .filter(Boolean)
           .join(' · ')}
+        bulkModalProps={{
+          enableApiHeader: true,
+          title: 'Bulk add fields',
+          labelPlaceholder: 'e.g. Centre Code',
+          keyPlaceholder: 'centre_code',
+        }}
         onClose={leave}
         onChange={onFieldsChange}
         deleteConfirm={(f) =>
-          CENTER_CSR_FIXED_KEY_SET.has(f.key)
+          CENTER_CSR_FIXED_KEY_SET.has(f.key) || DEVICE_REPORT_FIXED_KEY_SET.has(f.key)
             ? `"${f.label}" is hardcoded and cannot be deleted.`
             : `Delete field "${f.label}"?`
         }
@@ -399,9 +457,9 @@ export const DevicePresetEditorPage = ({
             <div className="fpe-pane-head">
               <h3 className="fpe-pane-title">Preset details</h3>
               <p className="fpe-pane-hint">
-                Name and Device Master page. Center-CSR-Matching always includes Exam Date, Exam Shift,
-                Center Code, and Client Code (hardcoded — always visible, not removable). Add extra
-                columns under All fields.
+                Name and Device Master page. Report tabs always include Date and Shift indicate from the
+                Param row used on fetch (hardcoded). Center-CSR-Matching keeps Exam Date, Exam Shift,
+                Center Code, and Client Code. Add extra columns under All fields.
               </p>
             </div>
             {formError && <div className="config-form-error" role="alert">{formError}</div>}

@@ -269,6 +269,9 @@ const Switch = ({ label, checked, onChange }) => (
 );
 
 const SECRET_MASK_TEXT = '••••••••';
+const SECRET_NAME_RE = /pass|token|secret|key|auth|credential/i;
+const isSecretName = (name) => SECRET_NAME_RE.test(String(name || ''));
+const isMaskedValue = (value) => String(value || '') === SECRET_MASK_TEXT;
 const VAR_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
 const varsIn = (texts) => [...new Set(texts.flatMap((t) => [...String(t || '').matchAll(VAR_RE)].map((m) => m[1])))];
 
@@ -297,7 +300,9 @@ export const DeviceApiModal = ({
   const [unit, setUnit] = useState(60);
   const [custom, setCustom] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(readDarkMode);
-  const [showPassword, setShowPassword] = useState(false);
+  /** Which secrets are shown as plain text (`auth.password`, `property:token`, `header:Authorization`, …). */
+  const [secretVisible, setSecretVisible] = useState({});
+  const [revealingSecret, setRevealingSecret] = useState('');
   const [tab, setTab] = useState('request');
   const [loginUrlTouched, setLoginUrlTouched] = useState(false);
   const [urlTouched, setUrlTouched] = useState(false);
@@ -313,7 +318,8 @@ export const DeviceApiModal = ({
     setError('');
     setResult(null);
     setDirty(false);
-    setShowPassword(false);
+    setSecretVisible({});
+    setRevealingSecret('');
     setLoginUrlTouched(false);
     setUrlTouched(false);
     setLoading(true);
@@ -397,6 +403,33 @@ export const DeviceApiModal = ({
   };
   const changeSchedule = (patch) => change({ schedule: { ...form.schedule, ...patch } });
   const changeAuth = (patch) => change({ auth: { ...EMPTY_AUTH, ...form.auth, ...patch } });
+  const secretKey = (kind, name = '') => `${kind}:${String(name || '').toLowerCase()}`;
+  /** Show a masked secret: fetch the real value once, then toggle visibility. Does not mark the form dirty. */
+  const toggleSecret = async (kind, name, currentValue, applyValue) => {
+    const key = secretKey(kind, name);
+    if (secretVisible[key]) {
+      setSecretVisible((prev) => ({ ...prev, [key]: false }));
+      return;
+    }
+    if (!isMaskedValue(currentValue)) {
+      setSecretVisible((prev) => ({ ...prev, [key]: true }));
+      return;
+    }
+    setRevealingSecret(key);
+    try {
+      const data = unwrap(
+        await apiClient.get('/devices/api-config/reveal', {
+          params: { view: viewKey, kind, name },
+        }),
+      );
+      applyValue(String(data.value ?? ''));
+      setSecretVisible((prev) => ({ ...prev, [key]: true }));
+    } catch (err) {
+      setError(errorText(err, 'Could not reveal the saved value.'));
+    } finally {
+      setRevealingSecret('');
+    }
+  };
   const sched = form.schedule;
   const auth = form.auth || EMPTY_AUTH;
   const minutes = form.schedule.intervalMinutes;
@@ -741,7 +774,7 @@ export const DeviceApiModal = ({
                             <span>Password</span>
                             <span className="dv-api-secret">
                               <input
-                                type={showPassword ? 'text' : 'password'}
+                                type={secretVisible[secretKey('auth.password')] ? 'text' : 'password'}
                                 placeholder="Login password"
                                 autoComplete="new-password"
                                 value={auth.password || ''}
@@ -750,11 +783,16 @@ export const DeviceApiModal = ({
                               <button
                                 type="button"
                                 className="dv-api-secret-btn"
-                                onClick={() => setShowPassword((v) => !v)}
-                                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                                aria-pressed={showPassword}
+                                disabled={revealingSecret === secretKey('auth.password')}
+                                onClick={() =>
+                                  toggleSecret('auth.password', 'password', auth.password, (value) =>
+                                    setForm((f) => ({ ...f, auth: { ...EMPTY_AUTH, ...f.auth, password: value } })),
+                                  )
+                                }
+                                aria-label={secretVisible[secretKey('auth.password')] ? 'Hide password' : 'Show password'}
+                                aria-pressed={!!secretVisible[secretKey('auth.password')]}
                               >
-                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                {secretVisible[secretKey('auth.password')] ? <EyeOff size={16} /> : <Eye size={16} />}
                               </button>
                             </span>
                           </label>
@@ -899,8 +937,8 @@ export const DeviceApiModal = ({
                         Variables
                         <InfoTip>
                           {reportOnly
-                            ? 'Usually only type (and optional shift/date). Token and endpoint come from Param.'
-                            : <>Named values for this API, like username, password, type, shift or date. Use them as {'{{NAME}}'} in the URL, login body, a header value or the data body.</>}
+                            ? 'Usually only type (and optional shift/date). Token and endpoint come from Param. Use the eye on a masked secret to show its saved value.'
+                            : <>Named values for this API, like username, password, type, shift or date. Use them as {'{{NAME}}'} in the URL, login body, a header value or the data body. Secrets stay masked after save — click the eye to view.</>}
                         </InfoTip>
                       </h3>
                       <span className="sv-api-muted">
@@ -991,17 +1029,50 @@ export const DeviceApiModal = ({
                           // Training: type is driven by Param exam mode + type map — hide freeform row.
                           const hideTypeRow = showTrainingTypeVars && nameLower === 'type';
                           if (hideTokenRow || hideTypeRow) return null;
+                          const secretProp = !fromLogin && (isSecretName(p.name) || isMaskedValue(p.value));
+                          const propSecretKey = secretKey('property', p.name);
+                          const propVisible = !!secretVisible[propSecretKey];
                           return (
                             <div className="dv-api-pair" role="row" key={i}>
                               <input aria-label="Variable name" placeholder="name" spellCheck={false} value={p.name} onChange={(e) => setProperty(i, { name: e.target.value })} />
-                              <input
-                                aria-label="Variable value"
-                                placeholder={fromLogin ? 'Filled by login on each run' : 'Value'}
-                                value={fromLogin ? '' : p.value}
-                                disabled={fromLogin}
-                                autoComplete="off"
-                                onChange={(e) => setProperty(i, { value: e.target.value })}
-                              />
+                              {secretProp ? (
+                                <span className="dv-api-secret">
+                                  <input
+                                    aria-label="Variable value"
+                                    type={propVisible ? 'text' : 'password'}
+                                    placeholder="Value"
+                                    value={p.value}
+                                    autoComplete="off"
+                                    onChange={(e) => setProperty(i, { value: e.target.value })}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="dv-api-secret-btn"
+                                    disabled={!p.name.trim() || revealingSecret === propSecretKey}
+                                    onClick={() =>
+                                      toggleSecret('property', p.name, p.value, (value) =>
+                                        setForm((f) => ({
+                                          ...f,
+                                          properties: f.properties.map((row, idx) => (idx === i ? { ...row, value } : row)),
+                                        })),
+                                      )
+                                    }
+                                    aria-label={propVisible ? `Hide ${p.name || 'value'}` : `Show ${p.name || 'value'}`}
+                                    aria-pressed={propVisible}
+                                  >
+                                    {propVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                                  </button>
+                                </span>
+                              ) : (
+                                <input
+                                  aria-label="Variable value"
+                                  placeholder={fromLogin ? 'Filled by login on each run' : 'Value'}
+                                  value={fromLogin ? '' : p.value}
+                                  disabled={fromLogin}
+                                  autoComplete="off"
+                                  onChange={(e) => setProperty(i, { value: e.target.value })}
+                                />
+                              )}
                               <button type="button" className="dv-api-del" onClick={() => removeProperty(i)} aria-label={`Remove variable ${p.name}`}>
                                 <Trash2 size={15} />
                               </button>
@@ -1022,7 +1093,7 @@ export const DeviceApiModal = ({
                       <div className="dv-api-cardhead">
                         <h3 className="sv-api-label">
                           Headers
-                          <InfoTip>Saved values are hidden after saving. Leave a masked value as it is to keep it.</InfoTip>
+                          <InfoTip>Saved values are hidden after saving. Use the eye to show one, or leave the mask to keep it.</InfoTip>
                         </h3>
                         <span className="sv-api-muted">Optional, e.g. Authorization: Bearer {'{{token}}'}.</span>
                         <button type="button" className="dv-api-addbtn" onClick={addHeader}>
@@ -1036,21 +1107,56 @@ export const DeviceApiModal = ({
                             <span role="columnheader">Value</span>
                             <span />
                           </div>
-                          {form.headers.map((h, i) => (
-                            <div className="dv-api-pair" role="row" key={i}>
-                              <input aria-label="Header name" placeholder="Authorization" spellCheck={false} value={h.name} onChange={(e) => setHeader(i, { name: e.target.value })} />
-                              <input
-                                aria-label="Header value"
-                                placeholder="Bearer {{token}}"
-                                value={h.value}
-                                autoComplete="off"
-                                onChange={(e) => setHeader(i, { value: e.target.value })}
-                              />
-                              <button type="button" className="dv-api-del" onClick={() => removeHeader(i)} aria-label={`Remove header ${h.name}`}>
-                                <Trash2 size={15} />
-                              </button>
-                            </div>
-                          ))}
+                          {form.headers.map((h, i) => {
+                            const headerSecret = isMaskedValue(h.value) || !!secretVisible[secretKey('header', h.name)];
+                            const headerKey = secretKey('header', h.name);
+                            const headerVisible = !!secretVisible[headerKey];
+                            return (
+                              <div className="dv-api-pair" role="row" key={i}>
+                                <input aria-label="Header name" placeholder="Authorization" spellCheck={false} value={h.name} onChange={(e) => setHeader(i, { name: e.target.value })} />
+                                {headerSecret ? (
+                                  <span className="dv-api-secret">
+                                    <input
+                                      aria-label="Header value"
+                                      type={headerVisible ? 'text' : 'password'}
+                                      placeholder="Bearer {{token}}"
+                                      value={h.value}
+                                      autoComplete="off"
+                                      onChange={(e) => setHeader(i, { value: e.target.value })}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="dv-api-secret-btn"
+                                      disabled={!h.name.trim() || revealingSecret === headerKey}
+                                      onClick={() =>
+                                        toggleSecret('header', h.name, h.value, (value) =>
+                                          setForm((f) => ({
+                                            ...f,
+                                            headers: f.headers.map((row, idx) => (idx === i ? { ...row, value } : row)),
+                                          })),
+                                        )
+                                      }
+                                      aria-label={headerVisible ? `Hide ${h.name || 'header'}` : `Show ${h.name || 'header'}`}
+                                      aria-pressed={headerVisible}
+                                    >
+                                      {headerVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <input
+                                    aria-label="Header value"
+                                    placeholder="Bearer {{token}}"
+                                    value={h.value}
+                                    autoComplete="off"
+                                    onChange={(e) => setHeader(i, { value: e.target.value })}
+                                  />
+                                )}
+                                <button type="button" className="dv-api-del" onClick={() => removeHeader(i)} aria-label={`Remove header ${h.name}`}>
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1222,8 +1328,19 @@ export const DeviceApiModal = ({
                     {result.testedLabel ? `${result.testedLabel} · ` : ''}
                     HTTP {result.status} · {result.itemCount} record{result.itemCount === 1 ? '' : 's'} · {result.importableRows} importable
                   </strong>
-                  <div>Matched fields: {result.matchedKeys.length ? result.matchedKeys.join(', ') : 'none'}</div>
-                  {result.unmatchedKeys.length > 0 && <div>Ignored (no matching device field): {result.unmatchedKeys.join(', ')}</div>}
+                  <div>
+                    Matched API headers: {result.matchedKeys?.length ? result.matchedKeys.join(', ') : 'none'}
+                    {typeof result.fieldCount === 'number' ? ` · ${result.fieldCount} field${result.fieldCount === 1 ? '' : 's'} on this tab` : ''}
+                  </div>
+                  {result.unmatchedKeys?.length > 0 && (
+                    <div>
+                      Ignored (no field API header / key / label): {result.unmatchedKeys.join(', ')}. Set API header on the
+                      device preset for this tab.
+                    </div>
+                  )}
+                  {result.responseKeys?.length > 0 && (
+                    <div className="sv-api-muted">Response keys: {result.responseKeys.join(', ')}</div>
+                  )}
                   {result.skippedShifts?.length > 0 && (
                     <div>Skipped shift {result.skippedShifts.join(', ')}. TrustView answered Invalid Request for those ids.</div>
                   )}

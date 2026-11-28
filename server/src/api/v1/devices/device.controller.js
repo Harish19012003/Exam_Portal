@@ -1,7 +1,9 @@
 import { successResponse } from '../../../core/response.js';
+import { deviceMasterTableId, isDeviceMasterViewKey } from '@exam-view/shared';
 import * as deviceService from './device.service.js';
 import * as fieldsService from './device-fields.service.js';
 import * as apiService from './device-api.service.js';
+import { listDeviceTabRows, deleteDeviceTabRows } from './device-tab-import.service.js';
 import {
   assertTable,
   assertRowVisible,
@@ -11,6 +13,8 @@ import {
   stripHidden,
   writableValues,
 } from '../../../core/access.js';
+import { AppError } from '../../../core/errors.js';
+import { ERROR_CODES } from '@exam-view/shared';
 
 const handle = (fn, status = 200) => async (req, res, next) => {
   try {
@@ -128,6 +132,15 @@ const viewFromReq = (req) =>
   String(req.query?.view || req.body?.view || 'devices').trim() || 'devices';
 
 export const getApiConfig = handle(configureOnly((req) => apiService.getApiConfig(viewFromReq(req))));
+export const revealApiSecret = handle(
+  configureOnly((req) =>
+    apiService.revealApiSecret(
+      viewFromReq(req),
+      String(req.query?.kind || req.body?.kind || 'property'),
+      String(req.query?.name || req.body?.name || ''),
+    ),
+  ),
+);
 export const saveApiConfig = handle(
   configureOnly((req) => apiService.saveApiConfig(req.body, req.user?.id, viewFromReq(req))),
 );
@@ -144,3 +157,49 @@ export const syncFromApi = handle(
     ),
   ),
 );
+
+const reportViewFromReq = (req) => {
+  const key = String(req.params?.view || req.query?.view || req.body?.view || '').trim();
+  if (!isDeviceMasterViewKey(key) || key === 'devices' || key === 'center-csr-matching') {
+    throw new AppError('Unknown Device Master report tab.', 400, ERROR_CODES.VALIDATION_ERROR);
+  }
+  return key;
+};
+
+/** View report-tab data if the tab is allowed, or if the user can configure Param (same gate as Fetch). */
+const assertReportTabAccess = (req, view, action = 'view') => {
+  const tableId = deviceMasterTableId(view) || TABLE;
+  try {
+    assertTable(req, tableId, action);
+  } catch {
+    assertTable(req, TABLE, 'configure');
+  }
+};
+
+export const getTabFields = handle(async (req) => {
+  const view = reportViewFromReq(req);
+  assertReportTabAccess(req, view, 'view');
+  const fields = await apiService.getFieldsForView(view);
+  return { view, fields };
+});
+
+export const listTabRows = handle(async (req) => {
+  const view = reportViewFromReq(req);
+  assertReportTabAccess(req, view, 'view');
+  const examId = examIdFromReq(req);
+  const rows = await listDeviceTabRows(view, examId);
+  return rows.map((row) => {
+    const { system, values } = splitRow(row);
+    const tableId = deviceMasterTableId(view) || TABLE;
+    return { ...system, ...stripHidden(req, tableId, values) };
+  }).filter((row) => rowVisible(req, deviceMasterTableId(view) || TABLE, ruleValues(row)));
+});
+
+export const deleteTabRows = handle(async (req) => {
+  const view = reportViewFromReq(req);
+  assertReportTabAccess(req, view, 'delete');
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  if (!ids.length && req.params?.id) ids.push(String(req.params.id));
+  const removed = await deleteDeviceTabRows(view, ids);
+  return { success: true, removed: typeof removed === 'number' ? removed : ids.length };
+});

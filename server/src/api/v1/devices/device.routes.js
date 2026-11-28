@@ -14,9 +14,15 @@ router.get('/config', deviceController.getConfig);
 router.put('/config', deviceController.saveConfig);
 
 router.get('/api-config', deviceController.getApiConfig);
+router.get('/api-config/reveal', deviceController.revealApiSecret);
 router.put('/api-config', deviceController.saveApiConfig);
 router.post('/api-config/test', deviceController.testApiConfig);
 router.post('/sync', deviceController.syncFromApi);
+
+/** Report tabs (Stats Center, Training, …) — rows live in device_* collections. */
+router.get('/tabs/:view/fields', deviceController.getTabFields);
+router.get('/tabs/:view/rows', deviceController.listTabRows);
+router.post('/tabs/:view/delete', deviceController.deleteTabRows);
 
 router.post('/import', deviceController.importDevices);
 router.post('/delete', deviceController.deleteDevices);
